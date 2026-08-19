@@ -15,18 +15,24 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPen
+from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (
     QGraphicsItem,
     QGraphicsScene,
     QGraphicsView,
     QInputDialog,
+    QMenu,
+    QMessageBox,
 )
 
 from netplanner.app.controller import AppController
 from netplanner.domain.entities import Device, DeviceType, LinkType
+from netplanner.export.geometry import offset_endpoints, parallel_link_offsets, point_along
 from netplanner.export.styles import link_style_for, style_for
+from netplanner.gui.dialogs import InterfacesDialog
 
 NODE_W, NODE_H = 120, 60
+_CANCELLED = object()  # sentinel: user dismissed the interface picker
 
 
 class DeviceItem(QGraphicsItem):
@@ -82,15 +88,34 @@ class DeviceItem(QGraphicsItem):
             if isinstance(scene, PlanScene):
                 scene.update_links()
 
+    def contextMenuEvent(self, event) -> None:
+        menu = QMenu()
+        rename_action = menu.addAction("Rename…")
+        ifaces_action = menu.addAction("Edit interfaces…")
+        chosen = menu.exec(event.screenPos())
+        if chosen is rename_action:
+            self._rename()
+        elif chosen is ifaces_action:
+            dialog = InterfacesDialog(self.device)
+            if dialog.exec():
+                self.controller.edit_interfaces(self.device.id, dialog.result_interfaces())
+                scene = self.scene()
+                if isinstance(scene, PlanScene):
+                    scene.update_links()
+        event.accept()
+
+    def _rename(self) -> None:
+        name, ok = QInputDialog.getText(
+            None, "Rename device", "Device name:", text=self.device.name
+        )
+        if ok and name and name != self.device.name:
+            self.controller.rename_device(self.device.id, name)
+            self.update()
+
     def mouseDoubleClickEvent(self, event) -> None:
         scene = self.scene()
         if isinstance(scene, PlanScene) and scene.armed_tool is None:
-            name, ok = QInputDialog.getText(
-                None, "Rename device", "Device name:", text=self.device.name
-            )
-            if ok and name and name != self.device.name:
-                self.controller.rename_device(self.device.id, name)
-                self.update()
+            self._rename()
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
@@ -102,6 +127,7 @@ class PlanScene(QGraphicsScene):
         self.controller = controller
         self.armed_tool: DeviceType | LinkType | None = None
         self._pending_source: DeviceItem | None = None
+        self._pending_a_iface: str | None = None
         self._device_items: dict[str, DeviceItem] = {}
         self._link_items = []
 
@@ -121,27 +147,46 @@ class PlanScene(QGraphicsScene):
         for item in self._link_items:
             self.removeItem(item)
         self._link_items.clear()
+        offsets = parallel_link_offsets(self.controller.plan.links)
+        port_font = QFont()
+        port_font.setPointSize(7)
         for link in self.controller.plan.links:
             a = self._device_items.get(link.a_device_id)
             b = self._device_items.get(link.b_device_id)
             if not (a and b):
                 continue
+            x1, y1, x2, y2 = offset_endpoints(
+                a.pos().x(), a.pos().y(), b.pos().x(), b.pos().y(),
+                offsets.get(link.id, 0.0),
+            )
             lstyle = link_style_for(link.link_type)
             pen = QPen(QColor(lstyle.color))
             pen.setWidthF(lstyle.width)
             if lstyle.dash:
                 pen.setDashPattern([v / lstyle.width for v in lstyle.dash])
-            line = self.addLine(a.pos().x(), a.pos().y(), b.pos().x(), b.pos().y(), pen)
+            line = self.addLine(x1, y1, x2, y2, pen)
             line.setZValue(-1)
             self._link_items.append(line)
             if link.label:
                 text = self.addSimpleText(link.label)
                 text.setBrush(QBrush(QColor(lstyle.color)))
-                mid_x = (a.pos().x() + b.pos().x()) / 2
-                mid_y = (a.pos().y() + b.pos().y()) / 2
-                text.setPos(mid_x, mid_y)
+                text.setPos((x1 + x2) / 2, (y1 + y2) / 2)
                 text.setZValue(-0.5)
                 self._link_items.append(text)
+            # Port labels near each end
+            for iface_id, dev_id, t in (
+                (link.a_interface_id, link.a_device_id, 0.25),
+                (link.b_interface_id, link.b_device_id, 0.75),
+            ):
+                port = self.controller.interface_name(dev_id, iface_id)
+                if port:
+                    px, py = point_along(x1, y1, x2, y2, t)
+                    ptext = self.addSimpleText(port)
+                    ptext.setFont(port_font)
+                    ptext.setBrush(QBrush(QColor("#666666")))
+                    ptext.setPos(px, py)
+                    ptext.setZValue(-0.5)
+                    self._link_items.append(ptext)
 
     # ------------------------------------------------------------ mouse flow
     def mousePressEvent(self, event) -> None:
@@ -174,26 +219,57 @@ class PlanScene(QGraphicsScene):
             self._clear_pending()
             return
         if self._pending_source is None:
+            iface_id = self._pick_interface(device_item)
+            if iface_id is _CANCELLED:
+                return
             self._pending_source = device_item
+            self._pending_a_iface = iface_id
             device_item.pending_source = True
             device_item.update()
             return
         if device_item is self._pending_source:
             self._clear_pending()
             return
+        b_iface_id = self._pick_interface(device_item)
+        if b_iface_id is _CANCELLED:
+            return
         self.controller.add_link(
             self._pending_source.device.id,
             device_item.device.id,
             link_type=self.armed_tool,
+            a_interface_id=self._pending_a_iface,
+            b_interface_id=b_iface_id,
         )
         self._clear_pending()
         self.update_links()
+
+    def _pick_interface(self, device_item: DeviceItem):
+        """Popup of free interfaces; returns id, None (no ports defined) or _CANCELLED."""
+        device = device_item.device
+        free = self.controller.free_interfaces(device.id)
+        if not device.interfaces:
+            return None  # device has no port list; allow untyped connection
+        if not free:
+            QMessageBox.warning(
+                None,
+                "No free interfaces",
+                f"All interfaces on '{device.name}' are in use.\n"
+                "Free one up or add more via right-click → Edit interfaces.",
+            )
+            return _CANCELLED
+        menu = QMenu()
+        actions = {menu.addAction(i.name): i.id for i in free}
+        chosen = menu.exec(QCursor.pos())
+        if chosen is None:
+            return _CANCELLED
+        return actions[chosen]
 
     def _clear_pending(self) -> None:
         if self._pending_source is not None:
             self._pending_source.pending_source = False
             self._pending_source.update()
             self._pending_source = None
+        self._pending_a_iface = None
 
     def mouseDoubleClickEvent(self, event) -> None:
         item = self.itemAt(event.scenePos(), self.views()[0].transform())

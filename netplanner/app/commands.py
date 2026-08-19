@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from netplanner.domain.entities import Device, Link
+from netplanner.domain.entities import Device, Interface, Link
 from netplanner.domain.model import NetworkPlan
 
 
@@ -114,3 +114,22 @@ class RenameDeviceCommand(Command):
         d = self.plan.get_device(self.device_id)
         if d:
             d.name = self.old_name
+
+
+class EditInterfacesCommand(Command):
+    def __init__(self, plan: NetworkPlan, device_id: str, new_interfaces: list[Interface]):
+        self.plan, self.device_id = plan, device_id
+        self.new_interfaces = list(new_interfaces)
+        device = plan.get_device(device_id)
+        self.old_interfaces = list(device.interfaces) if device else []
+        self.description = "Edit interfaces"
+
+    def execute(self) -> None:
+        d = self.plan.get_device(self.device_id)
+        if d:
+            d.interfaces = list(self.new_interfaces)
+
+    def undo(self) -> None:
+        d = self.plan.get_device(self.device_id)
+        if d:
+            d.interfaces = list(self.old_interfaces)

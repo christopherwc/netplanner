@@ -11,6 +11,8 @@ from dataclasses import dataclass
 
 from netplanner.domain.model import NetworkPlan
 
+from .geometry import offset_endpoints, parallel_link_offsets
+
 NODE_W = 120.0
 NODE_H = 60.0
 MARGIN = 60.0
@@ -34,6 +36,8 @@ class EdgeShape:
     y2: float
     label: str
     link_type: str = "ethernet"
+    a_port: str = ""
+    b_port: str = ""
 
 
 @dataclass
@@ -75,13 +79,31 @@ def build_scene(plan: NetworkPlan) -> Scene:
     ]
 
     edges = []
+    offsets = parallel_link_offsets(plan.links)
     for link in plan.links:
         (x1, y1) = centers[link.a_device_id]
         (x2, y2) = centers[link.b_device_id]
+        x1, y1, x2, y2 = offset_endpoints(x1, y1, x2, y2, offsets.get(link.id, 0.0))
         edges.append(
-            EdgeShape(x1, y1, x2, y2, label=link.label, link_type=link.link_type.value)
+            EdgeShape(
+                x1, y1, x2, y2,
+                label=link.label,
+                link_type=link.link_type.value,
+                a_port=_port_name(plan, link.a_device_id, link.a_interface_id),
+                b_port=_port_name(plan, link.b_device_id, link.b_interface_id),
+            )
         )
 
     width = max(n.x + n.w for n in nodes) + MARGIN
     height = max(n.y + n.h for n in nodes) + MARGIN
     return Scene(width=width, height=height, nodes=nodes, edges=edges, title=plan.name)
+
+
+def _port_name(plan: NetworkPlan, device_id: str, interface_id: str | None) -> str:
+    if not interface_id:
+        return ""
+    device = plan.get_device(device_id)
+    if device is None:
+        return ""
+    iface = next((i for i in device.interfaces if i.id == interface_id), None)
+    return iface.name if iface else ""

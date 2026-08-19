@@ -15,9 +15,11 @@ from netplanner.app.commands import (
     CommandStack,
     MoveDeviceCommand,
     RenameDeviceCommand,
+    EditInterfacesCommand,
 )
 from netplanner.app.validation import Issue, validate
-from netplanner.domain.entities import Device, DeviceType, Link, LinkType
+from netplanner.domain.entities import Device, DeviceType, Interface, Link, LinkType
+from netplanner.domain.interfaces import default_interfaces
 from netplanner.domain.layout import auto_layout
 from netplanner.domain.model import NetworkPlan
 from netplanner.export.pdf_exporter import export_pdf
@@ -33,7 +35,13 @@ class AppController:
 
     # ------------------------------------------------------------ plan edits
     def add_device(self, name: str, device_type: DeviceType, x: float, y: float) -> Device:
-        device = Device(name=name, device_type=device_type, x=x, y=y)
+        device = Device(
+            name=name,
+            device_type=device_type,
+            x=x,
+            y=y,
+            interfaces=default_interfaces(device_type),
+        )
         self.commands.push(AddDeviceCommand(self.plan, device))
         return device
 
@@ -54,15 +62,48 @@ class AppController:
         b_device_id: str,
         link_type: LinkType = LinkType.ETHERNET,
         label: str = "",
+        a_interface_id: str | None = None,
+        b_interface_id: str | None = None,
     ) -> Link:
         link = Link(
             a_device_id=a_device_id,
             b_device_id=b_device_id,
             link_type=link_type,
             label=label,
+            a_interface_id=a_interface_id,
+            b_interface_id=b_interface_id,
         )
         self.commands.push(AddLinkCommand(self.plan, link))
         return link
+
+    # -------------------------------------------------------------- interfaces
+    def used_interface_ids(self) -> set[str]:
+        used: set[str] = set()
+        for link in self.plan.links:
+            if link.a_interface_id:
+                used.add(link.a_interface_id)
+            if link.b_interface_id:
+                used.add(link.b_interface_id)
+        return used
+
+    def free_interfaces(self, device_id: str) -> list[Interface]:
+        device = self.plan.get_device(device_id)
+        if device is None:
+            return []
+        used = self.used_interface_ids()
+        return [i for i in device.interfaces if i.id not in used]
+
+    def edit_interfaces(self, device_id: str, new_interfaces: list[Interface]) -> None:
+        self.commands.push(EditInterfacesCommand(self.plan, device_id, new_interfaces))
+
+    def interface_name(self, device_id: str, interface_id: str | None) -> str:
+        if not interface_id:
+            return ""
+        device = self.plan.get_device(device_id)
+        if device is None:
+            return ""
+        iface = next((i for i in device.interfaces if i.id == interface_id), None)
+        return iface.name if iface else ""
 
     def rename_device(self, device_id: str, new_name: str) -> None:
         self.commands.push(RenameDeviceCommand(self.plan, device_id, new_name))
