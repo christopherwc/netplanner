@@ -50,6 +50,12 @@ class Scene:
 
 
 def build_scene(plan: NetworkPlan) -> Scene:
+    """Convert a plan into positioned, styled drawing primitives.
+
+    Coordinates are normalized so the whole diagram fits in the output
+    page with a margin, regardless of where devices sit on the canvas.
+    Parallel links receive the same fan-out offsets the GUI uses.
+    """
     devices = plan.devices
     if not devices:
         return Scene(width=400, height=300, nodes=[], edges=[], title=plan.name)

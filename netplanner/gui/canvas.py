@@ -133,6 +133,7 @@ class PlanScene(QGraphicsScene):
 
     # -------------------------------------------------------------- rebuild
     def rebuild(self) -> None:
+        """Recreate every graphics item from the plan (full refresh)."""
         self.clear()
         self._device_items.clear()
         self._link_items.clear()
@@ -144,6 +145,12 @@ class PlanScene(QGraphicsScene):
         self.update_links()
 
     def update_links(self) -> None:
+        """Redraw links only (cheaper than rebuild; used while dragging).
+
+        Parallel links between the same device pair are fanned out with
+        perpendicular offsets so they never overlap; interface names are
+        drawn as small port labels near each end.
+        """
         for item in self._link_items:
             self.removeItem(item)
         self._link_items.clear()
@@ -210,11 +217,17 @@ class PlanScene(QGraphicsScene):
         super().mousePressEvent(event)
 
     def _place_armed_device(self, pos: QPointF) -> None:
+        """Equipment tool click: drop an auto-named device at pos."""
         name = self.controller.next_device_name(self.armed_tool)
         self.controller.add_device(name, self.armed_tool, pos.x(), pos.y())
         self.rebuild()
 
     def _handle_connect_click(self, device_item: DeviceItem | None) -> None:
+        """Connection tool click: first pick a source, then a target.
+
+        Each pick pops up the device's free-interface menu; the link is
+        created once both endpoints have a chosen port.
+        """
         if device_item is None:
             self._clear_pending()
             return
@@ -258,7 +271,9 @@ class PlanScene(QGraphicsScene):
             )
             return _CANCELLED
         menu = QMenu()
-        actions = {menu.addAction(i.name): i.id for i in free}
+        actions = {
+            menu.addAction(f"{i.name}  ({i.interface_type.label})"): i.id for i in free
+        }
         chosen = menu.exec(QCursor.pos())
         if chosen is None:
             return _CANCELLED
@@ -294,9 +309,11 @@ class NetworkCanvas(QGraphicsView):
         self.refresh()
 
     def refresh(self) -> None:
+        """Rebuild the scene after external changes (load, undo, layout...)."""
         self._scene.rebuild()
 
     def set_tool(self, tool: DeviceType | LinkType | None) -> None:
+        """Arm a palette tool: DeviceType places, LinkType connects, None selects."""
         self._scene.armed_tool = tool
         self._scene._clear_pending()
         cursor = (

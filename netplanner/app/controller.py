@@ -35,6 +35,7 @@ class AppController:
 
     # ------------------------------------------------------------ plan edits
     def add_device(self, name: str, device_type: DeviceType, x: float, y: float) -> Device:
+        """Create a device at (x, y) with its type's default interfaces (undoable)."""
         device = Device(
             name=name,
             device_type=device_type,
@@ -46,7 +47,7 @@ class AppController:
         return device
 
     def next_device_name(self, device_type: DeviceType) -> str:
-        """Generate an auto-incrementing name like rtr1, sw2, fw1."""
+        """Generate the next free auto-name for a type (rtr1, sw2, fw1, ...)."""
         from netplanner.export.styles import style_for
 
         prefix = style_for(device_type).name_prefix
@@ -65,6 +66,11 @@ class AppController:
         a_interface_id: str | None = None,
         b_interface_id: str | None = None,
     ) -> Link:
+        """Create a link between two devices (undoable).
+
+        Interface ids are optional: links can exist without port
+        assignments, e.g. quick sketches or imported plans.
+        """
         link = Link(
             a_device_id=a_device_id,
             b_device_id=b_device_id,
@@ -78,6 +84,7 @@ class AppController:
 
     # -------------------------------------------------------------- interfaces
     def used_interface_ids(self) -> set[str]:
+        """Ids of every interface currently occupied by a link endpoint."""
         used: set[str] = set()
         for link in self.plan.links:
             if link.a_interface_id:
@@ -87,6 +94,7 @@ class AppController:
         return used
 
     def free_interfaces(self, device_id: str) -> list[Interface]:
+        """Interfaces on a device not yet used by any link (for the port picker)."""
         device = self.plan.get_device(device_id)
         if device is None:
             return []
@@ -94,9 +102,11 @@ class AppController:
         return [i for i in device.interfaces if i.id not in used]
 
     def edit_interfaces(self, device_id: str, new_interfaces: list[Interface]) -> None:
+        """Replace a device's interface list wholesale (undoable)."""
         self.commands.push(EditInterfacesCommand(self.plan, device_id, new_interfaces))
 
     def interface_name(self, device_id: str, interface_id: str | None) -> str:
+        """Resolve an interface id to its display name; "" when unset/missing."""
         if not interface_id:
             return ""
         device = self.plan.get_device(device_id)
@@ -106,38 +116,48 @@ class AppController:
         return iface.name if iface else ""
 
     def rename_device(self, device_id: str, new_name: str) -> None:
+        """Rename a device (undoable)."""
         self.commands.push(RenameDeviceCommand(self.plan, device_id, new_name))
 
     def move_device(self, device_id: str, x: float, y: float) -> None:
         self.commands.push(MoveDeviceCommand(self.plan, device_id, x, y))
 
     def undo(self) -> None:
+        """Undo the most recent plan mutation."""
         self.commands.undo()
 
     def redo(self) -> None:
+        """Re-apply the most recently undone mutation."""
         self.commands.redo()
 
     def run_auto_layout(self, algorithm: str = "spring") -> None:
+        """Recompute all device positions with the chosen layout algorithm."""
         auto_layout(self.plan, algorithm)
 
     def validate_plan(self) -> list[Issue]:
+        """Run all validation rules; returns found issues (possibly empty)."""
         return validate(self.plan)
 
     # ----------------------------------------------------------- persistence
     def new_plan(self, name: str = "Untitled plan") -> None:
+        """Start a fresh plan, discarding the current one and its history."""
         self.plan = NetworkPlan(name=name)
         self.commands = CommandStack()
 
     def save(self) -> None:
+        """Persist the current plan to the SQLite database."""
         self.repository.save(self.plan)
 
     def load(self, plan_id: str) -> None:
+        """Load a stored plan by id; resets undo history."""
         self.plan = self.repository.load(plan_id)
         self.commands = CommandStack()
 
     # ---------------------------------------------------------------- export
     def export_to_pdf(self, path: Path) -> None:
+        """Render the plan to a single-page PDF at the given path."""
         export_pdf(self.plan, path)
 
     def export_to_png(self, path: Path) -> None:
+        """Render the plan to an antialiased PNG at the given path."""
         export_png(self.plan, path)

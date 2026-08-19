@@ -27,6 +27,27 @@ class DeviceType(Enum):
     OTHER = "other"
 
 
+class InterfaceType(Enum):
+    """Physical/radio interface classes, ordered roughly by speed."""
+
+    WIRELESS = "wireless"
+    ETH_1G = "1g"
+    ETH_10G = "10g"
+    ETH_25G = "25g"
+    ETH_100G = "100g"
+
+    @property
+    def label(self) -> str:
+        """Human-readable label used in menus, dialogs, and labels."""
+        return {
+            InterfaceType.WIRELESS: "Wireless",
+            InterfaceType.ETH_1G: "1 Gbps",
+            InterfaceType.ETH_10G: "10 Gbps",
+            InterfaceType.ETH_25G: "25 Gbps",
+            InterfaceType.ETH_100G: "100 Gbps",
+        }[self]
+
+
 class LinkType(Enum):
     ETHERNET = "ethernet"
     FIBER = "fiber"
@@ -65,9 +86,17 @@ class Subnet:
 
 @dataclass
 class Interface:
-    name: str  # e.g. "eth0", "ge-0/0/1"
-    ip_address: str | None = None  # e.g. "10.0.1.1/24"
-    subnet_id: str | None = None
+    """A single port on a device.
+
+    Interfaces are referenced by id from Link endpoints, so an interface
+    keeps its identity across edits (renaming a port does not detach its
+    cable).
+    """
+
+    name: str  # e.g. "eth0", "Gig0/1", "wlan0"
+    interface_type: InterfaceType = InterfaceType.ETH_1G
+    ip_address: str | None = None  # CIDR notation, e.g. "10.0.1.1/24"
+    subnet_id: str | None = None  # references Subnet.id
     id: str = field(default_factory=new_id)
 
 

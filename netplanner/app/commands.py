@@ -24,6 +24,8 @@ class Command(ABC):
 
 
 class CommandStack:
+    """Classic undo/redo stack: executing a new command clears the redo side."""
+
     def __init__(self) -> None:
         self._undo: list[Command] = []
         self._redo: list[Command] = []
@@ -56,6 +58,8 @@ class CommandStack:
 
 # ---------------------------------------------------------------- concrete
 class AddDeviceCommand(Command):
+    """Add a device; undo removes it (and any links made to it since)."""
+
     def __init__(self, plan: NetworkPlan, device: Device):
         self.plan, self.device = plan, device
         self.description = f"Add device '{device.name}'"
@@ -68,6 +72,8 @@ class AddDeviceCommand(Command):
 
 
 class AddLinkCommand(Command):
+    """Add a link; undo detaches it and frees its interfaces."""
+
     def __init__(self, plan: NetworkPlan, link: Link):
         self.plan, self.link = plan, link
         self.description = "Add link"
@@ -80,6 +86,8 @@ class AddLinkCommand(Command):
 
 
 class MoveDeviceCommand(Command):
+    """Record a device move so drags are undoable."""
+
     def __init__(self, plan: NetworkPlan, device_id: str, x: float, y: float):
         self.plan, self.device_id = plan, device_id
         self.new = (x, y)
@@ -99,6 +107,8 @@ class MoveDeviceCommand(Command):
 
 
 class RenameDeviceCommand(Command):
+    """Rename a device, remembering the old name for undo."""
+
     def __init__(self, plan: NetworkPlan, device_id: str, new_name: str):
         self.plan, self.device_id, self.new_name = plan, device_id, new_name
         device = plan.get_device(device_id)
@@ -117,6 +127,12 @@ class RenameDeviceCommand(Command):
 
 
 class EditInterfacesCommand(Command):
+    """Swap a device's whole interface list; undo restores the old list.
+
+    Links referencing removed interfaces keep their (now dangling) ids;
+    they simply lose their port label rather than breaking.
+    """
+
     def __init__(self, plan: NetworkPlan, device_id: str, new_interfaces: list[Interface]):
         self.plan, self.device_id = plan, device_id
         self.new_interfaces = list(new_interfaces)

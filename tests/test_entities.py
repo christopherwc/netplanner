@@ -146,3 +146,40 @@ def test_edit_interfaces_undoable():
     assert [i.name for i in d.interfaces] == ["bond0"]
     ctrl.undo()
     assert [i.name for i in d.interfaces] == ["eth0", "eth1"]
+
+
+def test_typed_default_interfaces():
+    from netplanner.app.controller import AppController
+    from netplanner.domain.entities import InterfaceType
+    from unittest.mock import MagicMock
+
+    ctrl = AppController(repository=MagicMock())
+    sw = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    types = [i.interface_type for i in sw.interfaces]
+    assert types.count(InterfaceType.ETH_1G) == 8
+    assert types.count(InterfaceType.ETH_10G) == 2
+    ap = ctrl.add_device("apr1", DeviceType.AP_RADIO, 0, 0)
+    assert any(i.interface_type == InterfaceType.WIRELESS for i in ap.interfaces)
+
+
+def test_interface_types_persist():
+    from pathlib import Path
+    from netplanner.domain.entities import Device, Interface, InterfaceType
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.persistence.repository import PlanRepository
+
+    repo = PlanRepository(db_path=Path("/tmp/iface_types.db"))
+    plan = NetworkPlan("typed")
+    plan.add_device(Device(
+        name="core",
+        device_type=DeviceType.SWITCH,
+        interfaces=[
+            Interface(name="Hun0/1", interface_type=InterfaceType.ETH_100G),
+            Interface(name="Twe0/1", interface_type=InterfaceType.ETH_25G),
+        ],
+    ))
+    repo.save(plan)
+    loaded = repo.load(plan.id)
+    loaded_types = {i.name: i.interface_type for i in loaded.devices[0].interfaces}
+    assert loaded_types["Hun0/1"] == InterfaceType.ETH_100G
+    assert loaded_types["Twe0/1"] == InterfaceType.ETH_25G

@@ -5,7 +5,17 @@ from __future__ import annotations
 from dataclasses import asdict
 from pathlib import Path
 
-from netplanner.domain.entities import Device, DeviceType, Interface, Link, LinkType, Site, Subnet, Vlan
+from netplanner.domain.entities import (
+    Device,
+    DeviceType,
+    Interface,
+    InterfaceType,
+    Link,
+    LinkType,
+    Site,
+    Subnet,
+    Vlan,
+)
 from netplanner.domain.model import NetworkPlan
 
 from .db import DeviceRow, LinkRow, PlanRow, make_session_factory
@@ -68,16 +78,30 @@ class PlanRepository:
 
 # ------------------------------------------------------------- serialization
 def _device_to_dict(d: Device) -> dict:
+    """Serialize a Device (and its interfaces) to a JSON-safe dict."""
     data = asdict(d)
     data["device_type"] = d.device_type.value
+    for iface_data, iface in zip(data["interfaces"], d.interfaces):
+        iface_data["interface_type"] = iface.interface_type.value
     return data
 
 
 def _device_from_dict(data: dict) -> Device:
+    """Rebuild a Device from a stored dict.
+
+    Payloads written before interface types existed lack the
+    "interface_type" key; those default to 1 Gbps.
+    """
     data = dict(data)
     data["device_type"] = DeviceType(data["device_type"])
-    data["interfaces"] = [Interface(**i) for i in data.get("interfaces", [])]
+    data["interfaces"] = [_interface_from_dict(i) for i in data.get("interfaces", [])]
     return Device(**data)
+
+
+def _interface_from_dict(data: dict) -> Interface:
+    data = dict(data)
+    data["interface_type"] = InterfaceType(data.get("interface_type", "1g"))
+    return Interface(**data)
 
 
 def _link_to_dict(link: Link) -> dict:
