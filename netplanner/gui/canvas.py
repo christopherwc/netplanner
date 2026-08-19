@@ -153,6 +153,19 @@ class DeviceItem(QGraphicsItem):
         painter.drawText(band_rect, Qt.AlignmentFlag.AlignCenter, card.type_label.upper())
         y += nodecard.TYPE_BAND_H
 
+        # Native VLAN: always shown (device-wide default is VLAN 1)
+        native_vlan_font = QFont()
+        native_vlan_font.setPointSize(7)
+        native_vlan_font.setBold(True)
+        painter.setFont(native_vlan_font)
+        painter.setPen(QPen(QColor("#333333")))
+        painter.drawText(
+            QRectF(left + 8, y, card.width - 16, nodecard.NATIVE_VLAN_H),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            card.native_vlan_line,
+        )
+        y += nodecard.NATIVE_VLAN_H
+
         # Loopback IP: single line, only when set
         if card.loopback_line:
             loopback_font = QFont()
@@ -167,25 +180,35 @@ class DeviceItem(QGraphicsItem):
             )
             y += nodecard.LOOPBACK_H
 
-        # Interface blocks: "name  ip" line with the MAC beneath in gray
+        # Interface blocks: "name  ip" line, MAC beneath in gray, VLAN beneath that
         iface_font = QFont()
         iface_font.setPointSize(8)
         mac_font = QFont()
         mac_font.setPointSize(7)
+        vlan_font = QFont()
+        vlan_font.setPointSize(7)
+        third = nodecard.IFACE_BLOCK_H / 3
         for block in card.iface_blocks:
             painter.setFont(iface_font)
             painter.setPen(QPen(QColor("#111111")))
             painter.drawText(
-                QRectF(left + 8, y, card.width - 16, nodecard.IFACE_BLOCK_H / 2 + 2),
+                QRectF(left + 8, y, card.width - 16, third + 2),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                 block.top,
             )
             painter.setFont(mac_font)
             painter.setPen(QPen(QColor("#777777")))
             painter.drawText(
-                QRectF(left + 16, y + nodecard.IFACE_BLOCK_H / 2, card.width - 24, nodecard.IFACE_BLOCK_H / 2),
+                QRectF(left + 16, y + third, card.width - 24, third),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                 block.mac,
+            )
+            painter.setFont(vlan_font)
+            painter.setPen(QPen(QColor("#1a56db")))
+            painter.drawText(
+                QRectF(left + 16, y + third * 2, card.width - 24, third),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                block.vlan,
             )
             y += nodecard.IFACE_BLOCK_H
 
@@ -267,6 +290,7 @@ class DeviceItem(QGraphicsItem):
                     dialog.result_device_model(),
                     dialog.result_loopback_ip(),
                     dialog.result_notes(),
+                    dialog.result_native_vlan(),
                     dialog.result_interfaces(),
                 )
                 scene = self.scene()

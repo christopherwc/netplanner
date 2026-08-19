@@ -26,19 +26,34 @@ equipment, cable it up port-by-port, and export the result.
     the device name.
   - **Loopback IP** — a device-level IP (CIDR) not tied to any physical
     interface, shown as its own highlighted line on the card.
+  - **Native VLAN** — a device-wide VLAN ID (1–4094), defaulting to
+    **1**, shown as its own line on the card just like an unconfigured
+    switch's default VLAN.
   - **Notes** — free-form text, word-wrapped and shown at the bottom of
     the card (up to 3 lines, truncated with "…" if longer — the full
     text is still saved).
 
   All of the above are undoable together as one edit and visible on the
   canvas by default.
+- **VLANs per interface** — every interface has its own VLAN
+  configuration, set from the **Interfaces** tab of *Edit properties…*:
+  - **Access mode** (default): the interface carries a single VLAN,
+    untagged. Defaults to VLAN 1.
+  - **Trunk mode**: the interface carries multiple VLANs, tagged —
+    enter a comma-separated list (e.g. `10,20,30`) in the VLAN(s)
+    column.
+
+  Each interface's VLAN membership is shown on the card right under its
+  MAC address (`VLAN 10` or `Trunk: 10,20,30`), in blue. Plan → Validate
+  flags a trunk port left with no VLANs assigned.
 - **Device cards** — devices render as sectioned cards: name header,
-  optional model line, a colored device-type band, an optional loopback
-  line, the interface list (name, IP, MAC per port, capped at 6 with a
-  "+N more…" overflow), and optional notes at the bottom — all visible
-  by default. *View → Show device details* toggles back to compact
-  glyph+name nodes for dense diagrams. PDF/PNG exports draw identical
-  cards via the shared `export/nodecard.py` layout.
+  optional model line, a colored device-type band, the native VLAN
+  line, an optional loopback line, the interface list (name, IP, MAC,
+  and VLAN per port, capped at 6 with a "+N more…" overflow), and
+  optional notes at the bottom — all visible by default. *View → Show
+  device details* toggles back to compact glyph+name nodes for dense
+  diagrams. PDF/PNG exports draw identical cards via the shared
+  `export/nodecard.py` layout.
 - **Media-typed connections** — pick Copper/Ethernet, Fiber, Wireless,
   Serial, or WAN from the palette, then click two devices. Each click
   pops up that device's free ports so you choose exactly which
@@ -110,11 +125,13 @@ netplanner
 3. Click **Copper / Ethernet** under Connections, click `rtr1`, pick
    `Gig0/0`, click `sw1`, pick `Gig0/1` — cabled.
 4. Right-click `sw1` → *Edit properties…* → **Interfaces** tab to add a
-   25 Gbps port, set IPs, or paste in real MAC addresses.
+   25 Gbps port, set IPs, paste in real MAC addresses, or switch a port
+   to **Trunk** mode and list its VLANs (e.g. `10,20,30`).
 5. Switch to the **General** tab to set a device model, a loopback IP,
-   and notes — all three show up on the card immediately.
-6. Each device card lists every port with its IP and MAC — uncheck
-   **View → Show device details** if you prefer compact nodes.
+   a native VLAN (defaults to 1), and notes — all show up on the card
+   immediately.
+6. Each device card lists every port with its IP, MAC, and VLAN —
+   uncheck **View → Show device details** if you prefer compact nodes.
 7. **File → Export PDF…** for a shareable diagram.
 
 Esc always returns to Select/Move mode.

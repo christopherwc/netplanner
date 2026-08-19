@@ -21,6 +21,7 @@ from .nodecard import (
     IFACE_BLOCK_H,
     LOOPBACK_H,
     MODEL_H,
+    NATIVE_VLAN_H,
     NOTES_LINE_H,
     PAD,
     TYPE_BAND_H,
@@ -106,6 +107,12 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
         c.drawCentredString(n.x + card.width / 2, y - TYPE_BAND_H / 2 - 2.5, card.type_label.upper())
         y -= TYPE_BAND_H
 
+        # Native VLAN: always shown (device-wide default is VLAN 1)
+        c.setFillColor(HexColor("#333333"))
+        c.setFont("Helvetica-Bold", 7)
+        c.drawString(n.x + 8, y - NATIVE_VLAN_H / 2 - 3, card.native_vlan_line)
+        y -= NATIVE_VLAN_H
+
         # Loopback IP: single bold line, only when set
         if card.loopback_line:
             c.setFillColor(HexColor("#333333"))
@@ -113,14 +120,18 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
             c.drawString(n.x + 8, y - LOOPBACK_H / 2 - 3, card.loopback_line)
             y -= LOOPBACK_H
 
-        # Interface blocks: name+IP, MAC beneath in gray
+        # Interface blocks: name+IP, MAC beneath in gray, VLAN beneath that in blue
+        third = IFACE_BLOCK_H / 3
         for block in card.iface_blocks:
             c.setFillColor(TEXT_COLOR)
             c.setFont("Helvetica", 8)
-            c.drawString(n.x + 8, y - 10, block.top)
+            c.drawString(n.x + 8, y - third * 1 + 2, block.top)
             c.setFillColor(MAC_COLOR)
             c.setFont("Helvetica", 6.5)
-            c.drawString(n.x + 16, y - 20, block.mac)
+            c.drawString(n.x + 16, y - third * 2 + 2, block.mac)
+            c.setFillColor(HexColor("#1a56db"))
+            c.setFont("Helvetica", 6.5)
+            c.drawString(n.x + 16, y - third * 3 + 2, block.vlan)
             y -= IFACE_BLOCK_H
 
         if card.more_count:

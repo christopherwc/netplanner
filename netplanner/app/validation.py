@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 from ipaddress import ip_interface
 
+from netplanner.domain.entities import VlanMode
 from netplanner.domain.model import NetworkPlan
 
 
@@ -32,6 +33,7 @@ def validate(plan: NetworkPlan) -> list[Issue]:
     issues += _check_duplicate_macs(plan)
     issues += _check_isolated_devices(plan)
     issues += _check_overlapping_subnets(plan)
+    issues += _check_empty_trunks(plan)
     return issues
 
 
@@ -79,14 +81,20 @@ def _check_duplicate_macs(plan: NetworkPlan) -> list[Issue]:
     """Flag MAC addresses appearing on more than one interface.
 
     Auto-generated MACs are effectively unique; duplicates typically mean
-    a user typo while editing, so they are worth surfacing.
+    a user typo while editing, so they are worth surfacing. The default
+    placeholder MAC (all zeros, see domain.entities.blank_mac) is
+    excluded: it means "not yet assigned," not a real collision, and
+    every freshly created interface starts with it.
     """
+    from netplanner.domain.entities import blank_mac
+
+    placeholder = blank_mac().upper()
     seen: dict[str, str] = {}  # normalized mac -> device name
     issues = []
     for device in plan.devices:
         for iface in device.interfaces:
             mac = iface.mac_address.strip().upper()
-            if not mac:
+            if not mac or mac == placeholder:
                 continue
             if mac in seen:
                 issues.append(
@@ -98,4 +106,24 @@ def _check_duplicate_macs(plan: NetworkPlan) -> list[Issue]:
                 )
             else:
                 seen[mac] = device.name
+    return issues
+
+
+def _check_empty_trunks(plan: NetworkPlan) -> list[Issue]:
+    """Flag trunk interfaces carrying no VLANs at all.
+
+    A trunk with zero allowed VLANs passes no traffic and almost
+    always means the trunk was configured but never assigned VLANs.
+    """
+    issues = []
+    for device in plan.devices:
+        for iface in device.interfaces:
+            if iface.vlan_mode is VlanMode.TRUNK and not iface.trunk_vlans:
+                issues.append(
+                    Issue(
+                        Severity.WARNING,
+                        f"Interface '{iface.name}' on '{device.name}' is a trunk with no VLANs assigned",
+                        device_id=device.id,
+                    )
+                )
     return issues
