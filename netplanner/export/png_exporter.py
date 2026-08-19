@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 from netplanner.domain.model import NetworkPlan
 
@@ -25,6 +25,9 @@ from .nodecard import (
     NATIVE_VLAN_H,
     NOTES_LINE_H,
     PAD,
+    STRIPE_COLOR,
+    STRIPE_SPACING,
+    STRIPE_WIDTH,
     TYPE_BAND_H,
 )
 from .renderer import build_scene
@@ -81,6 +84,9 @@ def export_png(plan: NetworkPlan, path: Path) -> None:
             outline=card.stroke,
             width=SCALE,
         )
+
+        if card.striped:
+            _draw_planned_stripes(img, left, top, card.width * SCALE, card.height * SCALE)
 
         # Header: bold-ish name (default font; Pillow has no true bold here)
         draw.text(
@@ -182,6 +188,38 @@ def export_png(plan: NetworkPlan, path: Path) -> None:
     # Downsample for antialiasing
     img = img.resize((w // SCALE, h // SCALE), Image.LANCZOS)
     img.save(path, "PNG")
+
+
+def _draw_planned_stripes(img: Image.Image, left: float, top: float, w: float, h: float) -> None:
+    """Overlay diagonal gray stripes across a card for PLANNED devices.
+
+    Pillow has no native path clipping, so this composites in two
+    masks: one marking the diagonal stripe lines, one marking the
+    card's rounded-rect shape. Multiplying them together gives exactly
+    the stripe pixels that fall inside the rounded card, which are then
+    pasted onto the main image — leaving everything else untouched.
+    """
+    w_i, h_i = int(w), int(h)
+    if w_i <= 0 or h_i <= 0:
+        return
+
+    stripe_mask = Image.new("L", (w_i, h_i), 0)
+    stripe_draw = ImageDraw.Draw(stripe_mask)
+    span = w_i + h_i
+    step = STRIPE_SPACING * SCALE
+    offset = -span
+    while offset < span:
+        stripe_draw.line(
+            (offset, 0, offset + h_i, h_i), fill=255, width=max(1, int(STRIPE_WIDTH * SCALE))
+        )
+        offset += step
+
+    shape_mask = Image.new("L", (w_i, h_i), 0)
+    ImageDraw.Draw(shape_mask).rounded_rectangle((0, 0, w_i, h_i), radius=6 * SCALE, fill=255)
+
+    combined_mask = ImageChops.multiply(stripe_mask, shape_mask)
+    stripe_fill = Image.new("RGB", (w_i, h_i), STRIPE_COLOR)
+    img.paste(stripe_fill, (int(left), int(top)), mask=combined_mask)
 
 
 def _dashed_line(draw, p1, p2, color, width, pattern) -> None:

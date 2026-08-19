@@ -29,12 +29,27 @@ equipment, cable it up port-by-port, and export the result.
   - **Native VLAN** — a device-wide VLAN ID (1–4094), defaulting to
     **1**, shown as its own line on the card just like an unconfigured
     switch's default VLAN.
+  - **Status** — a deployment tag: **Active**, **Planned**, or
+    **Broken** (see below for how each renders).
   - **Notes** — free-form text, word-wrapped and shown at the bottom of
     the card (up to 3 lines, truncated with "…" if longer — the full
     text is still saved).
 
   All of the above are undoable together as one edit and visible on the
   canvas by default.
+- **Status tags** — every device is tagged **Active**, **Planned**, or
+  **Broken**, changing how its whole card is painted:
+  - **Active** (default): normal device-type colors, no overlay.
+  - **Planned**: keeps the normal type colors, with a diagonal gray
+    stripe pattern overlaid across the card — useful for equipment
+    that's designed but not yet installed.
+  - **Broken**: the entire card is grayed out, regardless of device
+    type — useful for flagging failed or decommissioned equipment at a
+    glance.
+
+  Status is set from the **General** tab of *Edit properties…* and
+  renders identically on the canvas, in PDF exports, and in PNG
+  exports.
 - **VLANs per interface** — every interface has its own VLAN
   configuration, set from the **Interfaces** tab of *Edit properties…*:
   - **Access mode** (default): the interface carries a single VLAN,
@@ -128,8 +143,9 @@ netplanner
    25 Gbps port, set IPs, paste in real MAC addresses, or switch a port
    to **Trunk** mode and list its VLANs (e.g. `10,20,30`).
 5. Switch to the **General** tab to set a device model, a loopback IP,
-   a native VLAN (defaults to 1), and notes — all show up on the card
-   immediately.
+   a native VLAN (defaults to 1), a status (Active/Planned/Broken), and
+   notes — all show up on the card immediately, with Planned adding
+   gray stripes and Broken graying the card out.
 6. Each device card lists every port with its IP, MAC, and VLAN —
    uncheck **View → Show device details** if you prefer compact nodes.
 7. **File → Export PDF…** for a shareable diagram.

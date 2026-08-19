@@ -24,13 +24,24 @@ in PDF/PNG exports:
 Card sizing lives here so the canvas and the renderer always agree on
 node geometry. All sections beyond the header/type-band/native-VLAN are
 optional and only take up space when the underlying field is non-empty.
+
+Every device also carries a DeviceStatus tag that changes how the whole
+card is painted, independent of its layout:
+    - ACTIVE:  normal type colors, no overlay (the default).
+    - PLANNED: normal type colors, plus a diagonal gray stripe overlay
+               drawn across the card by each renderer.
+    - BROKEN:  the entire card is grayed out — fill/stroke are replaced
+               with a neutral gray palette regardless of device type.
+This module only computes *what* to draw (fill/stroke/striped); the
+actual stripe/grayscale painting happens per-renderer since Qt,
+reportlab, and Pillow each clip shapes differently.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from netplanner.domain.entities import Device
+from netplanner.domain.entities import Device, DeviceStatus
 
 # Geometry constants (canvas pixels == export points).
 NODE_W = 190.0
@@ -46,6 +57,14 @@ NOTES_MAX_LINES = 3     # notes are capped and truncated with an ellipsis
 PAD = 6.0
 MAX_IFACE_BLOCKS = 6    # cap so many-port switches stay readable
 NOTES_CHARS_PER_LINE = 30  # rough wrap width for the notes section
+
+# Status tag styling — shared by canvas + both exporters so a device
+# looks identical everywhere regardless of its deployment status.
+BROKEN_FILL = "#e5e5e5"     # replaces the type color entirely when broken
+BROKEN_STROKE = "#9e9e9e"
+STRIPE_COLOR = "#b0b0b0"    # diagonal hatch drawn over a planned device's card
+STRIPE_SPACING = 10.0       # px between parallel stripe lines
+STRIPE_WIDTH = 2.0
 
 
 @dataclass
@@ -68,6 +87,8 @@ class NodeCard:
     glyph: str
     fill: str
     stroke: str
+    status: DeviceStatus = DeviceStatus.ACTIVE
+    striped: bool = False         # True for PLANNED — renderers overlay diagonal hatching
     device_model: str = ""
     native_vlan_line: str = ""    # "Native VLAN: 1" — always set (default VLAN 1)
     loopback_line: str = ""       # "Loopback: 10.255.0.1/32", or "" if unset
@@ -133,14 +154,24 @@ def build_card(device: Device) -> NodeCard:
     if notes_lines:
         height += len(notes_lines) * NOTES_LINE_H + PAD
 
+    # Broken devices lose their type color entirely (grayed out);
+    # planned devices keep it but get a diagonal stripe overlay drawn
+    # by the renderer, signaled here via `striped`.
+    if device.status is DeviceStatus.BROKEN:
+        fill, stroke = BROKEN_FILL, BROKEN_STROKE
+    else:
+        fill, stroke = style.fill, style.stroke
+
     return NodeCard(
         width=NODE_W,
         height=height,
         name=device.name,
         type_label=device.device_type.value.replace("_", " "),
         glyph=style.glyph,
-        fill=style.fill,
-        stroke=style.stroke,
+        fill=fill,
+        stroke=stroke,
+        status=device.status,
+        striped=device.status is DeviceStatus.PLANNED,
         device_model=device.device_model,
         native_vlan_line=native_vlan_line,
         loopback_line=loopback_line,

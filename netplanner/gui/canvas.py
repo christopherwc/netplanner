@@ -14,7 +14,7 @@ Interaction model:
 from __future__ import annotations
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPen
+from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen
 from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (
     QGraphicsItem,
@@ -81,13 +81,49 @@ class DeviceItem(QGraphicsItem):
         else:
             self._paint_compact(painter)
 
-    def _frame(self, painter: QPainter, rect: QRectF, style) -> None:
-        """Draw the shared rounded frame with selection/pending highlight."""
-        painter.setBrush(QBrush(QColor(style.fill)))
-        pen = QPen(QColor("#e8710a" if self.pending_source else style.stroke))
+    def _frame(self, painter: QPainter, rect: QRectF, card: nodecard.NodeCard) -> None:
+        """Draw the shared rounded frame with selection/pending highlight.
+
+        Uses the card's already-status-adjusted fill/stroke (grayed out
+        for BROKEN devices) rather than the raw device-type colors.
+        """
+        painter.setBrush(QBrush(QColor(card.fill)))
+        pen = QPen(QColor("#e8710a" if self.pending_source else card.stroke))
         pen.setWidth(3 if (self.isSelected() or self.pending_source) else 1)
         painter.setPen(pen)
         painter.drawRoundedRect(rect, 6, 6)
+
+        if card.striped:
+            self._paint_planned_stripes(painter, rect)
+
+    def _paint_planned_stripes(self, painter: QPainter, rect: QRectF) -> None:
+        """Overlay diagonal gray stripes across the card for PLANNED devices.
+
+        Clips to the card's rounded-rect shape so stripes never spill
+        past the border, then draws parallel diagonal lines spanning
+        the card at a fixed spacing.
+        """
+        painter.save()
+        clip_path = QPainterPath()
+        clip_path.addRoundedRect(rect, 6, 6)
+        painter.setClipPath(clip_path)
+
+        pen = QPen(QColor(nodecard.STRIPE_COLOR))
+        pen.setWidthF(nodecard.STRIPE_WIDTH)
+        painter.setPen(pen)
+
+        # Diagonal lines at 45 degrees, spaced STRIPE_SPACING apart,
+        # spanning well past the card's diagonal so corners are covered.
+        span = rect.width() + rect.height()
+        step = nodecard.STRIPE_SPACING
+        offset = -span
+        while offset < span:
+            x1, y1 = rect.left() + offset, rect.top()
+            x2, y2 = rect.left() + offset + rect.height(), rect.bottom()
+            painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
+            offset += step
+
+        painter.restore()
 
     def _paint_card(self, painter: QPainter) -> None:
         """Detailed card: header / colored type band / interface IP+MAC blocks.
@@ -97,8 +133,7 @@ class DeviceItem(QGraphicsItem):
         """
         card = nodecard.build_card(self.device)
         rect = self.boundingRect()
-        style = style_for(self.device.device_type)
-        self._frame(painter, rect, style)
+        self._frame(painter, rect, card)
 
         left = rect.left()
         top = rect.top()
@@ -244,15 +279,15 @@ class DeviceItem(QGraphicsItem):
 
     def _paint_compact(self, painter: QPainter) -> None:
         rect = self.boundingRect()
-        style = style_for(self.device.device_type)
-        self._frame(painter, rect, style)
+        card = nodecard.build_card(self.device)
+        self._frame(painter, rect, card)
 
         glyph_rect = QRectF(rect.left() + 6, rect.top(), 28, rect.height())
         glyph_font = QFont()
         glyph_font.setPointSize(16)
         painter.setFont(glyph_font)
-        painter.setPen(QPen(QColor(style.stroke)))
-        painter.drawText(glyph_rect, Qt.AlignmentFlag.AlignCenter, style.glyph)
+        painter.setPen(QPen(QColor(card.stroke)))
+        painter.drawText(glyph_rect, Qt.AlignmentFlag.AlignCenter, card.glyph)
 
         text_rect = QRectF(rect.left() + 36, rect.top(), rect.width() - 42, rect.height())
         name_font = QFont()
@@ -291,6 +326,7 @@ class DeviceItem(QGraphicsItem):
                     dialog.result_loopback_ip(),
                     dialog.result_notes(),
                     dialog.result_native_vlan(),
+                    dialog.result_status(),
                     dialog.result_interfaces(),
                 )
                 scene = self.scene()

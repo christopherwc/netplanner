@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from netplanner.domain.entities import Device, Interface, Link
+from netplanner.domain.entities import Device, DeviceStatus, Interface, Link
 from netplanner.domain.model import NetworkPlan
 
 
@@ -166,10 +166,11 @@ class EditDevicePropertiesCommand(Command):
         loopback_ip: str | None,
         notes: str,
         native_vlan: int,
+        status: DeviceStatus,
         new_interfaces: list[Interface],
     ):
         self.plan, self.device_id = plan, device_id
-        self.new = (device_model, loopback_ip, notes, native_vlan, list(new_interfaces))
+        self.new = (device_model, loopback_ip, notes, native_vlan, status, list(new_interfaces))
         device = plan.get_device(device_id)
         self.old = (
             (
@@ -177,21 +178,23 @@ class EditDevicePropertiesCommand(Command):
                 device.loopback_ip,
                 device.notes,
                 device.native_vlan,
+                device.status,
                 list(device.interfaces),
             )
             if device
-            else ("", None, "", 1, [])
+            else ("", None, "", 1, DeviceStatus.ACTIVE, [])
         )
         self.description = "Edit device properties"
 
     def _apply(self, values) -> None:
-        model, loopback_ip, notes, native_vlan, interfaces = values
+        model, loopback_ip, notes, native_vlan, status, interfaces = values
         d = self.plan.get_device(self.device_id)
         if d:
             d.device_model = model
             d.loopback_ip = loopback_ip
             d.notes = notes
             d.native_vlan = native_vlan
+            d.status = status
             d.interfaces = list(interfaces)
 
     def execute(self) -> None:

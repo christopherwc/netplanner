@@ -37,6 +37,22 @@ class DeviceType(Enum):
     OTHER = "other"
 
 
+class DeviceStatus(Enum):
+    """Deployment status of a device, shown as a visual tag on its card."""
+
+    ACTIVE = "active"    # normal type colors, no overlay
+    PLANNED = "planned"  # normal type colors + diagonal gray stripe overlay
+    BROKEN = "broken"    # entire card grayed out, regardless of device type
+
+    @property
+    def label(self) -> str:
+        return {
+            DeviceStatus.ACTIVE: "Active",
+            DeviceStatus.PLANNED: "Planned",
+            DeviceStatus.BROKEN: "Broken",
+        }[self]
+
+
 class InterfaceType(Enum):
     """Physical/radio interface classes, ordered roughly by speed."""
 
@@ -147,6 +163,7 @@ class Device:
     device_model: str = ""  # e.g. "Cisco ISR 4331", shown under the name
     loopback_ip: str | None = None  # CIDR, e.g. "10.255.0.1/32"; not tied to a physical interface
     native_vlan: int = 1  # device-wide native/management VLAN, shown on the card
+    status: DeviceStatus = DeviceStatus.ACTIVE  # deployment tag, shown on the card
     id: str = field(default_factory=new_id)
 
     def interface_by_name(self, name: str) -> Interface | None:

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from netplanner.domain.entities import (
     Device,
+    DeviceStatus,
     DeviceType,
     Interface,
     InterfaceType,
@@ -82,6 +83,7 @@ def _device_to_dict(d: Device) -> dict:
     """Serialize a Device (and its interfaces) to a JSON-safe dict."""
     data = asdict(d)
     data["device_type"] = d.device_type.value
+    data["status"] = d.status.value
     for iface_data, iface in zip(data["interfaces"], d.interfaces):
         iface_data["interface_type"] = iface.interface_type.value
         iface_data["vlan_mode"] = iface.vlan_mode.value
@@ -92,10 +94,12 @@ def _device_from_dict(data: dict) -> Device:
     """Rebuild a Device from a stored dict.
 
     Payloads written before interface types existed lack the
-    "interface_type" key; those default to 1 Gbps.
+    "interface_type" key; those default to 1 Gbps. Payloads written
+    before status tags existed lack "status"; those default to Active.
     """
     data = dict(data)
     data["device_type"] = DeviceType(data["device_type"])
+    data["status"] = DeviceStatus(data.get("status", "active"))
     data["interfaces"] = [_interface_from_dict(i) for i in data.get("interfaces", [])]
     return Device(**data)
 
