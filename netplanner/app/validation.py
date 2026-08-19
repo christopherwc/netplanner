@@ -29,6 +29,7 @@ class Issue:
 def validate(plan: NetworkPlan) -> list[Issue]:
     issues: list[Issue] = []
     issues += _check_duplicate_ips(plan)
+    issues += _check_duplicate_macs(plan)
     issues += _check_isolated_devices(plan)
     issues += _check_overlapping_subnets(plan)
     return issues
@@ -71,4 +72,30 @@ def _check_overlapping_subnets(plan: NetworkPlan) -> list[Issue]:
                 issues.append(
                     Issue(Severity.ERROR, f"Subnets {a.cidr} and {b.cidr} overlap")
                 )
+    return issues
+
+
+def _check_duplicate_macs(plan: NetworkPlan) -> list[Issue]:
+    """Flag MAC addresses appearing on more than one interface.
+
+    Auto-generated MACs are effectively unique; duplicates typically mean
+    a user typo while editing, so they are worth surfacing.
+    """
+    seen: dict[str, str] = {}  # normalized mac -> device name
+    issues = []
+    for device in plan.devices:
+        for iface in device.interfaces:
+            mac = iface.mac_address.strip().upper()
+            if not mac:
+                continue
+            if mac in seen:
+                issues.append(
+                    Issue(
+                        Severity.WARNING,
+                        f"Duplicate MAC {mac} on '{device.name}' (also on '{seen[mac]}')",
+                        device_id=device.id,
+                    )
+                )
+            else:
+                seen[mac] = device.name
     return issues

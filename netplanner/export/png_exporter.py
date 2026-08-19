@@ -1,7 +1,14 @@
-"""Export a NetworkPlan to PNG using Pillow."""
+"""Export a NetworkPlan to PNG using Pillow.
+
+Drawn at 2x resolution then downsampled for antialiasing. Nodes are the
+same three-section cards the GUI shows (header / type band / interface
+IP+MAC blocks); Pillow has no native dashed lines, so dashes are drawn
+segment-by-segment.
+"""
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -9,30 +16,28 @@ from PIL import Image, ImageDraw
 from netplanner.domain.model import NetworkPlan
 
 from .geometry import point_along
+from .nodecard import FOOTER_H, HEADER_H, IFACE_BLOCK_H, TYPE_BAND_H
 from .renderer import build_scene
-from .styles import link_style_for_value, style_for_value
+from .styles import link_style_for_value
 
-SCALE = 2  # supersample for crisper output
-NODE_FILL = "#e8f0fe"
-NODE_STROKE = "#1a56db"
-EDGE_COLOR = "#555555"
+SCALE = 2  # supersample factor for crisper output
 TEXT_COLOR = "#111111"
+MAC_COLOR = "#777777"
 BG_COLOR = "#ffffff"
+TITLE_OFFSET = 40  # room reserved above the diagram for the plan title
 
 
 def export_png(plan: NetworkPlan, path: Path) -> None:
     """Render the plan to PNG; drawn at 2x then downsampled for antialiasing."""
     scene = build_scene(plan)
-    w, h = int(scene.width) * SCALE, (int(scene.height) + 40) * SCALE
+    w, h = int(scene.width) * SCALE, (int(scene.height) + TITLE_OFFSET) * SCALE
     img = Image.new("RGB", (w, h), BG_COLOR)
     draw = ImageDraw.Draw(img)
 
-    # Title
     draw.text((20 * SCALE, 12 * SCALE), scene.title, fill=TEXT_COLOR)
+    off = TITLE_OFFSET * SCALE  # vertical shift below the title area
 
-    off = 40 * SCALE  # room for the title bar
-
-    # Edges under nodes
+    # Edges first so they render under the node cards
     for e in scene.edges:
         lstyle = link_style_for_value(e.link_type)
         p1 = (e.x1 * SCALE, e.y1 * SCALE + off)
@@ -48,22 +53,70 @@ def export_png(plan: NetworkPlan, path: Path) -> None:
         for port, t in ((e.a_port, 0.25), (e.b_port, 0.75)):
             if port:
                 pp = point_along(p1[0], p1[1], p2[0], p2[1], t)
-                draw.text((pp[0], pp[1] - 6 * SCALE), port, fill="#666666", anchor="mm")
+                draw.text((pp[0], pp[1] - 6 * SCALE), port, fill=MAC_COLOR, anchor="mm")
 
-    # Nodes
+    # Node cards
     for n in scene.nodes:
-        box = (
-            n.x * SCALE,
-            n.y * SCALE + off,
-            (n.x + n.w) * SCALE,
-            (n.y + n.h) * SCALE + off,
+        card = n.card
+        left = n.x * SCALE
+        top = n.y * SCALE + off
+        right = left + card.width * SCALE
+        bottom = top + card.height * SCALE
+
+        # Background + border
+        draw.rounded_rectangle(
+            (left, top, right, bottom),
+            radius=6 * SCALE,
+            fill=card.fill,
+            outline=card.stroke,
+            width=SCALE,
         )
-        style = style_for_value(n.sublabel)
-        draw.rounded_rectangle(box, radius=6 * SCALE, fill=style.fill, outline=style.stroke, width=SCALE)
-        cx = (box[0] + box[2]) / 2
-        cy = (box[1] + box[3]) / 2
-        draw.text((cx, cy - 6 * SCALE), n.label, fill=TEXT_COLOR, anchor="mm")
-        draw.text((cx, cy + 8 * SCALE), n.sublabel, fill=TEXT_COLOR, anchor="mm")
+
+        # Header: bold-ish name (default font; Pillow has no true bold here)
+        draw.text(
+            (left + 8 * SCALE, top + HEADER_H * SCALE / 2),
+            card.name,
+            fill=TEXT_COLOR,
+            anchor="lm",
+        )
+
+        # Type band
+        band_top = top + HEADER_H * SCALE
+        draw.rectangle(
+            (left, band_top, right, band_top + TYPE_BAND_H * SCALE),
+            fill=card.stroke,
+        )
+        draw.text(
+            ((left + right) / 2, band_top + TYPE_BAND_H * SCALE / 2),
+            card.type_label.upper(),
+            fill="#ffffff",
+            anchor="mm",
+        )
+
+        # Interface blocks: name+IP, MAC beneath in gray
+        y = band_top + TYPE_BAND_H * SCALE
+        for block in card.iface_blocks:
+            draw.text(
+                (left + 8 * SCALE, y + IFACE_BLOCK_H * SCALE * 0.28),
+                block.top,
+                fill=TEXT_COLOR,
+                anchor="lm",
+            )
+            draw.text(
+                (left + 16 * SCALE, y + IFACE_BLOCK_H * SCALE * 0.75),
+                block.mac,
+                fill=MAC_COLOR,
+                anchor="lm",
+            )
+            y += IFACE_BLOCK_H * SCALE
+
+        if card.more_count:
+            draw.text(
+                (left + 8 * SCALE, y + FOOTER_H * SCALE / 2),
+                f"+{card.more_count} more…",
+                fill=MAC_COLOR,
+                anchor="lm",
+            )
 
     # Downsample for antialiasing
     img = img.resize((w // SCALE, h // SCALE), Image.LANCZOS)
@@ -71,9 +124,11 @@ def export_png(plan: NetworkPlan, path: Path) -> None:
 
 
 def _dashed_line(draw, p1, p2, color, width, pattern) -> None:
-    """Draw a dashed line segment-by-segment (Pillow has no native dashes)."""
-    import math
+    """Draw a dashed line segment-by-segment (Pillow has no native dashes).
 
+    Even-indexed pattern entries are drawn, odd-indexed are gaps, matching
+    the (on, off, on, off, ...) convention used by Qt and reportlab.
+    """
     x1, y1 = p1
     x2, y2 = p2
     total = math.hypot(x2 - x1, y2 - y1)
@@ -84,7 +139,7 @@ def _dashed_line(draw, p1, p2, color, width, pattern) -> None:
     i = 0
     while dist < total:
         seg = min(pattern[i % len(pattern)], total - dist)
-        if i % 2 == 0:  # even segments are drawn, odd are gaps
+        if i % 2 == 0:
             sx, sy = x1 + ux * dist, y1 + uy * dist
             ex, ey = x1 + ux * (dist + seg), y1 + uy * (dist + seg)
             draw.line((sx, sy, ex, ey), fill=color, width=width)

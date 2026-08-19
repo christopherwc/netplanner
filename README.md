@@ -20,10 +20,12 @@ equipment, cable it up port-by-port, and export the result.
   locally-administered MAC (`02:xx:xx:xx:xx:xx`), editable in the
   interface dialog when documenting real hardware. Plans saved before
   this feature load fine; missing MACs are generated on load.
-- **Device cards** — devices render as sectioned cards showing the
-  name, a device-type row, and the full interface list with IP and MAC
-  per port — all visible by default. *View → Show device details*
-  toggles back to compact glyph+name nodes for dense diagrams.
+- **Device cards** — devices render as sectioned cards: a name header,
+  a colored device-type band, and the interface list with IP and MAC per
+  port — all visible by default. Cards show up to 6 interfaces and then
+  collapse to "+N more…" so big switches stay readable. *View → Show
+  device details* toggles back to compact glyph+name nodes for dense
+  diagrams. PDF/PNG exports draw the identical cards.
 - **Media-typed connections** — pick Copper/Ethernet, Fiber, Wireless,
   Serial, or WAN from the palette, then click two devices. Each click
   pops up that device's free ports so you choose exactly which
@@ -33,8 +35,9 @@ equipment, cable it up port-by-port, and export the result.
   automatically fan out so every cable stays visible.
 - **Editing** — drag to move, double-click to rename, full undo/redo
   (Ctrl+Z / Ctrl+Shift+Z) for every mutation including interface edits.
-- **Validation** — Plan → Validate flags duplicate IPs, overlapping
-  subnets, and devices with no links.
+- **Validation** — Plan → Validate flags duplicate IPs, duplicate MACs
+  (typically a copy-paste typo), overlapping subnets, and devices with
+  no links.
 - **Auto-layout** — spring, circular, or Kamada-Kawai via networkx.
 - **Persistence** — plans are saved to SQLite
   (`~/.local/share/netplanner/plans.db`); portable `.netplan` JSON
