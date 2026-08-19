@@ -14,9 +14,10 @@ from netplanner.app.commands import (
     AddLinkCommand,
     CommandStack,
     MoveDeviceCommand,
+    RenameDeviceCommand,
 )
 from netplanner.app.validation import Issue, validate
-from netplanner.domain.entities import Device, DeviceType, Link
+from netplanner.domain.entities import Device, DeviceType, Link, LinkType
 from netplanner.domain.layout import auto_layout
 from netplanner.domain.model import NetworkPlan
 from netplanner.export.pdf_exporter import export_pdf
@@ -47,10 +48,24 @@ class AppController:
             n += 1
         return f"{prefix}{n}"
 
-    def add_link(self, a_device_id: str, b_device_id: str) -> Link:
-        link = Link(a_device_id=a_device_id, b_device_id=b_device_id)
+    def add_link(
+        self,
+        a_device_id: str,
+        b_device_id: str,
+        link_type: LinkType = LinkType.ETHERNET,
+        label: str = "",
+    ) -> Link:
+        link = Link(
+            a_device_id=a_device_id,
+            b_device_id=b_device_id,
+            link_type=link_type,
+            label=label,
+        )
         self.commands.push(AddLinkCommand(self.plan, link))
         return link
+
+    def rename_device(self, device_id: str, new_name: str) -> None:
+        self.commands.push(RenameDeviceCommand(self.plan, device_id, new_name))
 
     def move_device(self, device_id: str, x: float, y: float) -> None:
         self.commands.push(MoveDeviceCommand(self.plan, device_id, x, y))

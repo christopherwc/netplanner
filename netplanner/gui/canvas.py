@@ -1,10 +1,13 @@
 """Diagram canvas: QGraphicsScene/View with draggable device items.
 
 Interaction model:
-- With an equipment tool armed (from the palette): single-click on empty
-  canvas places a device of that type with an auto-generated name.
-- In select mode: drag devices to move (recorded as undoable commands),
-  double-click empty space to add a device via a name prompt.
+- Equipment tool armed: single-click empty canvas places that device
+  type with an auto-generated name.
+- Connection tool armed: click a first device (highlighted), then a
+  second device to create a link of the armed media type. Clicking
+  empty space cancels the pending first pick.
+- Select mode: drag devices to move (undoable); double-click a device
+  to rename it; double-click empty space to add a device via prompt.
 - Esc returns to select mode.
 """
 
@@ -20,8 +23,8 @@ from PyQt6.QtWidgets import (
 )
 
 from netplanner.app.controller import AppController
-from netplanner.domain.entities import Device, DeviceType
-from netplanner.export.styles import style_for
+from netplanner.domain.entities import Device, DeviceType, LinkType
+from netplanner.export.styles import link_style_for, style_for
 
 NODE_W, NODE_H = 120, 60
 
@@ -31,6 +34,7 @@ class DeviceItem(QGraphicsItem):
         super().__init__()
         self.device = device
         self.controller = controller
+        self.pending_source = False  # highlighted as first pick in connect mode
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
         self.setPos(device.x, device.y)
@@ -43,8 +47,8 @@ class DeviceItem(QGraphicsItem):
         style = style_for(self.device.device_type)
 
         painter.setBrush(QBrush(QColor(style.fill)))
-        pen = QPen(QColor(style.stroke))
-        pen.setWidth(3 if self.isSelected() else 1)
+        pen = QPen(QColor("#e8710a" if self.pending_source else style.stroke))
+        pen.setWidth(3 if (self.isSelected() or self.pending_source) else 1)
         painter.setPen(pen)
         painter.drawRoundedRect(rect, 6, 6)
 
@@ -78,20 +82,35 @@ class DeviceItem(QGraphicsItem):
             if isinstance(scene, PlanScene):
                 scene.update_links()
 
+    def mouseDoubleClickEvent(self, event) -> None:
+        scene = self.scene()
+        if isinstance(scene, PlanScene) and scene.armed_tool is None:
+            name, ok = QInputDialog.getText(
+                None, "Rename device", "Device name:", text=self.device.name
+            )
+            if ok and name and name != self.device.name:
+                self.controller.rename_device(self.device.id, name)
+                self.update()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
 
 class PlanScene(QGraphicsScene):
     def __init__(self, controller: AppController):
         super().__init__()
         self.controller = controller
-        self.armed_type: DeviceType | None = None
+        self.armed_tool: DeviceType | LinkType | None = None
+        self._pending_source: DeviceItem | None = None
         self._device_items: dict[str, DeviceItem] = {}
-        self._link_lines = []
+        self._link_items = []
 
     # -------------------------------------------------------------- rebuild
     def rebuild(self) -> None:
         self.clear()
         self._device_items.clear()
-        self._link_lines.clear()
+        self._link_items.clear()
+        self._pending_source = None
         for device in self.controller.plan.devices:
             item = DeviceItem(device, self.controller)
             self.addItem(item)
@@ -99,43 +118,86 @@ class PlanScene(QGraphicsScene):
         self.update_links()
 
     def update_links(self) -> None:
-        for line in self._link_lines:
-            self.removeItem(line)
-        self._link_lines.clear()
-        pen = QPen(QColor("#555555"))
-        pen.setWidth(2)
+        for item in self._link_items:
+            self.removeItem(item)
+        self._link_items.clear()
         for link in self.controller.plan.links:
             a = self._device_items.get(link.a_device_id)
             b = self._device_items.get(link.b_device_id)
-            if a and b:
-                line = self.addLine(
-                    a.pos().x(), a.pos().y(), b.pos().x(), b.pos().y(), pen
-                )
-                line.setZValue(-1)
-                self._link_lines.append(line)
+            if not (a and b):
+                continue
+            lstyle = link_style_for(link.link_type)
+            pen = QPen(QColor(lstyle.color))
+            pen.setWidthF(lstyle.width)
+            if lstyle.dash:
+                pen.setDashPattern([v / lstyle.width for v in lstyle.dash])
+            line = self.addLine(a.pos().x(), a.pos().y(), b.pos().x(), b.pos().y(), pen)
+            line.setZValue(-1)
+            self._link_items.append(line)
+            if link.label:
+                text = self.addSimpleText(link.label)
+                text.setBrush(QBrush(QColor(lstyle.color)))
+                mid_x = (a.pos().x() + b.pos().x()) / 2
+                mid_y = (a.pos().y() + b.pos().y()) / 2
+                text.setPos(mid_x, mid_y)
+                text.setZValue(-0.5)
+                self._link_items.append(text)
 
-    # ----------------------------------------------------------- placement
+    # ------------------------------------------------------------ mouse flow
     def mousePressEvent(self, event) -> None:
-        if (
-            self.armed_type is not None
-            and event.button() == Qt.MouseButton.LeftButton
-            and self.itemAt(event.scenePos(), self.views()[0].transform()) is None
-        ):
+        if event.button() != Qt.MouseButton.LeftButton:
+            super().mousePressEvent(event)
+            return
+
+        item = self.itemAt(event.scenePos(), self.views()[0].transform())
+        device_item = item if isinstance(item, DeviceItem) else None
+
+        if isinstance(self.armed_tool, DeviceType) and device_item is None:
             self._place_armed_device(event.scenePos())
             event.accept()
             return
+
+        if isinstance(self.armed_tool, LinkType):
+            self._handle_connect_click(device_item)
+            event.accept()
+            return
+
         super().mousePressEvent(event)
 
     def _place_armed_device(self, pos: QPointF) -> None:
-        name = self.controller.next_device_name(self.armed_type)
-        self.controller.add_device(name, self.armed_type, pos.x(), pos.y())
+        name = self.controller.next_device_name(self.armed_tool)
+        self.controller.add_device(name, self.armed_tool, pos.x(), pos.y())
         self.rebuild()
 
+    def _handle_connect_click(self, device_item: DeviceItem | None) -> None:
+        if device_item is None:
+            self._clear_pending()
+            return
+        if self._pending_source is None:
+            self._pending_source = device_item
+            device_item.pending_source = True
+            device_item.update()
+            return
+        if device_item is self._pending_source:
+            self._clear_pending()
+            return
+        self.controller.add_link(
+            self._pending_source.device.id,
+            device_item.device.id,
+            link_type=self.armed_tool,
+        )
+        self._clear_pending()
+        self.update_links()
+
+    def _clear_pending(self) -> None:
+        if self._pending_source is not None:
+            self._pending_source.pending_source = False
+            self._pending_source.update()
+            self._pending_source = None
+
     def mouseDoubleClickEvent(self, event) -> None:
-        if (
-            self.armed_type is None
-            and self.itemAt(event.scenePos(), self.views()[0].transform()) is None
-        ):
+        item = self.itemAt(event.scenePos(), self.views()[0].transform())
+        if self.armed_tool is None and item is None:
             self._add_device_with_prompt(event.scenePos())
         else:
             super().mouseDoubleClickEvent(event)
@@ -158,12 +220,11 @@ class NetworkCanvas(QGraphicsView):
     def refresh(self) -> None:
         self._scene.rebuild()
 
-    def set_tool(self, device_type: DeviceType | None) -> None:
-        self._scene.armed_type = device_type
+    def set_tool(self, tool: DeviceType | LinkType | None) -> None:
+        self._scene.armed_tool = tool
+        self._scene._clear_pending()
         cursor = (
-            Qt.CursorShape.CrossCursor
-            if device_type is not None
-            else Qt.CursorShape.ArrowCursor
+            Qt.CursorShape.CrossCursor if tool is not None else Qt.CursorShape.ArrowCursor
         )
         self.viewport().setCursor(cursor)
 

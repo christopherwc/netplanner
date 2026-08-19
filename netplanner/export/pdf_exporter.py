@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas as pdf_canvas
 from netplanner.domain.model import NetworkPlan
 
 from .renderer import Scene, build_scene
-from .styles import style_for_value
+from .styles import link_style_for_value, style_for_value
 
 NODE_FILL = HexColor("#e8f0fe")
 NODE_STROKE = HexColor("#1a56db")
@@ -39,10 +39,17 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
     c.drawString(20, page_h - 25, scene.title)
 
     # Edges first, under the nodes
-    c.setStrokeColor(EDGE_COLOR)
-    c.setLineWidth(1.2)
     for e in scene.edges:
+        lstyle = link_style_for_value(e.link_type)
+        c.setStrokeColor(HexColor(lstyle.color))
+        c.setLineWidth(lstyle.width)
+        c.setDash(list(lstyle.dash) if lstyle.dash else [])
         c.line(e.x1, fy(e.y1) - 40, e.x2, fy(e.y2) - 40)
+        if e.label:
+            c.setFillColor(HexColor(lstyle.color))
+            c.setFont("Helvetica", 7)
+            c.drawCentredString((e.x1 + e.x2) / 2, (fy(e.y1) + fy(e.y2)) / 2 - 40 + 4, e.label)
+    c.setDash([])
 
     # Nodes
     for n in scene.nodes:

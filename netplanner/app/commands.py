@@ -96,3 +96,21 @@ class MoveDeviceCommand(Command):
         d = self.plan.get_device(self.device_id)
         if d:
             d.x, d.y = self.old
+
+
+class RenameDeviceCommand(Command):
+    def __init__(self, plan: NetworkPlan, device_id: str, new_name: str):
+        self.plan, self.device_id, self.new_name = plan, device_id, new_name
+        device = plan.get_device(device_id)
+        self.old_name = device.name if device else ""
+        self.description = f"Rename device to '{new_name}'"
+
+    def execute(self) -> None:
+        d = self.plan.get_device(self.device_id)
+        if d:
+            d.name = self.new_name
+
+    def undo(self) -> None:
+        d = self.plan.get_device(self.device_id)
+        if d:
+            d.name = self.old_name

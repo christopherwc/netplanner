@@ -33,6 +33,7 @@ class EdgeShape:
     x2: float
     y2: float
     label: str
+    link_type: str = "ethernet"
 
 
 @dataclass
@@ -77,7 +78,9 @@ def build_scene(plan: NetworkPlan) -> Scene:
     for link in plan.links:
         (x1, y1) = centers[link.a_device_id]
         (x2, y2) = centers[link.b_device_id]
-        edges.append(EdgeShape(x1, y1, x2, y2, label=link.label))
+        edges.append(
+            EdgeShape(x1, y1, x2, y2, label=link.label, link_type=link.link_type.value)
+        )
 
     width = max(n.x + n.w for n in nodes) + MARGIN
     height = max(n.y + n.h for n in nodes) + MARGIN
