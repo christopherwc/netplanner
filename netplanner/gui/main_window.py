@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 from netplanner.app.controller import AppController
 
 from .canvas import NetworkCanvas
+from .palette import EquipmentPalette
 from .panels import PropertiesPanel
 
 
@@ -22,6 +23,10 @@ class MainWindow(QMainWindow):
 
         self.canvas = NetworkCanvas(controller, self)
         self.setCentralWidget(self.canvas)
+
+        self.palette_dock = EquipmentPalette(self)
+        self.palette_dock.tool_changed.connect(self.canvas.set_tool)
+        self.addDockWidget(self.palette_dock.preferred_area(), self.palette_dock)
 
         self.properties_panel = PropertiesPanel(controller, self)
         self.addDockWidget(
