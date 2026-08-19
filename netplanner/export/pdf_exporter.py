@@ -20,6 +20,7 @@ TEXT_COLOR = HexColor("#111111")
 
 
 def export_pdf(plan: NetworkPlan, path: Path) -> None:
+    """Render the plan to a single-page PDF sized to fit the diagram."""
     scene = build_scene(plan)
     c = pdf_canvas.Canvas(str(path), pagesize=(scene.width, scene.height + 40))
     _draw(c, scene)

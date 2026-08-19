@@ -1,26 +1,53 @@
 """Default interface sets per device type (Packet Tracer style).
 
-New devices are created with a realistic set of ports. Users can add
-or remove interfaces afterwards via the interface editor.
+New devices are created with a realistic set of typed ports. Users can
+change the count and mix afterwards via the interface editor
+(right-click a device -> "Edit interfaces...").
 """
 
 from __future__ import annotations
 
-from .entities import DeviceType, Interface
+from .entities import DeviceType, Interface, InterfaceType
 
-_TEMPLATES: dict[DeviceType, list[str]] = {
-    DeviceType.ROUTER: ["Gig0/0", "Gig0/1", "Gig0/2", "Gig0/3"],
-    DeviceType.SWITCH: [f"Gig0/{n}" for n in range(1, 9)],
-    DeviceType.FIREWALL: ["wan0", "lan0", "lan1", "dmz0"],
-    DeviceType.SERVER: ["eth0", "eth1"],
-    DeviceType.ACCESS_POINT: ["eth0", "wlan0"],
-    DeviceType.DISH_RADIO: ["eth0", "wlan0 (PtP)"],
-    DeviceType.AP_RADIO: ["eth0", "wlan0 (sector)"],
-    DeviceType.WORKSTATION: ["eth0", "wlan0"],
-    DeviceType.OTHER: ["eth0"],
+# (name, type) templates per device type. Switches get 10G uplinks in
+# addition to their 1G access ports; radios get wireless ports.
+_TEMPLATES: dict[DeviceType, list[tuple[str, InterfaceType]]] = {
+    DeviceType.ROUTER: [(f"Gig0/{n}", InterfaceType.ETH_1G) for n in range(4)],
+    DeviceType.SWITCH: (
+        [(f"Gig0/{n}", InterfaceType.ETH_1G) for n in range(1, 9)]
+        + [("Ten0/1", InterfaceType.ETH_10G), ("Ten0/2", InterfaceType.ETH_10G)]
+    ),
+    DeviceType.FIREWALL: [
+        ("wan0", InterfaceType.ETH_1G),
+        ("lan0", InterfaceType.ETH_1G),
+        ("lan1", InterfaceType.ETH_1G),
+        ("dmz0", InterfaceType.ETH_1G),
+    ],
+    DeviceType.SERVER: [
+        ("eth0", InterfaceType.ETH_10G),
+        ("eth1", InterfaceType.ETH_10G),
+    ],
+    DeviceType.ACCESS_POINT: [
+        ("eth0", InterfaceType.ETH_1G),
+        ("wlan0", InterfaceType.WIRELESS),
+    ],
+    DeviceType.DISH_RADIO: [
+        ("eth0", InterfaceType.ETH_1G),
+        ("wlan0 (PtP)", InterfaceType.WIRELESS),
+    ],
+    DeviceType.AP_RADIO: [
+        ("eth0", InterfaceType.ETH_1G),
+        ("wlan0 (sector)", InterfaceType.WIRELESS),
+    ],
+    DeviceType.WORKSTATION: [
+        ("eth0", InterfaceType.ETH_1G),
+        ("wlan0", InterfaceType.WIRELESS),
+    ],
+    DeviceType.OTHER: [("eth0", InterfaceType.ETH_1G)],
 }
 
 
 def default_interfaces(device_type: DeviceType) -> list[Interface]:
-    names = _TEMPLATES.get(device_type, _TEMPLATES[DeviceType.OTHER])
-    return [Interface(name=name) for name in names]
+    """Build the fresh interface list for a newly-placed device."""
+    template = _TEMPLATES.get(device_type, _TEMPLATES[DeviceType.OTHER])
+    return [Interface(name=name, interface_type=itype) for name, itype in template]

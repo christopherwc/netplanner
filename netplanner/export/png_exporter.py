@@ -21,6 +21,7 @@ BG_COLOR = "#ffffff"
 
 
 def export_png(plan: NetworkPlan, path: Path) -> None:
+    """Render the plan to PNG; drawn at 2x then downsampled for antialiasing."""
     scene = build_scene(plan)
     w, h = int(scene.width) * SCALE, (int(scene.height) + 40) * SCALE
     img = Image.new("RGB", (w, h), BG_COLOR)

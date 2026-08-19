@@ -23,23 +23,35 @@ class NetworkPlan:
 
     # ------------------------------------------------------------------ devices
     def add_device(self, device: Device) -> Device:
+        """Add a device as a graph node; returns it for chaining."""
         self.graph.add_node(device.id, device=device)
         return device
 
     def remove_device(self, device_id: str) -> None:
+        """Remove a device; networkx also drops its incident links."""
         if self.graph.has_node(device_id):
-            self.graph.remove_node(device_id)  # also removes incident links
+            self.graph.remove_node(device_id)
 
     def get_device(self, device_id: str) -> Device | None:
+        """Look up a device by id; None if it does not exist."""
         data = self.graph.nodes.get(device_id)
         return data["device"] if data else None
 
     @property
     def devices(self) -> list[Device]:
+        """All devices in insertion order."""
         return [d["device"] for _, d in self.graph.nodes(data=True)]
 
     # -------------------------------------------------------------------- links
     def add_link(self, link: Link) -> Link:
+        """Connect two existing devices.
+
+        The link id doubles as the MultiGraph edge key so parallel links
+        between the same pair stay individually addressable.
+
+        Raises:
+            ValueError: if either endpoint device is not in the plan.
+        """
         if not (self.graph.has_node(link.a_device_id) and self.graph.has_node(link.b_device_id)):
             raise ValueError("Both devices must exist before linking them")
         self.graph.add_edge(link.a_device_id, link.b_device_id, key=link.id, link=link)
@@ -51,6 +63,7 @@ class NetworkPlan:
 
     @property
     def links(self) -> list[Link]:
+        """All links across all device pairs."""
         return [d["link"] for _, _, d in self.graph.edges(data=True)]
 
     # ---------------------------------------------------- subnets/vlans/sites
@@ -68,7 +81,9 @@ class NetworkPlan:
 
     # ------------------------------------------------------------------ queries
     def neighbors(self, device_id: str) -> list[Device]:
+        """Devices directly linked to the given device."""
         return [self.graph.nodes[n]["device"] for n in self.graph.neighbors(device_id)]
 
     def isolated_devices(self) -> list[Device]:
+        """Devices with no links at all (flagged by the validator)."""
         return [self.graph.nodes[n]["device"] for n in nx.isolates(self.graph)]
