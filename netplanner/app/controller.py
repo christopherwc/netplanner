@@ -112,12 +112,13 @@ class AppController:
         device_model: str,
         loopback_ip: str | None,
         notes: str,
+        native_vlan: int,
         new_interfaces: list[Interface],
     ) -> None:
-        """Update model, loopback IP, notes, and interfaces as one undo step."""
+        """Update model, loopback IP, notes, native VLAN, and interfaces as one undo step."""
         self.commands.push(
             EditDevicePropertiesCommand(
-                self.plan, device_id, device_model, loopback_ip, notes, new_interfaces
+                self.plan, device_id, device_model, loopback_ip, notes, native_vlan, new_interfaces
             )
         )
 

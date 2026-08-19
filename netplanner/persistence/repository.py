@@ -15,6 +15,7 @@ from netplanner.domain.entities import (
     Site,
     Subnet,
     Vlan,
+    VlanMode,
 )
 from netplanner.domain.model import NetworkPlan
 
@@ -83,6 +84,7 @@ def _device_to_dict(d: Device) -> dict:
     data["device_type"] = d.device_type.value
     for iface_data, iface in zip(data["interfaces"], d.interfaces):
         iface_data["interface_type"] = iface.interface_type.value
+        iface_data["vlan_mode"] = iface.vlan_mode.value
     return data
 
 
@@ -99,9 +101,13 @@ def _device_from_dict(data: dict) -> Device:
 
 
 def _interface_from_dict(data: dict) -> Interface:
-    """Rebuild an Interface, tolerating pre-MAC and pre-type payloads."""
+    """Rebuild an Interface, tolerating pre-MAC, pre-type, and pre-VLAN payloads."""
     data = dict(data)
     data["interface_type"] = InterfaceType(data.get("interface_type", "1g"))
+    # Older plans predate VLAN support; default to plain access-mode VLAN 1.
+    data["vlan_mode"] = VlanMode(data.get("vlan_mode", "access"))
+    data.setdefault("access_vlan", 1)
+    data.setdefault("trunk_vlans", [])
     # Older plans predate MACs; omitting the key lets the dataclass
     # default generate a fresh one.
     if not data.get("mac_address"):

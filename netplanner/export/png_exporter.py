@@ -22,6 +22,7 @@ from .nodecard import (
     IFACE_BLOCK_H,
     LOOPBACK_H,
     MODEL_H,
+    NATIVE_VLAN_H,
     NOTES_LINE_H,
     PAD,
     TYPE_BAND_H,
@@ -114,6 +115,15 @@ def export_png(plan: NetworkPlan, path: Path) -> None:
         )
         y += TYPE_BAND_H * SCALE
 
+        # Native VLAN: always shown (device-wide default is VLAN 1)
+        draw.text(
+            (left + 8 * SCALE, y + NATIVE_VLAN_H * SCALE / 2),
+            card.native_vlan_line,
+            fill="#333333",
+            anchor="lm",
+        )
+        y += NATIVE_VLAN_H * SCALE
+
         # Loopback IP: single line, only when set
         if card.loopback_line:
             draw.text(
@@ -124,18 +134,24 @@ def export_png(plan: NetworkPlan, path: Path) -> None:
             )
             y += LOOPBACK_H * SCALE
 
-        # Interface blocks: name+IP, MAC beneath in gray
+        # Interface blocks: name+IP, MAC beneath in gray, VLAN beneath that in blue
         for block in card.iface_blocks:
             draw.text(
-                (left + 8 * SCALE, y + IFACE_BLOCK_H * SCALE * 0.28),
+                (left + 8 * SCALE, y + IFACE_BLOCK_H * SCALE * 0.18),
                 block.top,
                 fill=TEXT_COLOR,
                 anchor="lm",
             )
             draw.text(
-                (left + 16 * SCALE, y + IFACE_BLOCK_H * SCALE * 0.75),
+                (left + 16 * SCALE, y + IFACE_BLOCK_H * SCALE * 0.5),
                 block.mac,
                 fill=MAC_COLOR,
+                anchor="lm",
+            )
+            draw.text(
+                (left + 16 * SCALE, y + IFACE_BLOCK_H * SCALE * 0.82),
+                block.vlan,
+                fill="#1a56db",
                 anchor="lm",
             )
             y += IFACE_BLOCK_H * SCALE

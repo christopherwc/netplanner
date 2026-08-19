@@ -58,6 +58,17 @@ class InterfaceType(Enum):
         }[self]
 
 
+class VlanMode(Enum):
+    """How an interface handles VLAN tagging."""
+
+    ACCESS = "access"  # untagged traffic for a single VLAN
+    TRUNK = "trunk"    # tagged traffic for multiple VLANs
+
+    @property
+    def label(self) -> str:
+        return {VlanMode.ACCESS: "Access", VlanMode.TRUNK: "Trunk"}[self]
+
+
 class LinkType(Enum):
     ETHERNET = "ethernet"
     FIBER = "fiber"
@@ -108,7 +119,19 @@ class Interface:
     ip_address: str | None = None  # CIDR notation, e.g. "10.0.1.1/24"
     mac_address: str = field(default_factory=blank_mac)
     subnet_id: str | None = None  # references Subnet.id
+    vlan_mode: VlanMode = VlanMode.ACCESS
+    access_vlan: int = 1  # VLAN carried untagged when vlan_mode is ACCESS
+    trunk_vlans: list[int] = field(default_factory=list)  # tagged VLANs when TRUNK
     id: str = field(default_factory=new_id)
+
+    def vlan_summary(self) -> str:
+        """Short human-readable VLAN description for cards and menus."""
+        if self.vlan_mode is VlanMode.TRUNK:
+            if self.trunk_vlans:
+                ids = ",".join(str(v) for v in sorted(self.trunk_vlans))
+                return f"Trunk: {ids}"
+            return "Trunk: (none)"
+        return f"VLAN {self.access_vlan}"
 
 
 @dataclass
@@ -123,6 +146,7 @@ class Device:
     notes: str = ""  # free-form text shown in its own card section
     device_model: str = ""  # e.g. "Cisco ISR 4331", shown under the name
     loopback_ip: str | None = None  # CIDR, e.g. "10.255.0.1/32"; not tied to a physical interface
+    native_vlan: int = 1  # device-wide native/management VLAN, shown on the card
     id: str = field(default_factory=new_id)
 
     def interface_by_name(self, name: str) -> Interface | None:

@@ -165,25 +165,33 @@ class EditDevicePropertiesCommand(Command):
         device_model: str,
         loopback_ip: str | None,
         notes: str,
+        native_vlan: int,
         new_interfaces: list[Interface],
     ):
         self.plan, self.device_id = plan, device_id
-        self.new = (device_model, loopback_ip, notes, list(new_interfaces))
+        self.new = (device_model, loopback_ip, notes, native_vlan, list(new_interfaces))
         device = plan.get_device(device_id)
         self.old = (
-            (device.device_model, device.loopback_ip, device.notes, list(device.interfaces))
+            (
+                device.device_model,
+                device.loopback_ip,
+                device.notes,
+                device.native_vlan,
+                list(device.interfaces),
+            )
             if device
-            else ("", None, "", [])
+            else ("", None, "", 1, [])
         )
         self.description = "Edit device properties"
 
     def _apply(self, values) -> None:
-        model, loopback_ip, notes, interfaces = values
+        model, loopback_ip, notes, native_vlan, interfaces = values
         d = self.plan.get_device(self.device_id)
         if d:
             d.device_model = model
             d.loopback_ip = loopback_ip
             d.notes = notes
+            d.native_vlan = native_vlan
             d.interfaces = list(interfaces)
 
     def execute(self) -> None:
