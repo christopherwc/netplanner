@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import functools
+import traceback
 from pathlib import Path
 
 from PyQt6.QtGui import QAction, QKeySequence
@@ -64,11 +66,34 @@ class MainWindow(QMainWindow):
         plan_menu.addAction(self._action("&Validate", None, self._validate))
 
     def _action(self, text: str, shortcut, slot) -> QAction:
+        """Build a menu action whose slot is wrapped in _guarded.
+
+        PyQt6 aborts the whole process on an unhandled exception inside
+        a slot, so every menu action goes through the guard: failures
+        surface as an error dialog and the app keeps running.
+        """
         action = QAction(text, self)
         if shortcut is not None:
             action.setShortcut(shortcut)
-        action.triggered.connect(slot)
+        action.triggered.connect(self._guarded(slot))
         return action
+
+    def _guarded(self, slot):
+        """Wrap a slot so exceptions become an error dialog, not a crash."""
+
+        @functools.wraps(slot)
+        def wrapper(*args, **kwargs):
+            try:
+                return slot()
+            except Exception as exc:  # noqa: BLE001 - last-resort UI guard
+                traceback.print_exc()
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"That action failed:\n\n{type(exc).__name__}: {exc}",
+                )
+
+        return wrapper
 
     # --------------------------------------------------------------- handlers
     def _new_plan(self) -> None:
