@@ -12,20 +12,18 @@ from dataclasses import dataclass
 from netplanner.domain.model import NetworkPlan
 
 from .geometry import offset_endpoints, parallel_link_offsets
+from .nodecard import NodeCard, build_card
 
-NODE_W = 120.0
-NODE_H = 60.0
 MARGIN = 60.0
 
 
 @dataclass
 class NodeShape:
+    """A positioned device card ready for drawing."""
+
     x: float  # top-left
     y: float
-    w: float
-    h: float
-    label: str
-    sublabel: str  # device type
+    card: NodeCard
 
 
 @dataclass
@@ -72,17 +70,11 @@ def build_scene(plan: NetworkPlan) -> Scene:
 
     centers = {d.id: (tx(d.x), ty(d.y)) for d in devices}
 
-    nodes = [
-        NodeShape(
-            x=cx - NODE_W / 2,
-            y=cy - NODE_H / 2,
-            w=NODE_W,
-            h=NODE_H,
-            label=d.name,
-            sublabel=d.device_type.value,
-        )
-        for d, (cx, cy) in ((d, centers[d.id]) for d in devices)
-    ]
+    nodes = []
+    for d in devices:
+        cx, cy = centers[d.id]
+        card = build_card(d)
+        nodes.append(NodeShape(x=cx - card.width / 2, y=cy - card.height / 2, card=card))
 
     edges = []
     offsets = parallel_link_offsets(plan.links)
@@ -100,8 +92,8 @@ def build_scene(plan: NetworkPlan) -> Scene:
             )
         )
 
-    width = max(n.x + n.w for n in nodes) + MARGIN
-    height = max(n.y + n.h for n in nodes) + MARGIN
+    width = max(n.x + n.card.width for n in nodes) + MARGIN
+    height = max(n.y + n.card.height for n in nodes) + MARGIN
     return Scene(width=width, height=height, nodes=nodes, edges=edges, title=plan.name)
 
 

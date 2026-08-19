@@ -28,16 +28,14 @@ from PyQt6.QtWidgets import (
 from netplanner.app.controller import AppController
 from netplanner.domain.entities import Device, DeviceType, LinkType
 from netplanner.export.geometry import offset_endpoints, parallel_link_offsets, point_along
+from netplanner.export import nodecard
 from netplanner.export.styles import link_style_for, style_for
 from netplanner.gui.dialogs import InterfacesDialog
 
-# Compact node size (details hidden) and detail-card metrics.
+# Compact node size used when View -> "Show device details" is off.
+# Detailed-card metrics come from export.nodecard so the GUI and the
+# PDF/PNG exporters always agree on node geometry.
 NODE_W, NODE_H = 120, 60
-CARD_W = 200          # width of the detailed device card
-HEADER_H = 26         # name row
-TYPE_ROW_H = 18       # device-type section
-IFACE_ROW_H = 24      # two text lines (port+IP, MAC) per interface
-CARD_PAD = 6
 _CANCELLED = object()  # sentinel: user dismissed the interface picker
 
 
@@ -70,18 +68,10 @@ class DeviceItem(QGraphicsItem):
         scene = self.scene()
         return bool(getattr(scene, "show_details", True))
 
-    def _card_height(self) -> float:
-        return (
-            HEADER_H
-            + TYPE_ROW_H
-            + len(self.device.interfaces) * IFACE_ROW_H
-            + CARD_PAD * 2
-        )
-
     def boundingRect(self) -> QRectF:
         if self._details_on():
-            h = self._card_height()
-            return QRectF(-CARD_W / 2, -h / 2, CARD_W, h)
+            card = nodecard.build_card(self.device)
+            return QRectF(-card.width / 2, -card.height / 2, card.width, card.height)
         return QRectF(-NODE_W / 2, -NODE_H / 2, NODE_W, NODE_H)
 
     # -------------------------------------------------------------- painting
@@ -100,21 +90,28 @@ class DeviceItem(QGraphicsItem):
         painter.drawRoundedRect(rect, 6, 6)
 
     def _paint_card(self, painter: QPainter) -> None:
+        """Detailed card: header / colored type band / interface IP+MAC blocks.
+
+        Layout and sizing come from export.nodecard, so this rendering is
+        pixel-compatible with the PDF/PNG exporters.
+        """
+        card = nodecard.build_card(self.device)
         rect = self.boundingRect()
         style = style_for(self.device.device_type)
         self._frame(painter, rect, style)
 
-        x = rect.left() + CARD_PAD
-        w = rect.width() - CARD_PAD * 2
-        y = rect.top() + CARD_PAD
+        left = rect.left()
+        top = rect.top()
 
         # Header: glyph + bold device name
         glyph_font = QFont()
-        glyph_font.setPointSize(13)
+        glyph_font.setPointSize(12)
         painter.setFont(glyph_font)
-        painter.setPen(QPen(QColor(style.stroke)))
+        painter.setPen(QPen(QColor(card.stroke)))
         painter.drawText(
-            QRectF(x, y, 22, HEADER_H), Qt.AlignmentFlag.AlignCenter, style.glyph
+            QRectF(left + 6, top, 22, nodecard.HEADER_H),
+            Qt.AlignmentFlag.AlignCenter,
+            card.glyph,
         )
         name_font = QFont()
         name_font.setBold(True)
@@ -122,50 +119,55 @@ class DeviceItem(QGraphicsItem):
         painter.setFont(name_font)
         painter.setPen(QPen(QColor("#111111")))
         painter.drawText(
-            QRectF(x + 26, y, w - 26, HEADER_H),
+            QRectF(left + 30, top, card.width - 36, nodecard.HEADER_H),
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            self.device.name,
+            card.name,
         )
-        y += HEADER_H
 
-        # Device-type section
-        type_font = QFont()
-        type_font.setPointSize(8)
-        painter.setFont(type_font)
-        painter.setPen(QPen(QColor(style.stroke)))
-        painter.drawText(
-            QRectF(x, y, w, TYPE_ROW_H),
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            f"Type: {self.device.device_type.value.replace('_', ' ')}",
-        )
-        y += TYPE_ROW_H
+        # Device-type band: filled strip in the type's color
+        band_rect = QRectF(left, top + nodecard.HEADER_H, card.width, nodecard.TYPE_BAND_H)
+        painter.setBrush(QBrush(QColor(card.stroke)))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRect(band_rect)
+        band_font = QFont()
+        band_font.setPointSize(7)
+        band_font.setBold(True)
+        painter.setFont(band_font)
+        painter.setPen(QPen(QColor("#ffffff")))
+        painter.drawText(band_rect, Qt.AlignmentFlag.AlignCenter, card.type_label.upper())
 
-        # Separator between header sections and the interface list
-        painter.setPen(QPen(QColor(style.stroke)))
-        painter.drawLine(int(x), int(y), int(x + w), int(y))
-
-        # Interface list: "name - ip" then MAC underneath in gray
+        # Interface blocks: "name  ip" line with the MAC beneath in gray
         iface_font = QFont()
         iface_font.setPointSize(8)
         mac_font = QFont()
         mac_font.setPointSize(7)
-        for iface in self.device.interfaces:
-            ip = f" — {iface.ip_address}" if iface.ip_address else ""
+        y = top + nodecard.HEADER_H + nodecard.TYPE_BAND_H
+        for block in card.iface_blocks:
             painter.setFont(iface_font)
             painter.setPen(QPen(QColor("#111111")))
             painter.drawText(
-                QRectF(x, y, w, IFACE_ROW_H / 2 + 2),
+                QRectF(left + 8, y, card.width - 16, nodecard.IFACE_BLOCK_H / 2 + 2),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                f"{iface.name}{ip}",
+                block.top,
             )
             painter.setFont(mac_font)
             painter.setPen(QPen(QColor("#777777")))
             painter.drawText(
-                QRectF(x + 10, y + IFACE_ROW_H / 2, w - 10, IFACE_ROW_H / 2),
+                QRectF(left + 16, y + nodecard.IFACE_BLOCK_H / 2, card.width - 24, nodecard.IFACE_BLOCK_H / 2),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                iface.mac_address,
+                block.mac,
             )
-            y += IFACE_ROW_H
+            y += nodecard.IFACE_BLOCK_H
+
+        # Overflow indicator for devices with many ports
+        if card.more_count:
+            painter.setFont(mac_font)
+            painter.setPen(QPen(QColor("#555555")))
+            painter.drawText(
+                QRectF(left + 8, y, card.width - 16, nodecard.FOOTER_H),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                f"+{card.more_count} more…",
+            )
 
     def _paint_compact(self, painter: QPainter) -> None:
         rect = self.boundingRect()
