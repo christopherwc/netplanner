@@ -88,3 +88,61 @@ def test_link_styles_cover_all_types():
     from netplanner.export.styles import LINK_STYLES
 
     assert set(LINK_STYLES) == set(LinkType)
+
+
+def test_default_interfaces_created():
+    from netplanner.app.controller import AppController
+    from unittest.mock import MagicMock
+
+    ctrl = AppController(repository=MagicMock())
+    rtr = ctrl.add_device("rtr1", DeviceType.ROUTER, 0, 0)
+    dish = ctrl.add_device("dish1", DeviceType.DISH_RADIO, 0, 0)
+    assert [i.name for i in rtr.interfaces] == ["Gig0/0", "Gig0/1", "Gig0/2", "Gig0/3"]
+    assert any("PtP" in i.name for i in dish.interfaces)
+
+
+def test_free_interfaces_shrink_as_links_use_them():
+    from netplanner.app.controller import AppController
+    from netplanner.domain.entities import LinkType
+    from unittest.mock import MagicMock
+
+    ctrl = AppController(repository=MagicMock())
+    a = ctrl.add_device("rtr1", DeviceType.ROUTER, 0, 0)
+    b = ctrl.add_device("sw1", DeviceType.SWITCH, 100, 0)
+    a_if = ctrl.free_interfaces(a.id)[0]
+    b_if = ctrl.free_interfaces(b.id)[0]
+    ctrl.add_link(a.id, b.id, LinkType.ETHERNET,
+                  a_interface_id=a_if.id, b_interface_id=b_if.id)
+    assert a_if.id not in {i.id for i in ctrl.free_interfaces(a.id)}
+    assert len(ctrl.free_interfaces(a.id)) == 3  # router started with 4
+    ctrl.undo()
+    assert len(ctrl.free_interfaces(a.id)) == 4  # freed again after undo
+
+
+def test_parallel_links_never_overlap():
+    from netplanner.domain.entities import Link
+    from netplanner.export.geometry import parallel_link_offsets
+
+    links = [
+        Link(a_device_id="A", b_device_id="B"),
+        Link(a_device_id="B", b_device_id="A"),  # reversed order, same pair
+        Link(a_device_id="A", b_device_id="B"),
+        Link(a_device_id="A", b_device_id="C"),  # different pair
+    ]
+    offsets = parallel_link_offsets(links)
+    ab_offsets = [offsets[l.id] for l in links[:3]]
+    assert len(set(ab_offsets)) == 3  # all distinct -> no overlap
+    assert offsets[links[3].id] == 0  # lone link stays centered
+
+
+def test_edit_interfaces_undoable():
+    from netplanner.app.controller import AppController
+    from netplanner.domain.entities import Interface
+    from unittest.mock import MagicMock
+
+    ctrl = AppController(repository=MagicMock())
+    d = ctrl.add_device("srv1", DeviceType.SERVER, 0, 0)
+    ctrl.edit_interfaces(d.id, [Interface(name="bond0", ip_address="10.0.0.5/24")])
+    assert [i.name for i in d.interfaces] == ["bond0"]
+    ctrl.undo()
+    assert [i.name for i in d.interfaces] == ["eth0", "eth1"]

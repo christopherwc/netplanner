@@ -9,6 +9,7 @@ from reportlab.pdfgen import canvas as pdf_canvas
 
 from netplanner.domain.model import NetworkPlan
 
+from .geometry import point_along
 from .renderer import Scene, build_scene
 from .styles import link_style_for_value, style_for_value
 
@@ -49,6 +50,12 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
             c.setFillColor(HexColor(lstyle.color))
             c.setFont("Helvetica", 7)
             c.drawCentredString((e.x1 + e.x2) / 2, (fy(e.y1) + fy(e.y2)) / 2 - 40 + 4, e.label)
+        c.setFillColor(HexColor("#666666"))
+        c.setFont("Helvetica", 6)
+        for port, t in ((e.a_port, 0.25), (e.b_port, 0.75)):
+            if port:
+                px, py = point_along(e.x1, fy(e.y1) - 40, e.x2, fy(e.y2) - 40, t)
+                c.drawCentredString(px, py + 3, port)
     c.setDash([])
 
     # Nodes

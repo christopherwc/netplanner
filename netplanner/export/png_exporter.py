@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw
 
 from netplanner.domain.model import NetworkPlan
 
+from .geometry import point_along
 from .renderer import build_scene
 from .styles import link_style_for_value, style_for_value
 
@@ -43,6 +44,10 @@ def export_png(plan: NetworkPlan, path: Path) -> None:
         if e.label:
             mid = ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2 - 8 * SCALE)
             draw.text(mid, e.label, fill=lstyle.color, anchor="mm")
+        for port, t in ((e.a_port, 0.25), (e.b_port, 0.75)):
+            if port:
+                pp = point_along(p1[0], p1[1], p2[0], p2[1], t)
+                draw.text((pp[0], pp[1] - 6 * SCALE), port, fill="#666666", anchor="mm")
 
     # Nodes
     for n in scene.nodes:
