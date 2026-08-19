@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netplanner"
+version = "0.1.0"
+description = "Network planning tool with GUI, persistent storage, and PDF/PNG export"
+requires-python = ">=3.10"
+dependencies = [
+    "PyQt6>=6.6",
+    "networkx>=3.2",
+    "SQLAlchemy>=2.0",
+    "reportlab>=4.0",
+    "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+layout = ["pygraphviz>=1.12"]
+
+[project.scripts]
+netplanner = "netplanner.main:main"
+
+[tool.setuptools.packages.find]
+include = ["netplanner*"]
