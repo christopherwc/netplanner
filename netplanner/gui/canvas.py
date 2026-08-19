@@ -14,10 +14,19 @@ Interaction model:
 from __future__ import annotations
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen
+from PyQt6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QPainter,
+    QPainterPath,
+    QPainterPathStroker,
+    QPen,
+)
 from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (
     QGraphicsItem,
+    QGraphicsLineItem,
     QGraphicsScene,
     QGraphicsView,
     QInputDialog,
@@ -26,7 +35,7 @@ from PyQt6.QtWidgets import (
 )
 
 from netplanner.app.controller import AppController
-from netplanner.domain.entities import Device, DeviceType, LinkType
+from netplanner.domain.entities import Device, DeviceType, Link, LinkType
 from netplanner.export.geometry import offset_endpoints, parallel_link_offsets, point_along
 from netplanner.export import nodecard
 from netplanner.export.styles import link_style_for, style_for
@@ -331,8 +340,14 @@ class DeviceItem(QGraphicsItem):
         menu = QMenu()
         rename_action = menu.addAction("Rename…")
         props_action = menu.addAction("Edit properties…")
+        menu.addSeparator()
+        delete_action = menu.addAction("Delete device")
         chosen = menu.exec(event.screenPos())
-        if chosen is rename_action:
+        if chosen is delete_action:
+            scene = self.scene()
+            if isinstance(scene, PlanScene):
+                scene.delete_items([self])
+        elif chosen is rename_action:
             self._rename()
         elif chosen is props_action:
             dialog = DevicePropertiesDialog(self.device)
@@ -368,6 +383,59 @@ class DeviceItem(QGraphicsItem):
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
+
+
+class LinkItem(QGraphicsLineItem):
+    """A selectable cable between two devices.
+
+    Plain QGraphicsLineItem lines are hard to hit with a mouse, so this
+    widens the clickable area via a shape() stroked well beyond the
+    drawn pen width, and highlights on selection so the user can see
+    what they are about to delete.
+    """
+
+    HIT_WIDTH = 12.0  # generous click target regardless of drawn width
+
+    def __init__(self, link: Link, controller: AppController, x1, y1, x2, y2, pen: QPen):
+        super().__init__(x1, y1, x2, y2)
+        self.link = link
+        self.controller = controller
+        self._base_pen = pen
+        self.setPen(pen)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
+        self.setZValue(-1)
+
+    def shape(self):
+        """Widen the hit area so thin/dashed cables are still clickable."""
+        stroker = QPainterPathStroker()
+        stroker.setWidth(self.HIT_WIDTH)
+        path = QPainterPath()
+        path.moveTo(self.line().p1())
+        path.lineTo(self.line().p2())
+        return stroker.createStroke(path)
+
+    def paint(self, painter: QPainter, option, widget=None) -> None:
+        """Draw the cable, thickened and highlighted while selected."""
+        if self.isSelected():
+            pen = QPen(self._base_pen)
+            pen.setWidthF(self._base_pen.widthF() + 2)
+            pen.setColor(QColor("#e8710a"))
+            painter.setPen(pen)
+            painter.drawLine(self.line())
+        else:
+            painter.setPen(self._base_pen)
+            painter.drawLine(self.line())
+
+    def contextMenuEvent(self, event) -> None:
+        """Right-click a cable: delete it."""
+        menu = QMenu()
+        delete_action = menu.addAction("Delete link")
+        if menu.exec(event.screenPos()) is delete_action:
+            self.controller.delete_link(self.link)
+            scene = self.scene()
+            if isinstance(scene, PlanScene):
+                scene.rebuild()
+        event.accept()
 
 
 class PlanScene(QGraphicsScene):
@@ -427,8 +495,8 @@ class PlanScene(QGraphicsScene):
             pen.setWidthF(lstyle.width)
             if lstyle.dash:
                 pen.setDashPattern([v / lstyle.width for v in lstyle.dash])
-            line = self.addLine(x1, y1, x2, y2, pen)
-            line.setZValue(-1)
+            line = LinkItem(link, self.controller, x1, y1, x2, y2, pen)
+            self.addItem(line)
             self._link_items.append(line)
             if link.label:
                 text = self.addSimpleText(link.label)
@@ -536,6 +604,74 @@ class PlanScene(QGraphicsScene):
             return _CANCELLED
         return actions[chosen]
 
+    def delete_items(self, items) -> None:
+        """Delete the given device/link items, confirming cascading loss.
+
+        Deleting a device also removes its cables, so the user is warned
+        when that would happen; everything goes through the command
+        stack, and a multi-item selection is still a single undo step
+        per item.
+        """
+        devices = [i for i in items if isinstance(i, DeviceItem)]
+        links = [i for i in items if isinstance(i, LinkItem)]
+        if not devices and not links:
+            return
+
+        # Count cables that would disappear as a side effect of removing
+        # devices, ignoring ones the user already selected explicitly.
+        selected_link_ids = {i.link.id for i in links}
+        cascading = {
+            link.id
+            for item in devices
+            for link in self.controller.links_for_device(item.device.id)
+            if link.id not in selected_link_ids
+        }
+
+        summary = []
+        if devices:
+            summary.append(
+                f"{len(devices)} device(s): "
+                + ", ".join(i.device.name for i in devices)
+            )
+        if links:
+            summary.append(f"{len(links)} link(s)")
+        message = "Delete " + " and ".join(summary) + "?"
+        if cascading:
+            message += (
+                f"\n\nThis will also remove {len(cascading)} attached "
+                "link(s). This can be undone with Ctrl+Z."
+            )
+
+        confirm = QMessageBox.question(
+            None,
+            "Confirm delete",
+            message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm is not QMessageBox.StandardButton.Yes:
+            return
+
+        # Links first: deleting a device would otherwise take them with
+        # it, leaving a redundant no-op command on the undo stack.
+        for item in links:
+            self.controller.delete_link(item.link)
+        for item in devices:
+            self.controller.delete_device(item.device.id)
+        self.rebuild()
+
+    def delete_selection(self) -> None:
+        """Delete whatever is currently selected on the canvas."""
+        self.delete_items(list(self.selectedItems()))
+
+    def keyPressEvent(self, event) -> None:
+        """Delete/Backspace removes the current selection."""
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            self.delete_selection()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     def _clear_pending(self) -> None:
         """Cancel a half-made connection (first device already picked)."""
         if self._pending_source is not None:
@@ -582,6 +718,10 @@ class NetworkCanvas(QGraphicsView):
         """Toggle sectioned cards (IPs, MACs, type) vs compact nodes."""
         self._scene.show_details = on
         self._scene.rebuild()
+
+    def delete_selection(self) -> None:
+        """Delete the canvas selection (used by the Edit menu action)."""
+        self._scene.delete_selection()
 
     def set_tool(self, tool: DeviceType | LinkType | None) -> None:
         """Arm a palette tool: DeviceType places, LinkType connects, None selects."""
