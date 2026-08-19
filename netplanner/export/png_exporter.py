@@ -16,7 +16,16 @@ from PIL import Image, ImageDraw
 from netplanner.domain.model import NetworkPlan
 
 from .geometry import point_along
-from .nodecard import FOOTER_H, HEADER_H, IFACE_BLOCK_H, TYPE_BAND_H
+from .nodecard import (
+    FOOTER_H,
+    HEADER_H,
+    IFACE_BLOCK_H,
+    LOOPBACK_H,
+    MODEL_H,
+    NOTES_LINE_H,
+    PAD,
+    TYPE_BAND_H,
+)
 from .renderer import build_scene
 from .styles import link_style_for_value
 
@@ -80,21 +89,42 @@ def export_png(plan: NetworkPlan, path: Path) -> None:
             anchor="lm",
         )
 
+        y = top + HEADER_H * SCALE
+
+        # Device model: small italic-ish line under the name, only when set
+        if card.device_model:
+            draw.text(
+                (left + 8 * SCALE, y + MODEL_H * SCALE / 2),
+                card.device_model,
+                fill="#555555",
+                anchor="lm",
+            )
+            y += MODEL_H * SCALE
+
         # Type band
-        band_top = top + HEADER_H * SCALE
         draw.rectangle(
-            (left, band_top, right, band_top + TYPE_BAND_H * SCALE),
+            (left, y, right, y + TYPE_BAND_H * SCALE),
             fill=card.stroke,
         )
         draw.text(
-            ((left + right) / 2, band_top + TYPE_BAND_H * SCALE / 2),
+            ((left + right) / 2, y + TYPE_BAND_H * SCALE / 2),
             card.type_label.upper(),
             fill="#ffffff",
             anchor="mm",
         )
+        y += TYPE_BAND_H * SCALE
+
+        # Loopback IP: single line, only when set
+        if card.loopback_line:
+            draw.text(
+                (left + 8 * SCALE, y + LOOPBACK_H * SCALE / 2),
+                card.loopback_line,
+                fill="#333333",
+                anchor="lm",
+            )
+            y += LOOPBACK_H * SCALE
 
         # Interface blocks: name+IP, MAC beneath in gray
-        y = band_top + TYPE_BAND_H * SCALE
         for block in card.iface_blocks:
             draw.text(
                 (left + 8 * SCALE, y + IFACE_BLOCK_H * SCALE * 0.28),
@@ -117,6 +147,21 @@ def export_png(plan: NetworkPlan, path: Path) -> None:
                 fill=MAC_COLOR,
                 anchor="lm",
             )
+            y += FOOTER_H * SCALE
+
+        # Notes: wrapped lines below a separator, only when set
+        if card.notes_lines:
+            y += PAD * SCALE / 2
+            draw.line((left + 4 * SCALE, y, right - 4 * SCALE, y), fill=card.stroke, width=SCALE)
+            y += 2 * SCALE
+            for line in card.notes_lines:
+                draw.text(
+                    (left + 8 * SCALE, y + NOTES_LINE_H * SCALE / 2),
+                    line,
+                    fill="#444444",
+                    anchor="lm",
+                )
+                y += NOTES_LINE_H * SCALE
 
     # Downsample for antialiasing
     img = img.resize((w // SCALE, h // SCALE), Image.LANCZOS)

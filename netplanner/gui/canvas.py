@@ -30,7 +30,7 @@ from netplanner.domain.entities import Device, DeviceType, LinkType
 from netplanner.export.geometry import offset_endpoints, parallel_link_offsets, point_along
 from netplanner.export import nodecard
 from netplanner.export.styles import link_style_for, style_for
-from netplanner.gui.dialogs import InterfacesDialog
+from netplanner.gui.dialogs import DevicePropertiesDialog
 
 # Compact node size used when View -> "Show device details" is off.
 # Detailed-card metrics come from export.nodecard so the GUI and the
@@ -124,8 +124,24 @@ class DeviceItem(QGraphicsItem):
             card.name,
         )
 
+        y = top + nodecard.HEADER_H
+
+        # Device model: small line under the name, only when set
+        if card.device_model:
+            model_font = QFont()
+            model_font.setPointSize(7)
+            model_font.setItalic(True)
+            painter.setFont(model_font)
+            painter.setPen(QPen(QColor("#555555")))
+            painter.drawText(
+                QRectF(left + 8, y, card.width - 16, nodecard.MODEL_H),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                card.device_model,
+            )
+            y += nodecard.MODEL_H
+
         # Device-type band: filled strip in the type's color
-        band_rect = QRectF(left, top + nodecard.HEADER_H, card.width, nodecard.TYPE_BAND_H)
+        band_rect = QRectF(left, y, card.width, nodecard.TYPE_BAND_H)
         painter.setBrush(QBrush(QColor(card.stroke)))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRect(band_rect)
@@ -135,13 +151,27 @@ class DeviceItem(QGraphicsItem):
         painter.setFont(band_font)
         painter.setPen(QPen(QColor("#ffffff")))
         painter.drawText(band_rect, Qt.AlignmentFlag.AlignCenter, card.type_label.upper())
+        y += nodecard.TYPE_BAND_H
+
+        # Loopback IP: single line, only when set
+        if card.loopback_line:
+            loopback_font = QFont()
+            loopback_font.setPointSize(7)
+            loopback_font.setBold(True)
+            painter.setFont(loopback_font)
+            painter.setPen(QPen(QColor("#333333")))
+            painter.drawText(
+                QRectF(left + 8, y, card.width - 16, nodecard.LOOPBACK_H),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                card.loopback_line,
+            )
+            y += nodecard.LOOPBACK_H
 
         # Interface blocks: "name  ip" line with the MAC beneath in gray
         iface_font = QFont()
         iface_font.setPointSize(8)
         mac_font = QFont()
         mac_font.setPointSize(7)
-        y = top + nodecard.HEADER_H + nodecard.TYPE_BAND_H
         for block in card.iface_blocks:
             painter.setFont(iface_font)
             painter.setPen(QPen(QColor("#111111")))
@@ -168,6 +198,26 @@ class DeviceItem(QGraphicsItem):
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                 f"+{card.more_count} more…",
             )
+            y += nodecard.FOOTER_H
+
+        # Notes: wrapped, word-limited lines, only when set
+        if card.notes_lines:
+            y += nodecard.PAD / 2
+            painter.setPen(QPen(QColor(card.stroke)))
+            painter.drawLine(int(left + 4), int(y), int(left + card.width - 4), int(y))
+            y += 2
+            notes_font = QFont()
+            notes_font.setPointSize(7)
+            notes_font.setItalic(True)
+            painter.setFont(notes_font)
+            painter.setPen(QPen(QColor("#444444")))
+            for line in card.notes_lines:
+                painter.drawText(
+                    QRectF(left + 8, y, card.width - 16, nodecard.NOTES_LINE_H),
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                    line,
+                )
+                y += nodecard.NOTES_LINE_H
 
     def _paint_compact(self, painter: QPainter) -> None:
         rect = self.boundingRect()
@@ -205,17 +255,23 @@ class DeviceItem(QGraphicsItem):
     def contextMenuEvent(self, event) -> None:
         menu = QMenu()
         rename_action = menu.addAction("Rename…")
-        ifaces_action = menu.addAction("Edit interfaces…")
+        props_action = menu.addAction("Edit properties…")
         chosen = menu.exec(event.screenPos())
         if chosen is rename_action:
             self._rename()
-        elif chosen is ifaces_action:
-            dialog = InterfacesDialog(self.device)
+        elif chosen is props_action:
+            dialog = DevicePropertiesDialog(self.device)
             if dialog.exec():
-                self.controller.edit_interfaces(self.device.id, dialog.result_interfaces())
+                self.controller.edit_device_properties(
+                    self.device.id,
+                    dialog.result_device_model(),
+                    dialog.result_loopback_ip(),
+                    dialog.result_notes(),
+                    dialog.result_interfaces(),
+                )
                 scene = self.scene()
                 if isinstance(scene, PlanScene):
-                    scene.rebuild()  # card height depends on interface count
+                    scene.rebuild()  # card height depends on all edited fields
         event.accept()
 
     def _rename(self) -> None:

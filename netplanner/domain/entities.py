@@ -5,7 +5,6 @@ Plain dataclasses, independent of GUI and persistence layers.
 
 from __future__ import annotations
 
-import random
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
@@ -16,15 +15,14 @@ def new_id() -> str:
     return uuid.uuid4().hex
 
 
-def random_mac() -> str:
-    """Generate a locally-administered unicast MAC (02:xx:xx:xx:xx:xx).
+def blank_mac() -> str:
+    """Default MAC for a freshly created interface: all zeros.
 
-    The 0x02 first octet sets the locally-administered bit and clears
-    the multicast bit, so generated addresses can never collide with
-    real vendor OUIs.
+    Left as a placeholder for the user to fill in with a real or
+    generated address; all-zeros is unambiguous and never looks like a
+    plausible real address, unlike a randomly generated one.
     """
-    octets = [0x02] + [random.randint(0, 255) for _ in range(5)]
-    return ":".join(f"{o:02X}" for o in octets)
+    return "00:00:00:00:00:00"
 
 
 class DeviceType(Enum):
@@ -108,7 +106,7 @@ class Interface:
     name: str  # e.g. "eth0", "Gig0/1", "wlan0"
     interface_type: InterfaceType = InterfaceType.ETH_1G
     ip_address: str | None = None  # CIDR notation, e.g. "10.0.1.1/24"
-    mac_address: str = field(default_factory=random_mac)
+    mac_address: str = field(default_factory=blank_mac)
     subnet_id: str | None = None  # references Subnet.id
     id: str = field(default_factory=new_id)
 
@@ -122,7 +120,9 @@ class Device:
     # Canvas position (used by GUI and renderer)
     x: float = 0.0
     y: float = 0.0
-    notes: str = ""
+    notes: str = ""  # free-form text shown in its own card section
+    device_model: str = ""  # e.g. "Cisco ISR 4331", shown under the name
+    loopback_ip: str | None = None  # CIDR, e.g. "10.255.0.1/32"; not tied to a physical interface
     id: str = field(default_factory=new_id)
 
     def interface_by_name(self, name: str) -> Interface | None:
