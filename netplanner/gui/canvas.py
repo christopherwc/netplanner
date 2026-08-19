@@ -31,11 +31,31 @@ from netplanner.export.geometry import offset_endpoints, parallel_link_offsets, 
 from netplanner.export.styles import link_style_for, style_for
 from netplanner.gui.dialogs import InterfacesDialog
 
+# Compact node size (details hidden) and detail-card metrics.
 NODE_W, NODE_H = 120, 60
+CARD_W = 200          # width of the detailed device card
+HEADER_H = 26         # name row
+TYPE_ROW_H = 18       # device-type section
+IFACE_ROW_H = 24      # two text lines (port+IP, MAC) per interface
+CARD_PAD = 6
 _CANCELLED = object()  # sentinel: user dismissed the interface picker
 
 
 class DeviceItem(QGraphicsItem):
+    """A device rendered as a sectioned card (or a compact node).
+
+    Detailed card layout (default):
+        [glyph] name          <- header
+        Type: router          <- device-type section
+        ----------------------
+        Gig0/0 - 10.0.0.1/24  <- one block per interface
+          02:AB:CD:12:34:56      (MAC on its own line, monospace-ish)
+
+    When the scene's show_details flag is off, the old compact
+    glyph+name node is drawn instead. The bounding rect is computed
+    from the content, so cards grow with their interface count.
+    """
+
     def __init__(self, device: Device, controller: AppController):
         super().__init__()
         self.device = device
@@ -45,20 +65,113 @@ class DeviceItem(QGraphicsItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
         self.setPos(device.x, device.y)
 
+    # ------------------------------------------------------------- geometry
+    def _details_on(self) -> bool:
+        scene = self.scene()
+        return bool(getattr(scene, "show_details", True))
+
+    def _card_height(self) -> float:
+        return (
+            HEADER_H
+            + TYPE_ROW_H
+            + len(self.device.interfaces) * IFACE_ROW_H
+            + CARD_PAD * 2
+        )
+
     def boundingRect(self) -> QRectF:
+        if self._details_on():
+            h = self._card_height()
+            return QRectF(-CARD_W / 2, -h / 2, CARD_W, h)
         return QRectF(-NODE_W / 2, -NODE_H / 2, NODE_W, NODE_H)
 
+    # -------------------------------------------------------------- painting
     def paint(self, painter: QPainter, option, widget=None) -> None:
-        rect = self.boundingRect()
-        style = style_for(self.device.device_type)
+        if self._details_on():
+            self._paint_card(painter)
+        else:
+            self._paint_compact(painter)
 
+    def _frame(self, painter: QPainter, rect: QRectF, style) -> None:
+        """Draw the shared rounded frame with selection/pending highlight."""
         painter.setBrush(QBrush(QColor(style.fill)))
         pen = QPen(QColor("#e8710a" if self.pending_source else style.stroke))
         pen.setWidth(3 if (self.isSelected() or self.pending_source) else 1)
         painter.setPen(pen)
         painter.drawRoundedRect(rect, 6, 6)
 
-        # Glyph on the left
+    def _paint_card(self, painter: QPainter) -> None:
+        rect = self.boundingRect()
+        style = style_for(self.device.device_type)
+        self._frame(painter, rect, style)
+
+        x = rect.left() + CARD_PAD
+        w = rect.width() - CARD_PAD * 2
+        y = rect.top() + CARD_PAD
+
+        # Header: glyph + bold device name
+        glyph_font = QFont()
+        glyph_font.setPointSize(13)
+        painter.setFont(glyph_font)
+        painter.setPen(QPen(QColor(style.stroke)))
+        painter.drawText(
+            QRectF(x, y, 22, HEADER_H), Qt.AlignmentFlag.AlignCenter, style.glyph
+        )
+        name_font = QFont()
+        name_font.setBold(True)
+        name_font.setPointSize(10)
+        painter.setFont(name_font)
+        painter.setPen(QPen(QColor("#111111")))
+        painter.drawText(
+            QRectF(x + 26, y, w - 26, HEADER_H),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            self.device.name,
+        )
+        y += HEADER_H
+
+        # Device-type section
+        type_font = QFont()
+        type_font.setPointSize(8)
+        painter.setFont(type_font)
+        painter.setPen(QPen(QColor(style.stroke)))
+        painter.drawText(
+            QRectF(x, y, w, TYPE_ROW_H),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            f"Type: {self.device.device_type.value.replace('_', ' ')}",
+        )
+        y += TYPE_ROW_H
+
+        # Separator between header sections and the interface list
+        painter.setPen(QPen(QColor(style.stroke)))
+        painter.drawLine(int(x), int(y), int(x + w), int(y))
+
+        # Interface list: "name - ip" then MAC underneath in gray
+        iface_font = QFont()
+        iface_font.setPointSize(8)
+        mac_font = QFont()
+        mac_font.setPointSize(7)
+        for iface in self.device.interfaces:
+            ip = f" — {iface.ip_address}" if iface.ip_address else ""
+            painter.setFont(iface_font)
+            painter.setPen(QPen(QColor("#111111")))
+            painter.drawText(
+                QRectF(x, y, w, IFACE_ROW_H / 2 + 2),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                f"{iface.name}{ip}",
+            )
+            painter.setFont(mac_font)
+            painter.setPen(QPen(QColor("#777777")))
+            painter.drawText(
+                QRectF(x + 10, y + IFACE_ROW_H / 2, w - 10, IFACE_ROW_H / 2),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                iface.mac_address,
+            )
+            y += IFACE_ROW_H
+
+    def _paint_compact(self, painter: QPainter) -> None:
+        rect = self.boundingRect()
+        style = style_for(self.device.device_type)
+        self._frame(painter, rect, style)
+
         glyph_rect = QRectF(rect.left() + 6, rect.top(), 28, rect.height())
         glyph_font = QFont()
         glyph_font.setPointSize(16)
@@ -66,7 +179,6 @@ class DeviceItem(QGraphicsItem):
         painter.setPen(QPen(QColor(style.stroke)))
         painter.drawText(glyph_rect, Qt.AlignmentFlag.AlignCenter, style.glyph)
 
-        # Name + type on the right
         text_rect = QRectF(rect.left() + 36, rect.top(), rect.width() - 42, rect.height())
         name_font = QFont()
         name_font.setBold(True)
@@ -101,7 +213,7 @@ class DeviceItem(QGraphicsItem):
                 self.controller.edit_interfaces(self.device.id, dialog.result_interfaces())
                 scene = self.scene()
                 if isinstance(scene, PlanScene):
-                    scene.update_links()
+                    scene.rebuild()  # card height depends on interface count
         event.accept()
 
     def _rename(self) -> None:
@@ -126,6 +238,7 @@ class PlanScene(QGraphicsScene):
         super().__init__()
         self.controller = controller
         self.armed_tool: DeviceType | LinkType | None = None
+        self.show_details = True  # sectioned cards by default; View menu toggles
         self._pending_source: DeviceItem | None = None
         self._pending_a_iface: str | None = None
         self._device_items: dict[str, DeviceItem] = {}
@@ -310,6 +423,11 @@ class NetworkCanvas(QGraphicsView):
 
     def refresh(self) -> None:
         """Rebuild the scene after external changes (load, undo, layout...)."""
+        self._scene.rebuild()
+
+    def set_show_details(self, on: bool) -> None:
+        """Toggle sectioned cards (IPs, MACs, type) vs compact nodes."""
+        self._scene.show_details = on
         self._scene.rebuild()
 
     def set_tool(self, tool: DeviceType | LinkType | None) -> None:

@@ -99,8 +99,13 @@ def _device_from_dict(data: dict) -> Device:
 
 
 def _interface_from_dict(data: dict) -> Interface:
+    """Rebuild an Interface, tolerating pre-MAC and pre-type payloads."""
     data = dict(data)
     data["interface_type"] = InterfaceType(data.get("interface_type", "1g"))
+    # Older plans predate MACs; omitting the key lets the dataclass
+    # default generate a fresh one.
+    if not data.get("mac_address"):
+        data.pop("mac_address", None)
     return Interface(**data)
 
 

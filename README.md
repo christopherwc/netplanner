@@ -16,6 +16,14 @@ equipment, cable it up port-by-port, and export the result.
   *Edit interfaces…* to add/remove any number of ports of any type:
   **Wireless, 1 Gbps, 10 Gbps, 25 Gbps, or 100 Gbps**, with optional IP
   addresses in CIDR notation.
+- **MAC addresses** — every interface automatically receives a unique
+  locally-administered MAC (`02:xx:xx:xx:xx:xx`), editable in the
+  interface dialog when documenting real hardware. Plans saved before
+  this feature load fine; missing MACs are generated on load.
+- **Device cards** — devices render as sectioned cards showing the
+  name, a device-type row, and the full interface list with IP and MAC
+  per port — all visible by default. *View → Show device details*
+  toggles back to compact glyph+name nodes for dense diagrams.
 - **Media-typed connections** — pick Copper/Ethernet, Fiber, Wireless,
   Serial, or WAN from the palette, then click two devices. Each click
   pops up that device's free ports so you choose exactly which
@@ -85,8 +93,11 @@ netplanner
 2. Click **Switch**, place `sw1`.
 3. Click **Copper / Ethernet** under Connections, click `rtr1`, pick
    `Gig0/0`, click `sw1`, pick `Gig0/1` — cabled.
-4. Right-click `sw1` → *Edit interfaces…* to add a 25 Gbps port.
-5. **File → Export PDF…** for a shareable diagram.
+4. Right-click `sw1` → *Edit interfaces…* to add a 25 Gbps port, set
+   IPs, or paste in real MAC addresses.
+5. Each device card lists every port with its IP and MAC — uncheck
+   **View → Show device details** if you prefer compact nodes.
+6. **File → Export PDF…** for a shareable diagram.
 
 Esc always returns to Select/Move mode.
 

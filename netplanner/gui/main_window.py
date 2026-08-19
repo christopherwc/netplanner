@@ -52,6 +52,13 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self._action("&Undo", QKeySequence.StandardKey.Undo, self._undo))
         edit_menu.addAction(self._action("&Redo", QKeySequence.StandardKey.Redo, self._redo))
 
+        view_menu = bar.addMenu("&View")
+        details_action = QAction("Show device &details", self)
+        details_action.setCheckable(True)
+        details_action.setChecked(True)  # IPs, MACs, and type visible by default
+        details_action.toggled.connect(self.canvas.set_show_details)
+        view_menu.addAction(details_action)
+
         plan_menu = bar.addMenu("&Plan")
         plan_menu.addAction(self._action("&Auto layout", None, self._auto_layout))
         plan_menu.addAction(self._action("&Validate", None, self._validate))

@@ -183,3 +183,40 @@ def test_interface_types_persist():
     loaded_types = {i.name: i.interface_type for i in loaded.devices[0].interfaces}
     assert loaded_types["Hun0/1"] == InterfaceType.ETH_100G
     assert loaded_types["Twe0/1"] == InterfaceType.ETH_25G
+
+
+def test_macs_generated_and_unique():
+    from netplanner.app.controller import AppController
+    from unittest.mock import MagicMock
+
+    ctrl = AppController(repository=MagicMock())
+    sw = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    macs = [i.mac_address for i in sw.interfaces]
+    assert all(m.startswith("02:") and len(m) == 17 for m in macs)
+    assert len(set(macs)) == len(macs)  # astronomically unlikely to collide
+
+
+def test_macs_persist_and_legacy_payloads_get_one():
+    from pathlib import Path
+    from netplanner.domain.entities import Device, Interface
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.persistence.repository import (
+        PlanRepository,
+        _device_from_dict,
+        _device_to_dict,
+    )
+
+    repo = PlanRepository(db_path=Path("/tmp/mac_test.db"))
+    plan = NetworkPlan("macs")
+    dev = Device(name="rtr1", device_type=DeviceType.ROUTER,
+                 interfaces=[Interface(name="Gig0/0", mac_address="02:AA:BB:CC:DD:EE")])
+    plan.add_device(dev)
+    repo.save(plan)
+    loaded = repo.load(plan.id)
+    assert loaded.devices[0].interfaces[0].mac_address == "02:AA:BB:CC:DD:EE"
+
+    # Legacy payload (pre-MAC): a fresh MAC is generated on load
+    legacy = _device_to_dict(dev)
+    del legacy["interfaces"][0]["mac_address"]
+    revived = _device_from_dict(legacy)
+    assert revived.interfaces[0].mac_address.startswith("02:")

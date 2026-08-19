@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from netplanner.domain.entities import Device, Interface, InterfaceType
+from netplanner.domain.entities import Device, Interface, InterfaceType, random_mac
 
 # Row order for the Type dropdown in the editor.
 _TYPE_CHOICES = [
@@ -41,18 +41,21 @@ class InterfacesDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Name", "Type", "IP address (CIDR)"])
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["Name", "Type", "IP address (CIDR)", "MAC address"])
         self.table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.table)
 
         for iface in device.interfaces:
-            self._append_row(iface.name, iface.interface_type, iface.ip_address or "", iface.id)
+            self._append_row(
+                iface.name, iface.interface_type, iface.ip_address or "",
+                iface.mac_address, iface.id,
+            )
 
         buttons_row = QHBoxLayout()
         add_btn = QPushButton("Add interface")
         add_btn.clicked.connect(
-            lambda: self._append_row("", InterfaceType.ETH_1G, "", None)
+            lambda: self._append_row("", InterfaceType.ETH_1G, "", random_mac(), None)
         )
         remove_btn = QPushButton("Remove selected")
         remove_btn.clicked.connect(self._remove_selected)
@@ -74,9 +77,15 @@ class InterfacesDialog(QDialog):
         name: str,
         itype: InterfaceType,
         ip: str,
+        mac: str,
         iface_id: str | None,
     ) -> None:
-        """Add one editable row; iface_id is stashed in UserRole for reuse."""
+        """Add one editable row; iface_id is stashed in UserRole for reuse.
+
+        New rows arrive with a pre-generated MAC so every interface
+        always has one; the user can overwrite it with real hardware
+        addresses when documenting an existing network.
+        """
         row = self.table.rowCount()
         self.table.insertRow(row)
 
@@ -91,6 +100,7 @@ class InterfacesDialog(QDialog):
         self.table.setCellWidget(row, 1, combo)
 
         self.table.setItem(row, 2, QTableWidgetItem(ip))
+        self.table.setItem(row, 3, QTableWidgetItem(mac))
 
     def _remove_selected(self) -> None:
         rows = sorted({i.row() for i in self.table.selectedIndexes()}, reverse=True)
@@ -107,6 +117,7 @@ class InterfacesDialog(QDialog):
         for row in range(self.table.rowCount()):
             name_item = self.table.item(row, 0)
             ip_item = self.table.item(row, 2)
+            mac_item = self.table.item(row, 3)
             combo = self.table.cellWidget(row, 1)
 
             name = (name_item.text() if name_item else "").strip()
@@ -114,12 +125,16 @@ class InterfacesDialog(QDialog):
                 continue
             itype = combo.currentData() if isinstance(combo, QComboBox) else InterfaceType.ETH_1G
             ip = (ip_item.text() if ip_item else "").strip() or None
+            mac = (mac_item.text() if mac_item else "").strip() or random_mac()
             iface_id = name_item.data(Qt.ItemDataRole.UserRole)
 
             if iface_id:
-                result.append(
-                    Interface(name=name, interface_type=itype, ip_address=ip, id=iface_id)
-                )
+                result.append(Interface(
+                    name=name, interface_type=itype, ip_address=ip,
+                    mac_address=mac, id=iface_id,
+                ))
             else:
-                result.append(Interface(name=name, interface_type=itype, ip_address=ip))
+                result.append(Interface(
+                    name=name, interface_type=itype, ip_address=ip, mac_address=mac,
+                ))
         return result
