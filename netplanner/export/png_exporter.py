@@ -25,7 +25,7 @@ from .nodecard import (
     NATIVE_VLAN_H,
     NOTES_LINE_H,
     PAD,
-    STRIPE_COLOR,
+    STRIPE_ALPHA,
     STRIPE_SPACING,
     STRIPE_WIDTH,
     TYPE_BAND_H,
@@ -86,7 +86,7 @@ def export_png(plan: NetworkPlan, path: Path) -> None:
         )
 
         if card.striped:
-            _draw_planned_stripes(img, left, top, card.width * SCALE, card.height * SCALE)
+            _draw_status_stripes(img, left, top, card.width * SCALE, card.height * SCALE, card.stripe_colors)
 
         # Header: bold-ish name (default font; Pillow has no true bold here)
         draw.text(
@@ -190,36 +190,46 @@ def export_png(plan: NetworkPlan, path: Path) -> None:
     img.save(path, "PNG")
 
 
-def _draw_planned_stripes(img: Image.Image, left: float, top: float, w: float, h: float) -> None:
-    """Overlay diagonal gray stripes across a card for PLANNED devices.
+def _draw_status_stripes(
+    img: Image.Image, left: float, top: float, w: float, h: float, colors: list[str]
+) -> None:
+    """Overlay diagonal stripes across a card for its status tag.
 
-    Pillow has no native path clipping, so this composites in two
-    masks: one marking the diagonal stripe lines, one marking the
-    card's rounded-rect shape. Multiplying them together gives exactly
-    the stripe pixels that fall inside the rounded card, which are then
-    pasted onto the main image — leaving everything else untouched.
+    Pillow has no native path clipping, so this composites with masks:
+    for each color in `colors`, a mask marks only that color's diagonal
+    lines (every len(colors)-th line, offset by the color's position,
+    so multiple colors interleave — e.g. red/black alternating for
+    BROKEN). Each per-color mask is multiplied by a rounded-rect shape
+    mask so stripes stay inside the card, then pasted onto the main
+    image — leaving everything else untouched.
     """
     w_i, h_i = int(w), int(h)
-    if w_i <= 0 or h_i <= 0:
+    if w_i <= 0 or h_i <= 0 or not colors:
         return
-
-    stripe_mask = Image.new("L", (w_i, h_i), 0)
-    stripe_draw = ImageDraw.Draw(stripe_mask)
-    span = w_i + h_i
-    step = STRIPE_SPACING * SCALE
-    offset = -span
-    while offset < span:
-        stripe_draw.line(
-            (offset, 0, offset + h_i, h_i), fill=255, width=max(1, int(STRIPE_WIDTH * SCALE))
-        )
-        offset += step
 
     shape_mask = Image.new("L", (w_i, h_i), 0)
     ImageDraw.Draw(shape_mask).rounded_rectangle((0, 0, w_i, h_i), radius=6 * SCALE, fill=255)
 
-    combined_mask = ImageChops.multiply(stripe_mask, shape_mask)
-    stripe_fill = Image.new("RGB", (w_i, h_i), STRIPE_COLOR)
-    img.paste(stripe_fill, (int(left), int(top)), mask=combined_mask)
+    span = w_i + h_i
+    step = STRIPE_SPACING * SCALE
+    width = max(1, int(STRIPE_WIDTH * SCALE))
+
+    for color_index, color in enumerate(colors):
+        stripe_mask = Image.new("L", (w_i, h_i), 0)
+        stripe_draw = ImageDraw.Draw(stripe_mask)
+        # Start at this color's slot and jump len(colors) slots per
+        # line so the colors interleave rather than overpaint.
+        offset = -span + color_index * step
+        while offset < span:
+            stripe_draw.line((offset, 0, offset + h_i, h_i), fill=255, width=width)
+            offset += step * len(colors)
+
+        combined_mask = ImageChops.multiply(stripe_mask, shape_mask)
+        # Scale the mask by the stripe alpha so paste() blends the
+        # stripes semi-transparently, keeping card text readable.
+        combined_mask = combined_mask.point(lambda v: int(v * STRIPE_ALPHA))
+        stripe_fill = Image.new("RGB", (w_i, h_i), color)
+        img.paste(stripe_fill, (int(left), int(top)), mask=combined_mask)
 
 
 def _dashed_line(draw, p1, p2, color, width, pattern) -> None:

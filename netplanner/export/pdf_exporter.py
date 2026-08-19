@@ -24,7 +24,7 @@ from .nodecard import (
     NATIVE_VLAN_H,
     NOTES_LINE_H,
     PAD,
-    STRIPE_COLOR,
+    STRIPE_ALPHA,
     STRIPE_SPACING,
     STRIPE_WIDTH,
     TYPE_BAND_H,
@@ -47,6 +47,7 @@ def export_pdf(plan: NetworkPlan, path: Path) -> None:
 
 
 def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
+    """Paint the whole scene: title, edges (with port labels), then cards."""
     page_h = scene.height + TITLE_OFFSET
 
     def fy(y: float) -> float:
@@ -91,7 +92,7 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
         c.drawPath(card_path, fill=1, stroke=1)
 
         if card.striped:
-            _draw_planned_stripes(c, card_path, n.x, top, card.width, card.height)
+            _draw_status_stripes(c, card_path, n.x, top, card.width, card.height, card.stripe_colors)
 
         # Header: glyph is skipped in PDF (Helvetica lacks many glyphs); bold name
         c.setFillColor(TEXT_COLOR)
@@ -161,23 +162,39 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
                 y -= NOTES_LINE_H
 
 
-def _draw_planned_stripes(c: pdf_canvas.Canvas, card_path, x: float, top: float, w: float, h: float) -> None:
-    """Overlay diagonal gray stripes across a card for PLANNED devices.
+def _draw_status_stripes(
+    c: pdf_canvas.Canvas,
+    card_path,
+    x: float,
+    top: float,
+    w: float,
+    h: float,
+    colors: list[str],
+) -> None:
+    """Overlay diagonal stripes across a card for its status tag.
 
     Clips to the card's own rounded-rect path so stripes never spill
     past the border, then draws parallel diagonal lines at a fixed
-    spacing. The clip is undone via saveState/restoreState so it
-    doesn't leak onto other cards or the plan title.
+    spacing, cycling through `colors` per line: PLANNED passes a single
+    gray so every stripe matches, BROKEN passes [red, black] so the
+    stripes alternate hazard-tape style. The clip is undone via
+    saveState/restoreState so it doesn't leak onto other cards or the
+    plan title.
     """
     c.saveState()
     c.clipPath(card_path, stroke=0, fill=0)
-    c.setStrokeColor(HexColor(STRIPE_COLOR))
     c.setLineWidth(STRIPE_WIDTH)
 
     span = w + h
     offset = -span
+    line_index = 0
     while offset < span:
+        # NB: alpha must be passed to setStrokeColor directly; a bare
+        # setStrokeAlpha() call is silently overridden by the next
+        # setStrokeColor in this reportlab version.
+        c.setStrokeColor(HexColor(colors[line_index % len(colors)]), alpha=STRIPE_ALPHA)
         c.line(x + offset, top, x + offset + h, top - h)
         offset += STRIPE_SPACING
+        line_index += 1
 
     c.restoreState()

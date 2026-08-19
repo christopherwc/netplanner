@@ -30,11 +30,12 @@ card is painted, independent of its layout:
     - ACTIVE:  normal type colors, no overlay (the default).
     - PLANNED: normal type colors, plus a diagonal gray stripe overlay
                drawn across the card by each renderer.
-    - BROKEN:  the entire card is grayed out — fill/stroke are replaced
-               with a neutral gray palette regardless of device type.
-This module only computes *what* to draw (fill/stroke/striped); the
-actual stripe/grayscale painting happens per-renderer since Qt,
-reportlab, and Pillow each clip shapes differently.
+    - BROKEN:  normal type colors, plus a diagonal stripe overlay
+               alternating red and black (hazard-tape style) so failed
+               equipment stands out at a glance.
+This module only computes *what* to draw (fill/stroke/stripe_colors);
+the actual stripe painting happens per-renderer since Qt, reportlab,
+and Pillow each clip shapes differently.
 """
 
 from __future__ import annotations
@@ -60,11 +61,14 @@ NOTES_CHARS_PER_LINE = 30  # rough wrap width for the notes section
 
 # Status tag styling — shared by canvas + both exporters so a device
 # looks identical everywhere regardless of its deployment status.
-BROKEN_FILL = "#e5e5e5"     # replaces the type color entirely when broken
-BROKEN_STROKE = "#9e9e9e"
-STRIPE_COLOR = "#b0b0b0"    # diagonal hatch drawn over a planned device's card
-STRIPE_SPACING = 10.0       # px between parallel stripe lines
+# Renderers draw diagonal stripes by cycling through a card's
+# stripe_colors list, one color per line, so a single-color list gives
+# a uniform hatch and a two-color list alternates (hazard-tape style).
+STRIPE_PLANNED = "#b0b0b0"          # gray hatch for planned devices
+STRIPE_BROKEN = ("#c5221f", "#111111")  # alternating red/black for broken devices
+STRIPE_SPACING = 10.0               # px between parallel stripe lines
 STRIPE_WIDTH = 2.0
+STRIPE_ALPHA = 0.45                 # stripe opacity, so card text stays readable
 
 
 @dataclass
@@ -88,7 +92,17 @@ class NodeCard:
     fill: str
     stroke: str
     status: DeviceStatus = DeviceStatus.ACTIVE
-    striped: bool = False         # True for PLANNED — renderers overlay diagonal hatching
+    # Diagonal-stripe overlay colors, cycled per line by the renderers.
+    # Empty = no stripes (ACTIVE). One color = uniform hatch (PLANNED,
+    # gray). Two colors = alternating hazard-tape pattern (BROKEN,
+    # red/black).
+    stripe_colors: list[str] = field(default_factory=list)
+
+    @property
+    def striped(self) -> bool:
+        """Whether any stripe overlay should be drawn at all."""
+        return bool(self.stripe_colors)
+
     device_model: str = ""
     native_vlan_line: str = ""    # "Native VLAN: 1" — always set (default VLAN 1)
     loopback_line: str = ""       # "Loopback: 10.255.0.1/32", or "" if unset
@@ -154,13 +168,16 @@ def build_card(device: Device) -> NodeCard:
     if notes_lines:
         height += len(notes_lines) * NOTES_LINE_H + PAD
 
-    # Broken devices lose their type color entirely (grayed out);
-    # planned devices keep it but get a diagonal stripe overlay drawn
-    # by the renderer, signaled here via `striped`.
-    if device.status is DeviceStatus.BROKEN:
-        fill, stroke = BROKEN_FILL, BROKEN_STROKE
+    # Every status keeps the device-type color scheme; PLANNED and
+    # BROKEN differ only in the stripe overlay the renderer draws on
+    # top: a uniform gray hatch for planned, alternating red/black
+    # (hazard-tape style) for broken.
+    if device.status is DeviceStatus.PLANNED:
+        stripe_colors = [STRIPE_PLANNED]
+    elif device.status is DeviceStatus.BROKEN:
+        stripe_colors = list(STRIPE_BROKEN)
     else:
-        fill, stroke = style.fill, style.stroke
+        stripe_colors = []
 
     return NodeCard(
         width=NODE_W,
@@ -168,10 +185,10 @@ def build_card(device: Device) -> NodeCard:
         name=device.name,
         type_label=device.device_type.value.replace("_", " "),
         glyph=style.glyph,
-        fill=fill,
-        stroke=stroke,
+        fill=style.fill,
+        stroke=style.stroke,
         status=device.status,
-        striped=device.status is DeviceStatus.PLANNED,
+        stripe_colors=stripe_colors,
         device_model=device.device_model,
         native_vlan_line=native_vlan_line,
         loopback_line=loopback_line,

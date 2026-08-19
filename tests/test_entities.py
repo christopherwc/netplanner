@@ -473,32 +473,37 @@ def test_device_status_defaults_to_active():
     assert d.status == DeviceStatus.ACTIVE
 
 
-def test_broken_card_uses_grayscale_regardless_of_device_type():
+def test_broken_card_keeps_type_color_with_red_black_stripes():
     from netplanner.domain.entities import Device, DeviceStatus
-    from netplanner.export.nodecard import BROKEN_FILL, BROKEN_STROKE, build_card
+    from netplanner.export.nodecard import STRIPE_BROKEN, build_card
     from netplanner.export.styles import style_for
 
     for dtype in DeviceType:
         active_card = build_card(Device(name="d", device_type=dtype))
         broken_card = build_card(Device(name="d", device_type=dtype, status=DeviceStatus.BROKEN))
         type_style = style_for(dtype)
+        # Both keep the device-type color scheme...
         assert active_card.fill == type_style.fill
-        assert broken_card.fill == BROKEN_FILL
-        assert broken_card.stroke == BROKEN_STROKE
+        assert broken_card.fill == type_style.fill
+        assert broken_card.stroke == type_style.stroke
+        # ...but only broken gets the alternating red/black stripe overlay.
         assert not active_card.striped
-        assert not broken_card.striped
+        assert broken_card.striped
+        assert broken_card.stripe_colors == list(STRIPE_BROKEN)
+        assert len(broken_card.stripe_colors) == 2  # two colors -> alternating
 
 
 def test_planned_card_keeps_type_color_and_is_striped():
     from netplanner.domain.entities import Device, DeviceStatus, DeviceType
-    from netplanner.export.nodecard import build_card
+    from netplanner.export.nodecard import STRIPE_PLANNED, build_card
     from netplanner.export.styles import style_for
 
     style = style_for(DeviceType.ROUTER)
     card = build_card(Device(name="rtr1", device_type=DeviceType.ROUTER, status=DeviceStatus.PLANNED))
-    assert card.fill == style.fill  # type color preserved, unlike broken
+    assert card.fill == style.fill  # type colors preserved
     assert card.stroke == style.stroke
     assert card.striped is True
+    assert card.stripe_colors == [STRIPE_PLANNED]  # one color -> uniform gray hatch
 
 
 def test_status_persists_through_sqlite():
@@ -540,3 +545,160 @@ def test_legacy_payload_without_status_defaults_to_active():
     del legacy["status"]
     revived = _device_from_dict(legacy)
     assert revived.status == DeviceStatus.ACTIVE
+
+
+def test_active_card_has_no_stripes():
+    from netplanner.domain.entities import Device
+    from netplanner.export.nodecard import build_card
+
+    card = build_card(Device(name="sw1", device_type=DeviceType.SWITCH))
+    assert card.stripe_colors == []
+    assert card.striped is False
+
+
+def test_notes_wrapping_and_truncation():
+    from netplanner.export.nodecard import (
+        NOTES_CHARS_PER_LINE,
+        NOTES_MAX_LINES,
+        _wrap_notes,
+    )
+
+    assert _wrap_notes("") == []
+    assert _wrap_notes("short note") == ["short note"]
+    # Every wrapped line stays within the width limit
+    wrapped = _wrap_notes("word " * 20)
+    assert all(len(line) <= NOTES_CHARS_PER_LINE for line in wrapped)
+    # Long notes are capped and end with an ellipsis
+    long_wrapped = _wrap_notes("word " * 200)
+    assert len(long_wrapped) == NOTES_MAX_LINES
+    assert long_wrapped[-1].endswith("…")
+
+
+def test_vlan_summary_formats():
+    from netplanner.domain.entities import Interface, VlanMode
+
+    assert Interface(name="e0", access_vlan=42).vlan_summary() == "VLAN 42"
+    trunk = Interface(name="e1", vlan_mode=VlanMode.TRUNK, trunk_vlans=[30, 10, 20])
+    assert trunk.vlan_summary() == "Trunk: 10,20,30"  # sorted for display
+    empty_trunk = Interface(name="e2", vlan_mode=VlanMode.TRUNK)
+    assert empty_trunk.vlan_summary() == "Trunk: (none)"
+
+
+def test_device_status_labels():
+    from netplanner.domain.entities import DeviceStatus
+
+    assert DeviceStatus.ACTIVE.label == "Active"
+    assert DeviceStatus.PLANNED.label == "Planned"
+    assert DeviceStatus.BROKEN.label == "Broken"
+    # Every member has a label (guards against a new status missing one)
+    assert all(s.label for s in DeviceStatus)
+
+
+def test_status_change_is_single_undo_step():
+    """Editing status together with other properties must undo as ONE step,
+    not leave the device in a half-reverted state."""
+    from netplanner.app.controller import AppController
+    from netplanner.domain.entities import DeviceStatus
+    from unittest.mock import MagicMock
+
+    ctrl = AppController(repository=MagicMock())
+    d = ctrl.add_device("fw1", DeviceType.FIREWALL, 0, 0)
+    ctrl.edit_device_properties(
+        d.id, device_model="ASA 5506", loopback_ip=None, notes="",
+        native_vlan=5, status=DeviceStatus.BROKEN, new_interfaces=d.interfaces,
+    )
+    assert d.status == DeviceStatus.BROKEN and d.native_vlan == 5
+    ctrl.undo()  # one undo reverts everything from that dialog OK
+    assert d.status == DeviceStatus.ACTIVE
+    assert d.native_vlan == 1
+    assert d.device_model == ""
+
+
+def test_status_survives_full_controller_save_load_cycle():
+    from pathlib import Path
+    from netplanner.app.controller import AppController
+    from netplanner.domain.entities import DeviceStatus
+    from netplanner.persistence.repository import PlanRepository
+
+    repo = PlanRepository(db_path=Path("/tmp/status_cycle.db"))
+    ctrl = AppController(repository=repo)
+    d = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    ctrl.edit_device_properties(
+        d.id, device_model="", loopback_ip=None, notes="",
+        native_vlan=1, status=DeviceStatus.PLANNED, new_interfaces=d.interfaces,
+    )
+    ctrl.save()
+    plan_id = ctrl.plan.id
+    ctrl.new_plan()  # wipe in-memory state
+    ctrl.load(plan_id)
+    assert ctrl.plan.devices[0].status == DeviceStatus.PLANNED
+
+
+def test_all_statuses_export_without_error(tmp_path):
+    """Every status must render through both exporters without raising —
+    catches renderer/stripe regressions across the full status matrix."""
+    from unittest.mock import MagicMock
+    from netplanner.app.controller import AppController
+    from netplanner.domain.entities import DeviceStatus
+
+    ctrl = AppController(repository=MagicMock())
+    for i, status in enumerate(DeviceStatus):
+        d = ctrl.add_device(f"dev{i}", DeviceType.SWITCH, i * 400, 0)
+        ctrl.edit_device_properties(
+            d.id, device_model="", loopback_ip=None, notes="",
+            native_vlan=1, status=status, new_interfaces=d.interfaces,
+        )
+    ctrl.export_to_pdf(tmp_path / "statuses.pdf")
+    ctrl.export_to_png(tmp_path / "statuses.png")
+    assert (tmp_path / "statuses.pdf").stat().st_size > 0
+    assert (tmp_path / "statuses.png").stat().st_size > 0
+
+
+def test_broken_png_contains_red_and_black_stripe_pixels(tmp_path):
+    """Pixel-level check: a broken device's exported PNG must actually
+    contain both stripe colors, proving the alternation reaches the file.
+
+    Stripes are drawn at STRIPE_ALPHA opacity over the card fill, so the
+    expected pixel values are the alpha blend of each stripe color with
+    the device type's fill color, not the raw stripe colors.
+    """
+    from unittest.mock import MagicMock
+    from PIL import Image
+    from netplanner.app.controller import AppController
+    from netplanner.domain.entities import DeviceStatus
+    from netplanner.export.nodecard import STRIPE_ALPHA, STRIPE_BROKEN
+    from netplanner.export.styles import style_for
+
+    ctrl = AppController(repository=MagicMock())
+    d = ctrl.add_device("fw1", DeviceType.FIREWALL, 0, 0)
+    ctrl.edit_device_properties(
+        d.id, device_model="", loopback_ip=None, notes="",
+        native_vlan=1, status=DeviceStatus.BROKEN, new_interfaces=d.interfaces,
+    )
+    png = tmp_path / "broken.png"
+    ctrl.export_to_png(png)
+
+    img = Image.open(png).convert("RGB")
+    width, height = img.size
+    # Sample every 3rd pixel; stripes are dense enough to be caught,
+    # and this avoids Pillow's deprecated whole-image getdata()
+    pixels = {img.getpixel((px, py)) for px in range(0, width, 3) for py in range(0, height, 3)}
+
+    def hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+        return tuple(int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+
+    fill = hex_to_rgb(style_for(DeviceType.FIREWALL).fill)
+
+    def blended(stripe_hex: str) -> tuple[int, int, int]:
+        s = hex_to_rgb(stripe_hex)
+        return tuple(
+            int(STRIPE_ALPHA * s[i] + (1 - STRIPE_ALPHA) * fill[i]) for i in range(3)
+        )
+
+    def near(target: tuple[int, int, int]) -> bool:
+        # Antialiasing and downsampling shift colors slightly
+        return any(sum(abs(p[i] - target[i]) for i in range(3)) < 90 for p in pixels)
+
+    red, black = STRIPE_BROKEN
+    assert near(blended(red)), "no red stripe pixels found in broken device PNG"
+    assert near(blended(black)), "no black stripe pixels found in broken device PNG"
