@@ -16,6 +16,7 @@ from netplanner.app.commands import (
     MoveDeviceCommand,
     RenameDeviceCommand,
     EditInterfacesCommand,
+    EditDevicePropertiesCommand,
 )
 from netplanner.app.validation import Issue, validate
 from netplanner.domain.entities import Device, DeviceType, Interface, Link, LinkType
@@ -104,6 +105,21 @@ class AppController:
     def edit_interfaces(self, device_id: str, new_interfaces: list[Interface]) -> None:
         """Replace a device's interface list wholesale (undoable)."""
         self.commands.push(EditInterfacesCommand(self.plan, device_id, new_interfaces))
+
+    def edit_device_properties(
+        self,
+        device_id: str,
+        device_model: str,
+        loopback_ip: str | None,
+        notes: str,
+        new_interfaces: list[Interface],
+    ) -> None:
+        """Update model, loopback IP, notes, and interfaces as one undo step."""
+        self.commands.push(
+            EditDevicePropertiesCommand(
+                self.plan, device_id, device_model, loopback_ip, notes, new_interfaces
+            )
+        )
 
     def interface_name(self, device_id: str, interface_id: str | None) -> str:
         """Resolve an interface id to its display name; "" when unset/missing."""

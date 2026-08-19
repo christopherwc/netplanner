@@ -15,7 +15,16 @@ from reportlab.pdfgen import canvas as pdf_canvas
 from netplanner.domain.model import NetworkPlan
 
 from .geometry import point_along
-from .nodecard import FOOTER_H, HEADER_H, IFACE_BLOCK_H, TYPE_BAND_H
+from .nodecard import (
+    FOOTER_H,
+    HEADER_H,
+    IFACE_BLOCK_H,
+    LOOPBACK_H,
+    MODEL_H,
+    NOTES_LINE_H,
+    PAD,
+    TYPE_BAND_H,
+)
 from .renderer import Scene, build_scene
 from .styles import link_style_for_value
 
@@ -80,16 +89,31 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
         c.setFont("Helvetica-Bold", 10)
         c.drawString(n.x + 8, top - HEADER_H / 2 - 4, card.name)
 
+        y = top - HEADER_H
+
+        # Device model: small italic line under the name, only when set
+        if card.device_model:
+            c.setFillColor(HexColor("#555555"))
+            c.setFont("Helvetica-Oblique", 7)
+            c.drawString(n.x + 8, y - MODEL_H / 2 - 3, card.device_model)
+            y -= MODEL_H
+
         # Type band
-        band_top = top - HEADER_H
         c.setFillColor(HexColor(card.stroke))
-        c.rect(n.x, band_top - TYPE_BAND_H, card.width, TYPE_BAND_H, stroke=0, fill=1)
+        c.rect(n.x, y - TYPE_BAND_H, card.width, TYPE_BAND_H, stroke=0, fill=1)
         c.setFillColor(HexColor("#ffffff"))
         c.setFont("Helvetica-Bold", 7)
-        c.drawCentredString(n.x + card.width / 2, band_top - TYPE_BAND_H / 2 - 2.5, card.type_label.upper())
+        c.drawCentredString(n.x + card.width / 2, y - TYPE_BAND_H / 2 - 2.5, card.type_label.upper())
+        y -= TYPE_BAND_H
+
+        # Loopback IP: single bold line, only when set
+        if card.loopback_line:
+            c.setFillColor(HexColor("#333333"))
+            c.setFont("Helvetica-Bold", 7)
+            c.drawString(n.x + 8, y - LOOPBACK_H / 2 - 3, card.loopback_line)
+            y -= LOOPBACK_H
 
         # Interface blocks: name+IP, MAC beneath in gray
-        y = band_top - TYPE_BAND_H
         for block in card.iface_blocks:
             c.setFillColor(TEXT_COLOR)
             c.setFont("Helvetica", 8)
@@ -103,3 +127,16 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
             c.setFillColor(MAC_COLOR)
             c.setFont("Helvetica-Oblique", 7)
             c.drawString(n.x + 8, y - FOOTER_H / 2 - 3, f"+{card.more_count} more…")
+            y -= FOOTER_H
+
+        # Notes: wrapped lines below a separator, only when set
+        if card.notes_lines:
+            y -= PAD / 2
+            c.setStrokeColor(HexColor(card.stroke))
+            c.line(n.x + 4, y, n.x + card.width - 4, y)
+            y -= 2
+            c.setFillColor(HexColor("#444444"))
+            c.setFont("Helvetica-Oblique", 7)
+            for line in card.notes_lines:
+                c.drawString(n.x + 8, y - NOTES_LINE_H / 2 - 2, line)
+                y -= NOTES_LINE_H

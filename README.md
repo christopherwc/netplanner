@@ -13,19 +13,32 @@ equipment, cable it up port-by-port, and export the result.
 - **Typed interfaces** — every device is created with a realistic set of
   ports (e.g. routers get 4x 1 Gbps, switches get 8x 1 Gbps + 2x 10 Gbps
   uplinks, radios get a wireless port). Right-click a device →
-  *Edit interfaces…* to add/remove any number of ports of any type:
-  **Wireless, 1 Gbps, 10 Gbps, 25 Gbps, or 100 Gbps**, with optional IP
-  addresses in CIDR notation.
-- **MAC addresses** — every interface automatically receives a unique
-  locally-administered MAC (`02:xx:xx:xx:xx:xx`), editable in the
-  interface dialog when documenting real hardware. Plans saved before
-  this feature load fine; missing MACs are generated on load.
-- **Device cards** — devices render as sectioned cards: a name header,
-  a colored device-type band, and the interface list with IP and MAC per
-  port — all visible by default. Cards show up to 6 interfaces and then
-  collapse to "+N more…" so big switches stay readable. *View → Show
-  device details* toggles back to compact glyph+name nodes for dense
-  diagrams. PDF/PNG exports draw the identical cards.
+  *Edit properties…* → **Interfaces** tab to add/remove any number of
+  ports of any type: **Wireless, 1 Gbps, 10 Gbps, 25 Gbps, or 100 Gbps**,
+  with optional IP addresses in CIDR notation.
+- **MAC addresses** — every interface starts with an all-zeros placeholder
+  MAC (`00:00:00:00:00:00`), editable per-port in the Interfaces tab when
+  documenting real hardware. Plans saved before this feature load fine;
+  missing MACs get the same placeholder on load.
+- **Device properties** — right-click a device → *Edit properties…* →
+  **General** tab for:
+  - **Device model** — free text (e.g. "Cisco ISR 4331"), shown under
+    the device name.
+  - **Loopback IP** — a device-level IP (CIDR) not tied to any physical
+    interface, shown as its own highlighted line on the card.
+  - **Notes** — free-form text, word-wrapped and shown at the bottom of
+    the card (up to 3 lines, truncated with "…" if longer — the full
+    text is still saved).
+
+  All of the above are undoable together as one edit and visible on the
+  canvas by default.
+- **Device cards** — devices render as sectioned cards: name header,
+  optional model line, a colored device-type band, an optional loopback
+  line, the interface list (name, IP, MAC per port, capped at 6 with a
+  "+N more…" overflow), and optional notes at the bottom — all visible
+  by default. *View → Show device details* toggles back to compact
+  glyph+name nodes for dense diagrams. PDF/PNG exports draw identical
+  cards via the shared `export/nodecard.py` layout.
 - **Media-typed connections** — pick Copper/Ethernet, Fiber, Wireless,
   Serial, or WAN from the palette, then click two devices. Each click
   pops up that device's free ports so you choose exactly which
@@ -96,11 +109,13 @@ netplanner
 2. Click **Switch**, place `sw1`.
 3. Click **Copper / Ethernet** under Connections, click `rtr1`, pick
    `Gig0/0`, click `sw1`, pick `Gig0/1` — cabled.
-4. Right-click `sw1` → *Edit interfaces…* to add a 25 Gbps port, set
-   IPs, or paste in real MAC addresses.
-5. Each device card lists every port with its IP and MAC — uncheck
+4. Right-click `sw1` → *Edit properties…* → **Interfaces** tab to add a
+   25 Gbps port, set IPs, or paste in real MAC addresses.
+5. Switch to the **General** tab to set a device model, a loopback IP,
+   and notes — all three show up on the card immediately.
+6. Each device card lists every port with its IP and MAC — uncheck
    **View → Show device details** if you prefer compact nodes.
-6. **File → Export PDF…** for a shareable diagram.
+7. **File → Export PDF…** for a shareable diagram.
 
 Esc always returns to Select/Move mode.
 

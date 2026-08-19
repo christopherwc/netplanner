@@ -149,3 +149,45 @@ class EditInterfacesCommand(Command):
         d = self.plan.get_device(self.device_id)
         if d:
             d.interfaces = list(self.old_interfaces)
+
+
+class EditDevicePropertiesCommand(Command):
+    """Update model/loopback/notes/interfaces together as one undo step.
+
+    Bundling these avoids a separate undo entry for each field when the
+    user edits several tabs of the properties dialog and clicks OK once.
+    """
+
+    def __init__(
+        self,
+        plan: NetworkPlan,
+        device_id: str,
+        device_model: str,
+        loopback_ip: str | None,
+        notes: str,
+        new_interfaces: list[Interface],
+    ):
+        self.plan, self.device_id = plan, device_id
+        self.new = (device_model, loopback_ip, notes, list(new_interfaces))
+        device = plan.get_device(device_id)
+        self.old = (
+            (device.device_model, device.loopback_ip, device.notes, list(device.interfaces))
+            if device
+            else ("", None, "", [])
+        )
+        self.description = "Edit device properties"
+
+    def _apply(self, values) -> None:
+        model, loopback_ip, notes, interfaces = values
+        d = self.plan.get_device(self.device_id)
+        if d:
+            d.device_model = model
+            d.loopback_ip = loopback_ip
+            d.notes = notes
+            d.interfaces = list(interfaces)
+
+    def execute(self) -> None:
+        self._apply(self.new)
+
+    def undo(self) -> None:
+        self._apply(self.old)

@@ -185,18 +185,17 @@ def test_interface_types_persist():
     assert loaded_types["Twe0/1"] == InterfaceType.ETH_25G
 
 
-def test_macs_generated_and_unique():
+def test_macs_default_to_all_zeros():
     from netplanner.app.controller import AppController
     from unittest.mock import MagicMock
 
     ctrl = AppController(repository=MagicMock())
     sw = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
     macs = [i.mac_address for i in sw.interfaces]
-    assert all(m.startswith("02:") and len(m) == 17 for m in macs)
-    assert len(set(macs)) == len(macs)  # astronomically unlikely to collide
+    assert all(m == "00:00:00:00:00:00" for m in macs)
 
 
-def test_macs_persist_and_legacy_payloads_get_one():
+def test_macs_persist_and_legacy_payloads_get_placeholder():
     from pathlib import Path
     from netplanner.domain.entities import Device, Interface
     from netplanner.domain.model import NetworkPlan
@@ -215,8 +214,73 @@ def test_macs_persist_and_legacy_payloads_get_one():
     loaded = repo.load(plan.id)
     assert loaded.devices[0].interfaces[0].mac_address == "02:AA:BB:CC:DD:EE"
 
-    # Legacy payload (pre-MAC): a fresh MAC is generated on load
+    # Legacy payload (pre-MAC): the all-zeros placeholder is generated on load
     legacy = _device_to_dict(dev)
     del legacy["interfaces"][0]["mac_address"]
     revived = _device_from_dict(legacy)
-    assert revived.interfaces[0].mac_address.startswith("02:")
+    assert revived.interfaces[0].mac_address == "00:00:00:00:00:00"
+
+
+def test_device_properties_editable_and_undoable():
+    from netplanner.app.controller import AppController
+    from unittest.mock import MagicMock
+
+    ctrl = AppController(repository=MagicMock())
+    d = ctrl.add_device("rtr1", DeviceType.ROUTER, 0, 0)
+    ctrl.edit_device_properties(
+        d.id,
+        device_model="Cisco ISR 4331",
+        loopback_ip="10.255.0.1/32",
+        notes="core router, uplinks to ISP-A and ISP-B",
+        new_interfaces=d.interfaces,
+    )
+    assert d.device_model == "Cisco ISR 4331"
+    assert d.loopback_ip == "10.255.0.1/32"
+    assert "uplinks" in d.notes
+    ctrl.undo()
+    assert d.device_model == ""
+    assert d.loopback_ip is None
+    assert d.notes == ""
+    ctrl.redo()
+    assert d.device_model == "Cisco ISR 4331"
+
+
+def test_device_properties_persist():
+    from pathlib import Path
+    from netplanner.domain.entities import Device
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.persistence.repository import PlanRepository
+
+    repo = PlanRepository(db_path=Path("/tmp/props_test.db"))
+    plan = NetworkPlan("props")
+    plan.add_device(Device(
+        name="core",
+        device_type=DeviceType.SWITCH,
+        device_model="Mikrotik CRS326",
+        loopback_ip="10.255.0.2/32",
+        notes="rack 3, row B",
+    ))
+    repo.save(plan)
+    loaded = repo.load(plan.id)
+    dev = loaded.devices[0]
+    assert dev.device_model == "Mikrotik CRS326"
+    assert dev.loopback_ip == "10.255.0.2/32"
+    assert dev.notes == "rack 3, row B"
+
+
+def test_nodecard_includes_new_sections():
+    from netplanner.domain.entities import Device
+    from netplanner.export.nodecard import build_card
+
+    plain = build_card(Device(name="sw1", device_type=DeviceType.SWITCH))
+    detailed = build_card(Device(
+        name="sw2",
+        device_type=DeviceType.SWITCH,
+        device_model="Mikrotik CRS326",
+        loopback_ip="10.255.0.3/32",
+        notes="a fairly long note that should wrap across more than one line of text",
+    ))
+    assert detailed.device_model == "Mikrotik CRS326"
+    assert "10.255.0.3/32" in detailed.loopback_line
+    assert len(detailed.notes_lines) >= 2
+    assert detailed.height > plain.height  # extra sections take extra space
