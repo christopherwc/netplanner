@@ -21,7 +21,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from netplanner.domain.entities import Device, Interface, InterfaceType, VlanMode, blank_mac
+from netplanner.domain.entities import (
+    Device,
+    DeviceStatus,
+    Interface,
+    InterfaceType,
+    VlanMode,
+    blank_mac,
+)
 
 # Row order for the Type dropdown in the interfaces table.
 _TYPE_CHOICES = [
@@ -35,13 +42,17 @@ _TYPE_CHOICES = [
 # Row order for the VLAN Mode dropdown in the interfaces table.
 _VLAN_MODE_CHOICES = [VlanMode.ACCESS, VlanMode.TRUNK]
 
+# Row order for the Status dropdown in the General tab.
+_STATUS_CHOICES = [DeviceStatus.ACTIVE, DeviceStatus.PLANNED, DeviceStatus.BROKEN]
+
 VLAN_MIN, VLAN_MAX = 1, 4094  # valid 802.1Q VLAN ID range
 
 
 class DevicePropertiesDialog(QDialog):
     """Edit everything about a device in one place, across two tabs:
 
-    - **General**: device model, loopback IP, native VLAN, and notes.
+    - **General**: device model, loopback IP, native VLAN, status
+      (Active/Planned/Broken), and notes.
     - **Interfaces**: name, type, IP, MAC, VLAN mode, and VLAN(s) per port.
 
     Existing interfaces keep their ids so links referencing them stay
@@ -83,15 +94,20 @@ class DevicePropertiesDialog(QDialog):
     def result_native_vlan(self) -> int:
         return self._general.native_vlan_spin.value()
 
+    def result_status(self) -> DeviceStatus:
+        return self._general.status_combo.currentData()
+
     def result_interfaces(self) -> list[Interface]:
         return self._interfaces.result_interfaces()
 
 
 class _GeneralTab(QWidget):
-    """Device model, loopback IP, native VLAN, and notes.
+    """Device model, loopback IP, native VLAN, status, and notes.
 
     All of these are shown by default on the card once set — native
-    VLAN always shows, defaulting to 1 like an unconfigured switch.
+    VLAN always shows (defaulting to 1, like an unconfigured switch)
+    and status always shows via the card's color scheme (Active: type
+    colors, Planned: type colors + diagonal stripes, Broken: grayed out).
     """
 
     def __init__(self, device: Device, parent=None):
@@ -110,6 +126,12 @@ class _GeneralTab(QWidget):
         self.native_vlan_spin.setRange(VLAN_MIN, VLAN_MAX)
         self.native_vlan_spin.setValue(device.native_vlan)
         form.addRow("Native VLAN:", self.native_vlan_spin)
+
+        self.status_combo = QComboBox()
+        for choice in _STATUS_CHOICES:
+            self.status_combo.addItem(choice.label, choice)
+        self.status_combo.setCurrentIndex(_STATUS_CHOICES.index(device.status))
+        form.addRow("Status:", self.status_combo)
 
         self.notes_edit = QPlainTextEdit(device.notes)
         self.notes_edit.setPlaceholderText("Free-form notes about this device...")

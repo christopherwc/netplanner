@@ -19,7 +19,7 @@ from netplanner.app.commands import (
     EditDevicePropertiesCommand,
 )
 from netplanner.app.validation import Issue, validate
-from netplanner.domain.entities import Device, DeviceType, Interface, Link, LinkType
+from netplanner.domain.entities import Device, DeviceStatus, DeviceType, Interface, Link, LinkType
 from netplanner.domain.interfaces import default_interfaces
 from netplanner.domain.layout import auto_layout
 from netplanner.domain.model import NetworkPlan
@@ -113,12 +113,14 @@ class AppController:
         loopback_ip: str | None,
         notes: str,
         native_vlan: int,
+        status: DeviceStatus,
         new_interfaces: list[Interface],
     ) -> None:
-        """Update model, loopback IP, notes, native VLAN, and interfaces as one undo step."""
+        """Update model, loopback IP, notes, native VLAN, status, and interfaces as one undo step."""
         self.commands.push(
             EditDevicePropertiesCommand(
-                self.plan, device_id, device_model, loopback_ip, notes, native_vlan, new_interfaces
+                self.plan, device_id, device_model, loopback_ip, notes,
+                native_vlan, status, new_interfaces,
             )
         )
 

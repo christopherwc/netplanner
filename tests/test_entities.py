@@ -223,27 +223,32 @@ def test_macs_persist_and_legacy_payloads_get_placeholder():
 
 def test_device_properties_editable_and_undoable():
     from netplanner.app.controller import AppController
+    from netplanner.domain.entities import DeviceStatus
     from unittest.mock import MagicMock
 
     ctrl = AppController(repository=MagicMock())
     d = ctrl.add_device("rtr1", DeviceType.ROUTER, 0, 0)
     assert d.native_vlan == 1  # default before any edit
+    assert d.status == DeviceStatus.ACTIVE  # default before any edit
     ctrl.edit_device_properties(
         d.id,
         device_model="Cisco ISR 4331",
         loopback_ip="10.255.0.1/32",
         notes="core router, uplinks to ISP-A and ISP-B",
         native_vlan=99,
+        status=DeviceStatus.PLANNED,
         new_interfaces=d.interfaces,
     )
     assert d.device_model == "Cisco ISR 4331"
     assert d.loopback_ip == "10.255.0.1/32"
     assert "uplinks" in d.notes
     assert d.native_vlan == 99
+    assert d.status == DeviceStatus.PLANNED
     ctrl.undo()
     assert d.device_model == ""
     assert d.loopback_ip is None
     assert d.notes == ""
+    assert d.status == DeviceStatus.ACTIVE
     assert d.native_vlan == 1
     ctrl.redo()
     assert d.device_model == "Cisco ISR 4331"
@@ -456,3 +461,82 @@ def test_placeholder_mac_not_flagged_as_duplicate():
     ctrl.add_device("rtr1", DeviceType.ROUTER, 300, 0)  # 4 more blank-MAC ports
     issues = ctrl.validate_plan()
     assert not any("Duplicate MAC" in i.message for i in issues)
+
+
+def test_device_status_defaults_to_active():
+    from netplanner.app.controller import AppController
+    from netplanner.domain.entities import DeviceStatus
+    from unittest.mock import MagicMock
+
+    ctrl = AppController(repository=MagicMock())
+    d = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    assert d.status == DeviceStatus.ACTIVE
+
+
+def test_broken_card_uses_grayscale_regardless_of_device_type():
+    from netplanner.domain.entities import Device, DeviceStatus
+    from netplanner.export.nodecard import BROKEN_FILL, BROKEN_STROKE, build_card
+    from netplanner.export.styles import style_for
+
+    for dtype in DeviceType:
+        active_card = build_card(Device(name="d", device_type=dtype))
+        broken_card = build_card(Device(name="d", device_type=dtype, status=DeviceStatus.BROKEN))
+        type_style = style_for(dtype)
+        assert active_card.fill == type_style.fill
+        assert broken_card.fill == BROKEN_FILL
+        assert broken_card.stroke == BROKEN_STROKE
+        assert not active_card.striped
+        assert not broken_card.striped
+
+
+def test_planned_card_keeps_type_color_and_is_striped():
+    from netplanner.domain.entities import Device, DeviceStatus, DeviceType
+    from netplanner.export.nodecard import build_card
+    from netplanner.export.styles import style_for
+
+    style = style_for(DeviceType.ROUTER)
+    card = build_card(Device(name="rtr1", device_type=DeviceType.ROUTER, status=DeviceStatus.PLANNED))
+    assert card.fill == style.fill  # type color preserved, unlike broken
+    assert card.stroke == style.stroke
+    assert card.striped is True
+
+
+def test_status_persists_through_sqlite():
+    from pathlib import Path
+    from netplanner.domain.entities import Device, DeviceStatus
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.persistence.repository import PlanRepository
+
+    repo = PlanRepository(db_path=Path("/tmp/status_test.db"))
+    plan = NetworkPlan("status")
+    plan.add_device(Device(name="sw1", device_type=DeviceType.SWITCH, status=DeviceStatus.BROKEN))
+    plan.add_device(Device(name="sw2", device_type=DeviceType.SWITCH, status=DeviceStatus.PLANNED))
+    repo.save(plan)
+    loaded = repo.load(plan.id)
+    by_name = {d.name: d for d in loaded.devices}
+    assert by_name["sw1"].status == DeviceStatus.BROKEN
+    assert by_name["sw2"].status == DeviceStatus.PLANNED
+
+
+def test_status_persists_through_netplan_json():
+    from pathlib import Path
+    from netplanner.domain.entities import Device, DeviceStatus
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.persistence.project_file import load_project, save_project
+
+    plan = NetworkPlan("status json")
+    plan.add_device(Device(name="sw1", device_type=DeviceType.SWITCH, status=DeviceStatus.PLANNED))
+    save_project(plan, Path("/tmp/status_test.netplan"))
+    loaded = load_project(Path("/tmp/status_test.netplan"))
+    assert loaded.devices[0].status == DeviceStatus.PLANNED
+
+
+def test_legacy_payload_without_status_defaults_to_active():
+    from netplanner.domain.entities import Device, DeviceStatus
+    from netplanner.persistence.repository import _device_from_dict, _device_to_dict
+
+    dev = Device(name="rtr1", device_type=DeviceType.ROUTER)
+    legacy = _device_to_dict(dev)
+    del legacy["status"]
+    revived = _device_from_dict(legacy)
+    assert revived.status == DeviceStatus.ACTIVE

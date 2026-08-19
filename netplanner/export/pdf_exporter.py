@@ -24,6 +24,9 @@ from .nodecard import (
     NATIVE_VLAN_H,
     NOTES_LINE_H,
     PAD,
+    STRIPE_COLOR,
+    STRIPE_SPACING,
+    STRIPE_WIDTH,
     TYPE_BAND_H,
 )
 from .renderer import Scene, build_scene
@@ -80,10 +83,15 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
         card = n.card
         top = fy(n.y)  # PDF y of the card's top edge
 
-        # Background + border
+        # Background + border, via a path so it can be reused for clipping
+        card_path = c.beginPath()
+        card_path.roundRect(n.x, top - card.height, card.width, card.height, 6)
         c.setFillColor(HexColor(card.fill))
         c.setStrokeColor(HexColor(card.stroke))
-        c.roundRect(n.x, top - card.height, card.width, card.height, 6, stroke=1, fill=1)
+        c.drawPath(card_path, fill=1, stroke=1)
+
+        if card.striped:
+            _draw_planned_stripes(c, card_path, n.x, top, card.width, card.height)
 
         # Header: glyph is skipped in PDF (Helvetica lacks many glyphs); bold name
         c.setFillColor(TEXT_COLOR)
@@ -151,3 +159,25 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
             for line in card.notes_lines:
                 c.drawString(n.x + 8, y - NOTES_LINE_H / 2 - 2, line)
                 y -= NOTES_LINE_H
+
+
+def _draw_planned_stripes(c: pdf_canvas.Canvas, card_path, x: float, top: float, w: float, h: float) -> None:
+    """Overlay diagonal gray stripes across a card for PLANNED devices.
+
+    Clips to the card's own rounded-rect path so stripes never spill
+    past the border, then draws parallel diagonal lines at a fixed
+    spacing. The clip is undone via saveState/restoreState so it
+    doesn't leak onto other cards or the plan title.
+    """
+    c.saveState()
+    c.clipPath(card_path, stroke=0, fill=0)
+    c.setStrokeColor(HexColor(STRIPE_COLOR))
+    c.setLineWidth(STRIPE_WIDTH)
+
+    span = w + h
+    offset = -span
+    while offset < span:
+        c.line(x + offset, top, x + offset + h, top - h)
+        offset += STRIPE_SPACING
+
+    c.restoreState()
