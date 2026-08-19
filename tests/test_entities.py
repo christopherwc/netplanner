@@ -284,3 +284,36 @@ def test_nodecard_includes_new_sections():
     assert "10.255.0.3/32" in detailed.loopback_line
     assert len(detailed.notes_lines) >= 2
     assert detailed.height > plain.height  # extra sections take extra space
+
+
+def test_scene_never_clips_a_card_edge():
+    """Regression test for a bug where the leftmost/topmost card's edge
+    could land at a negative coordinate and get clipped off the page.
+
+    This happened because normalization used device *centers* rather
+    than the actual card bounding box, so any card wider/taller than
+    the margin around its center would stick out past x=0/y=0.
+    """
+    from netplanner.domain.entities import Device
+    from netplanner.export.renderer import build_scene
+    from netplanner.domain.model import NetworkPlan
+
+    plan = NetworkPlan("clip test")
+    # Devices placed at (0, 0) and negative-ish relative offsets, with
+    # enough interfaces/notes to make their cards wider than MARGIN.
+    a = plan.add_device(Device(name="sw2", device_type=DeviceType.SWITCH, x=0, y=0))
+    b = plan.add_device(Device(
+        name="rtr1", device_type=DeviceType.ROUTER, x=0, y=300,
+        loopback_ip="192.168.7.12/16",
+    ))
+    c = plan.add_device(Device(
+        name="sw1", device_type=DeviceType.SWITCH, x=500, y=200,
+        loopback_ip="192.168.8.1/16", notes="Hello world",
+    ))
+
+    scene = build_scene(plan)
+    for node in scene.nodes:
+        assert node.x >= 0, f"card left edge clipped: x={node.x}"
+        assert node.y >= 0, f"card top edge clipped: y={node.y}"
+        assert node.x + node.card.width <= scene.width
+        assert node.y + node.card.height <= scene.height
