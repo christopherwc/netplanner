@@ -17,6 +17,8 @@ from netplanner.app.commands import (
     RenameDeviceCommand,
     EditInterfacesCommand,
     EditDevicePropertiesCommand,
+    DeleteDeviceCommand,
+    DeleteLinkCommand,
 )
 from netplanner.app.validation import Issue, validate
 from netplanner.domain.entities import Device, DeviceStatus, DeviceType, Interface, Link, LinkType
@@ -137,6 +139,22 @@ class AppController:
     def rename_device(self, device_id: str, new_name: str) -> None:
         """Rename a device (undoable)."""
         self.commands.push(RenameDeviceCommand(self.plan, device_id, new_name))
+
+    def delete_device(self, device_id: str) -> None:
+        """Delete a device and its attached links (undoable as one step)."""
+        self.commands.push(DeleteDeviceCommand(self.plan, device_id))
+
+    def delete_link(self, link: Link) -> None:
+        """Delete a single link, leaving both devices in place (undoable)."""
+        self.commands.push(DeleteLinkCommand(self.plan, link))
+
+    def links_for_device(self, device_id: str) -> list[Link]:
+        """Every link with this device at either end (used for delete prompts)."""
+        return [
+            link
+            for link in self.plan.links
+            if device_id in (link.a_device_id, link.b_device_id)
+        ]
 
     def move_device(self, device_id: str, x: float, y: float) -> None:
         self.commands.push(MoveDeviceCommand(self.plan, device_id, x, y))

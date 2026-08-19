@@ -202,3 +202,54 @@ class EditDevicePropertiesCommand(Command):
 
     def undo(self) -> None:
         self._apply(self.old)
+
+
+class DeleteDeviceCommand(Command):
+    """Delete a device and every link attached to it, as one undo step.
+
+    networkx drops incident edges when a node is removed, so those links
+    are captured up front and re-added on undo — otherwise undoing a
+    device deletion would restore the device but silently lose its
+    cabling.
+    """
+
+    def __init__(self, plan: NetworkPlan, device_id: str):
+        self.plan = plan
+        self.device = plan.get_device(device_id)
+        # Snapshot incident links before removal so undo can restore them.
+        self.removed_links: list[Link] = [
+            link
+            for link in plan.links
+            if device_id in (link.a_device_id, link.b_device_id)
+        ]
+        name = self.device.name if self.device else "device"
+        self.description = f"Delete device '{name}'"
+
+    def execute(self) -> None:
+        if self.device:
+            self.plan.remove_device(self.device.id)
+
+    def undo(self) -> None:
+        if not self.device:
+            return
+        self.plan.add_device(self.device)
+        for link in self.removed_links:
+            # Both endpoints must exist; the far end was never removed.
+            if self.plan.get_device(link.a_device_id) and self.plan.get_device(
+                link.b_device_id
+            ):
+                self.plan.add_link(link)
+
+
+class DeleteLinkCommand(Command):
+    """Delete a single link, keeping both devices intact."""
+
+    def __init__(self, plan: NetworkPlan, link: Link):
+        self.plan, self.link = plan, link
+        self.description = "Delete link"
+
+    def execute(self) -> None:
+        self.plan.remove_link(self.link)
+
+    def undo(self) -> None:
+        self.plan.add_link(self.link)

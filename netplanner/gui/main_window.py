@@ -53,6 +53,10 @@ class MainWindow(QMainWindow):
         edit_menu = bar.addMenu("&Edit")
         edit_menu.addAction(self._action("&Undo", QKeySequence.StandardKey.Undo, self._undo))
         edit_menu.addAction(self._action("&Redo", QKeySequence.StandardKey.Redo, self._redo))
+        edit_menu.addSeparator()
+        edit_menu.addAction(
+            self._action("&Delete selected", QKeySequence.StandardKey.Delete, self._delete)
+        )
 
         view_menu = bar.addMenu("&View")
         details_action = QAction("Show device &details", self)
@@ -103,6 +107,10 @@ class MainWindow(QMainWindow):
     def _save(self) -> None:
         self.controller.save()
         self.statusBar().showMessage("Plan saved", 3000)
+
+    def _delete(self) -> None:
+        """Delete whatever is selected on the canvas (devices and/or links)."""
+        self.canvas.delete_selection()
 
     def _undo(self) -> None:
         self.controller.undo()

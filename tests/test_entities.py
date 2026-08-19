@@ -774,3 +774,117 @@ def test_auto_layout_single_device_centers_in_fallback(monkeypatch):
     d = plan.add_device(Device(name="only"))
     auto_layout(plan, "spring")
     assert (d.x, d.y) == (0.0, 0.0)
+
+
+def _linked_pair():
+    """Two devices joined by one cable, plus the controller driving them."""
+    from netplanner.app.controller import AppController
+    from netplanner.domain.entities import LinkType
+    from unittest.mock import MagicMock
+
+    ctrl = AppController(repository=MagicMock())
+    a = ctrl.add_device("rtr1", DeviceType.ROUTER, 0, 0)
+    b = ctrl.add_device("sw1", DeviceType.SWITCH, 400, 0)
+    link = ctrl.add_link(
+        a.id, b.id, LinkType.ETHERNET,
+        a_interface_id=ctrl.free_interfaces(a.id)[0].id,
+        b_interface_id=ctrl.free_interfaces(b.id)[0].id,
+    )
+    return ctrl, a, b, link
+
+
+def test_delete_link_keeps_devices():
+    ctrl, a, b, link = _linked_pair()
+    ctrl.delete_link(link)
+    assert len(ctrl.plan.links) == 0
+    assert len(ctrl.plan.devices) == 2  # devices survive
+
+
+def test_delete_link_undo_restores_it():
+    ctrl, a, b, link = _linked_pair()
+    ctrl.delete_link(link)
+    ctrl.undo()
+    assert len(ctrl.plan.links) == 1
+    ctrl.redo()
+    assert len(ctrl.plan.links) == 0
+
+
+def test_deleting_link_frees_its_interfaces():
+    ctrl, a, b, link = _linked_pair()
+    before = len(ctrl.free_interfaces(a.id))
+    ctrl.delete_link(link)
+    assert len(ctrl.free_interfaces(a.id)) == before + 1
+
+
+def test_delete_device_cascades_to_its_links():
+    ctrl, a, b, link = _linked_pair()
+    ctrl.delete_device(a.id)
+    assert ctrl.plan.get_device(a.id) is None
+    assert len(ctrl.plan.links) == 0  # incident cable went with it
+    assert ctrl.plan.get_device(b.id) is not None  # far end untouched
+
+
+def test_delete_device_undo_restores_device_and_its_links():
+    """The subtle one: networkx drops incident edges with the node, so
+    undo must put the cables back too, not just the device."""
+    ctrl, a, b, link = _linked_pair()
+    ctrl.delete_device(a.id)
+    ctrl.undo()
+    assert ctrl.plan.get_device(a.id) is not None
+    assert len(ctrl.plan.links) == 1
+    restored = ctrl.plan.links[0]
+    # Interface assignments must survive the round trip
+    assert restored.a_interface_id == link.a_interface_id
+    assert restored.b_interface_id == link.b_interface_id
+
+
+def test_delete_device_with_many_links_restores_all_of_them():
+    from netplanner.domain.entities import LinkType
+    from netplanner.app.controller import AppController
+    from unittest.mock import MagicMock
+
+    ctrl = AppController(repository=MagicMock())
+    hub = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    spokes = [ctrl.add_device(f"ws{i}", DeviceType.WORKSTATION, 200 * i, 300)
+              for i in range(3)]
+    for spoke in spokes:
+        ctrl.add_link(
+            hub.id, spoke.id, LinkType.ETHERNET,
+            a_interface_id=ctrl.free_interfaces(hub.id)[0].id,
+            b_interface_id=ctrl.free_interfaces(spoke.id)[0].id,
+        )
+    assert len(ctrl.plan.links) == 3
+    ctrl.delete_device(hub.id)
+    assert len(ctrl.plan.links) == 0
+    ctrl.undo()
+    assert len(ctrl.plan.links) == 3
+    assert len(ctrl.plan.devices) == 4
+
+
+def test_links_for_device_reports_both_directions():
+    ctrl, a, b, link = _linked_pair()
+    assert len(ctrl.links_for_device(a.id)) == 1  # stored as the 'a' end
+    assert len(ctrl.links_for_device(b.id)) == 1  # and found from the 'b' end
+
+
+def test_delete_device_then_save_load_round_trip():
+    """Deletions must actually persist, not reappear after a reload."""
+    from pathlib import Path
+    from netplanner.domain.entities import LinkType
+    from netplanner.app.controller import AppController
+    from netplanner.persistence.repository import PlanRepository
+
+    repo = PlanRepository(db_path=Path("/tmp/delete_test.db"))
+    ctrl = AppController(repository=repo)
+    a = ctrl.add_device("rtr1", DeviceType.ROUTER, 0, 0)
+    b = ctrl.add_device("sw1", DeviceType.SWITCH, 400, 0)
+    ctrl.add_link(a.id, b.id, LinkType.ETHERNET)
+    ctrl.save()
+    ctrl.delete_device(a.id)
+    ctrl.save()
+
+    plan_id = ctrl.plan.id
+    ctrl.new_plan()
+    ctrl.load(plan_id)
+    assert len(ctrl.plan.devices) == 1
+    assert len(ctrl.plan.links) == 0

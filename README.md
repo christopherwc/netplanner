@@ -80,6 +80,13 @@ equipment, cable it up port-by-port, and export the result.
   automatically fan out so every cable stays visible.
 - **Editing** — drag to move, double-click to rename, full undo/redo
   (Ctrl+Z / Ctrl+Shift+Z) for every mutation including interface edits.
+- **Deleting** — select any device or cable and press **Delete**, or
+  right-click it and choose *Delete device* / *Delete link*
+  (*Edit → Delete selected* works too). Rubber-band select to remove
+  several at once. Deleting a device also removes the cables attached
+  to it — you're warned first, and a single undo brings the device and
+  all of its cabling back, interface assignments intact. Deleting a
+  cable frees the ports at both ends for reuse.
 - **Validation** — Plan → Validate flags duplicate IPs, duplicate MACs
   (typically a copy-paste typo), overlapping subnets, and devices with
   no links.
