@@ -21,6 +21,8 @@ class DeviceType(Enum):
     FIREWALL = "firewall"
     SERVER = "server"
     ACCESS_POINT = "access_point"
+    DISH_RADIO = "dish_radio"
+    AP_RADIO = "ap_radio"
     WORKSTATION = "workstation"
     OTHER = "other"
 
@@ -29,6 +31,7 @@ class LinkType(Enum):
     ETHERNET = "ethernet"
     FIBER = "fiber"
     WIRELESS = "wireless"
+    SERIAL = "serial"
     WAN = "wan"
 
 

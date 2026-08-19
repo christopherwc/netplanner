@@ -51,3 +51,40 @@ def test_styles_cover_all_types():
     from netplanner.export.styles import STYLES
 
     assert set(STYLES) == set(DeviceType)
+
+
+def test_rename_undo_redo():
+    from netplanner.app.controller import AppController
+    from unittest.mock import MagicMock
+
+    ctrl = AppController(repository=MagicMock())
+    d = ctrl.add_device("rtr1", DeviceType.ROUTER, 0, 0)
+    ctrl.rename_device(d.id, "core-rtr")
+    assert ctrl.plan.get_device(d.id).name == "core-rtr"
+    ctrl.undo()
+    assert ctrl.plan.get_device(d.id).name == "rtr1"
+    ctrl.redo()
+    assert ctrl.plan.get_device(d.id).name == "core-rtr"
+
+
+def test_typed_links_and_new_devices():
+    from netplanner.app.controller import AppController
+    from netplanner.domain.entities import LinkType
+    from unittest.mock import MagicMock
+
+    ctrl = AppController(repository=MagicMock())
+    dish_a = ctrl.add_device("dish1", DeviceType.DISH_RADIO, 0, 0)
+    dish_b = ctrl.add_device("dish2", DeviceType.DISH_RADIO, 300, 0)
+    ap = ctrl.add_device("apr1", DeviceType.AP_RADIO, 150, 100)
+    link = ctrl.add_link(dish_a.id, dish_b.id, link_type=LinkType.WIRELESS, label="5 GHz PtP")
+    ctrl.add_link(dish_b.id, ap.id, link_type=LinkType.ETHERNET)
+    assert link.link_type == LinkType.WIRELESS
+    assert link.label == "5 GHz PtP"
+    assert len(ctrl.plan.links) == 2
+
+
+def test_link_styles_cover_all_types():
+    from netplanner.domain.entities import LinkType
+    from netplanner.export.styles import LINK_STYLES
+
+    assert set(LINK_STYLES) == set(LinkType)

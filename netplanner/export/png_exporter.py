@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw
 from netplanner.domain.model import NetworkPlan
 
 from .renderer import build_scene
-from .styles import style_for_value
+from .styles import link_style_for_value, style_for_value
 
 SCALE = 2  # supersample for crisper output
 NODE_FILL = "#e8f0fe"
@@ -32,11 +32,17 @@ def export_png(plan: NetworkPlan, path: Path) -> None:
 
     # Edges under nodes
     for e in scene.edges:
-        draw.line(
-            (e.x1 * SCALE, e.y1 * SCALE + off, e.x2 * SCALE, e.y2 * SCALE + off),
-            fill=EDGE_COLOR,
-            width=2 * SCALE,
-        )
+        lstyle = link_style_for_value(e.link_type)
+        p1 = (e.x1 * SCALE, e.y1 * SCALE + off)
+        p2 = (e.x2 * SCALE, e.y2 * SCALE + off)
+        width = max(1, int(lstyle.width * SCALE))
+        if lstyle.dash:
+            _dashed_line(draw, p1, p2, lstyle.color, width, [v * SCALE for v in lstyle.dash])
+        else:
+            draw.line((*p1, *p2), fill=lstyle.color, width=width)
+        if e.label:
+            mid = ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2 - 8 * SCALE)
+            draw.text(mid, e.label, fill=lstyle.color, anchor="mm")
 
     # Nodes
     for n in scene.nodes:
@@ -56,3 +62,25 @@ def export_png(plan: NetworkPlan, path: Path) -> None:
     # Downsample for antialiasing
     img = img.resize((w // SCALE, h // SCALE), Image.LANCZOS)
     img.save(path, "PNG")
+
+
+def _dashed_line(draw, p1, p2, color, width, pattern) -> None:
+    """Draw a dashed line segment-by-segment (Pillow has no native dashes)."""
+    import math
+
+    x1, y1 = p1
+    x2, y2 = p2
+    total = math.hypot(x2 - x1, y2 - y1)
+    if total == 0:
+        return
+    ux, uy = (x2 - x1) / total, (y2 - y1) / total
+    dist = 0.0
+    i = 0
+    while dist < total:
+        seg = min(pattern[i % len(pattern)], total - dist)
+        if i % 2 == 0:  # even segments are drawn, odd are gaps
+            sx, sy = x1 + ux * dist, y1 + uy * dist
+            ex, ey = x1 + ux * (dist + seg), y1 + uy * (dist + seg)
+            draw.line((sx, sy, ex, ey), fill=color, width=width)
+        dist += seg
+        i += 1
