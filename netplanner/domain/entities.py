@@ -12,6 +12,7 @@ from ipaddress import IPv4Network
 
 
 def new_id() -> str:
+    """Generate a unique hex id for any entity (device, link, VLAN...)."""
     return uuid.uuid4().hex
 
 
@@ -26,6 +27,9 @@ def blank_mac() -> str:
 
 
 class DeviceType(Enum):
+    """Kinds of equipment available in the palette; each has its own
+    color scheme, glyph, auto-name prefix, and default interface set."""
+
     ROUTER = "router"
     SWITCH = "switch"
     FIREWALL = "firewall"
@@ -42,10 +46,11 @@ class DeviceStatus(Enum):
 
     ACTIVE = "active"    # normal type colors, no overlay
     PLANNED = "planned"  # normal type colors + diagonal gray stripe overlay
-    BROKEN = "broken"    # entire card grayed out, regardless of device type
+    BROKEN = "broken"    # normal type colors + alternating red/black stripes
 
     @property
     def label(self) -> str:
+        """Human-readable label for the properties dialog's Status dropdown."""
         return {
             DeviceStatus.ACTIVE: "Active",
             DeviceStatus.PLANNED: "Planned",
@@ -82,10 +87,14 @@ class VlanMode(Enum):
 
     @property
     def label(self) -> str:
+        """Human-readable label for the interfaces table's VLAN mode dropdown."""
         return {VlanMode.ACCESS: "Access", VlanMode.TRUNK: "Trunk"}[self]
 
 
 class LinkType(Enum):
+    """Physical media of a connection; each renders with a distinct
+    line color and dash pattern (see export.styles.LINK_STYLES)."""
+
     ETHERNET = "ethernet"
     FIBER = "fiber"
     WIRELESS = "wireless"
@@ -104,6 +113,8 @@ class Site:
 
 @dataclass
 class Vlan:
+    """A named VLAN in the plan-wide catalog (e.g. 10 = "Servers")."""
+
     vlan_id: int
     name: str
     id: str = field(default_factory=new_id)
@@ -111,6 +122,8 @@ class Vlan:
 
 @dataclass
 class Subnet:
+    """An IP subnet, optionally tied to a VLAN from the catalog."""
+
     cidr: str  # e.g. "10.0.1.0/24"
     name: str = ""
     vlan_id: str | None = None  # references Vlan.id
@@ -118,6 +131,7 @@ class Subnet:
 
     @property
     def network(self) -> IPv4Network:
+        """The parsed network object, for overlap checks and math."""
         return IPv4Network(self.cidr)
 
 
@@ -152,6 +166,13 @@ class Interface:
 
 @dataclass
 class Device:
+    """A piece of equipment on the canvas.
+
+    Rendered as a multi-section card (see export.nodecard) showing its
+    name, model, type, native VLAN, loopback, interfaces, and notes;
+    its status tag (Active/Planned/Broken) controls the stripe overlay.
+    """
+
     name: str
     device_type: DeviceType = DeviceType.OTHER
     site_id: str | None = None
@@ -167,6 +188,7 @@ class Device:
     id: str = field(default_factory=new_id)
 
     def interface_by_name(self, name: str) -> Interface | None:
+        """Find an interface by display name; None if absent."""
         return next((i for i in self.interfaces if i.name == name), None)
 
 

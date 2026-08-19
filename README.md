@@ -38,18 +38,20 @@ equipment, cable it up port-by-port, and export the result.
   All of the above are undoable together as one edit and visible on the
   canvas by default.
 - **Status tags** — every device is tagged **Active**, **Planned**, or
-  **Broken**, changing how its whole card is painted:
+  **Broken**, changing how its whole card is painted (the device-type
+  color scheme is always kept; statuses differ only in the stripe
+  overlay):
   - **Active** (default): normal device-type colors, no overlay.
-  - **Planned**: keeps the normal type colors, with a diagonal gray
-    stripe pattern overlaid across the card — useful for equipment
-    that's designed but not yet installed.
-  - **Broken**: the entire card is grayed out, regardless of device
-    type — useful for flagging failed or decommissioned equipment at a
-    glance.
+  - **Planned**: a diagonal **gray** stripe pattern overlaid across the
+    card — useful for equipment that's designed but not yet installed.
+  - **Broken**: a diagonal stripe pattern alternating **red and black**
+    (hazard-tape style) overlaid across the card — failed equipment
+    stands out at a glance.
 
-  Status is set from the **General** tab of *Edit properties…* and
-  renders identically on the canvas, in PDF exports, and in PNG
-  exports.
+  Stripes are drawn semi-transparently so the card's text (IPs, MACs,
+  VLANs, notes) stays readable underneath. Status is set from the
+  **General** tab of *Edit properties…* and renders identically on the
+  canvas, in PDF exports, and in PNG exports.
 - **VLANs per interface** — every interface has its own VLAN
   configuration, set from the **Interfaces** tab of *Edit properties…*:
   - **Access mode** (default): the interface carries a single VLAN,
@@ -145,7 +147,7 @@ netplanner
 5. Switch to the **General** tab to set a device model, a loopback IP,
    a native VLAN (defaults to 1), a status (Active/Planned/Broken), and
    notes — all show up on the card immediately, with Planned adding
-   gray stripes and Broken graying the card out.
+   gray stripes and Broken adding red/black hazard stripes.
 6. Each device card lists every port with its IP, MAC, and VLAN —
    uncheck **View → Show device details** if you prefer compact nodes.
 7. **File → Export PDF…** for a shareable diagram.

@@ -65,10 +65,12 @@ class DeviceItem(QGraphicsItem):
 
     # ------------------------------------------------------------- geometry
     def _details_on(self) -> bool:
+        """Whether the scene is showing detailed cards vs compact nodes."""
         scene = self.scene()
         return bool(getattr(scene, "show_details", True))
 
     def boundingRect(self) -> QRectF:
+        """Item bounds: sized from the card layout, or the compact node."""
         if self._details_on():
             card = nodecard.build_card(self.device)
             return QRectF(-card.width / 2, -card.height / 2, card.width, card.height)
@@ -76,6 +78,7 @@ class DeviceItem(QGraphicsItem):
 
     # -------------------------------------------------------------- painting
     def paint(self, painter: QPainter, option, widget=None) -> None:
+        """Qt paint hook: dispatch to the detailed card or compact node."""
         if self._details_on():
             self._paint_card(painter)
         else:
@@ -94,34 +97,41 @@ class DeviceItem(QGraphicsItem):
         painter.drawRoundedRect(rect, 6, 6)
 
         if card.striped:
-            self._paint_planned_stripes(painter, rect)
+            self._paint_status_stripes(painter, rect, card.stripe_colors)
 
-    def _paint_planned_stripes(self, painter: QPainter, rect: QRectF) -> None:
-        """Overlay diagonal gray stripes across the card for PLANNED devices.
+    def _paint_status_stripes(
+        self, painter: QPainter, rect: QRectF, colors: list[str]
+    ) -> None:
+        """Overlay diagonal stripes across the card for its status tag.
 
         Clips to the card's rounded-rect shape so stripes never spill
         past the border, then draws parallel diagonal lines spanning
-        the card at a fixed spacing.
+        the card at a fixed spacing, cycling through `colors` per line:
+        PLANNED passes a single gray so every stripe matches, BROKEN
+        passes [red, black] so the stripes alternate hazard-tape style.
         """
         painter.save()
         clip_path = QPainterPath()
         clip_path.addRoundedRect(rect, 6, 6)
         painter.setClipPath(clip_path)
 
-        pen = QPen(QColor(nodecard.STRIPE_COLOR))
-        pen.setWidthF(nodecard.STRIPE_WIDTH)
-        painter.setPen(pen)
-
         # Diagonal lines at 45 degrees, spaced STRIPE_SPACING apart,
         # spanning well past the card's diagonal so corners are covered.
         span = rect.width() + rect.height()
         step = nodecard.STRIPE_SPACING
         offset = -span
+        line_index = 0
         while offset < span:
+            color = QColor(colors[line_index % len(colors)])
+            color.setAlphaF(nodecard.STRIPE_ALPHA)  # keep card text readable
+            pen = QPen(color)
+            pen.setWidthF(nodecard.STRIPE_WIDTH)
+            painter.setPen(pen)
             x1, y1 = rect.left() + offset, rect.top()
             x2, y2 = rect.left() + offset + rect.height(), rect.bottom()
             painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
             offset += step
+            line_index += 1
 
         painter.restore()
 
@@ -278,6 +288,11 @@ class DeviceItem(QGraphicsItem):
                 y += nodecard.NOTES_LINE_H
 
     def _paint_compact(self, painter: QPainter) -> None:
+        """Small glyph+name node used when device details are hidden.
+
+        Still built from the card so status stripes and colors apply
+        in compact mode too.
+        """
         rect = self.boundingRect()
         card = nodecard.build_card(self.device)
         self._frame(painter, rect, card)
@@ -302,6 +317,7 @@ class DeviceItem(QGraphicsItem):
         )
 
     def mouseReleaseEvent(self, event) -> None:
+        """End of a drag: record the move as an undoable command."""
         super().mouseReleaseEvent(event)
         pos = self.pos()
         if (pos.x(), pos.y()) != (self.device.x, self.device.y):
@@ -311,6 +327,7 @@ class DeviceItem(QGraphicsItem):
                 scene.update_links()
 
     def contextMenuEvent(self, event) -> None:
+        """Right-click menu: rename or open the properties dialog."""
         menu = QMenu()
         rename_action = menu.addAction("Rename…")
         props_action = menu.addAction("Edit properties…")
@@ -335,6 +352,7 @@ class DeviceItem(QGraphicsItem):
         event.accept()
 
     def _rename(self) -> None:
+        """Prompt for a new device name and apply it (undoable)."""
         name, ok = QInputDialog.getText(
             None, "Rename device", "Device name:", text=self.device.name
         )
@@ -343,6 +361,7 @@ class DeviceItem(QGraphicsItem):
             self.update()
 
     def mouseDoubleClickEvent(self, event) -> None:
+        """Double-click a device in select mode: rename it."""
         scene = self.scene()
         if isinstance(scene, PlanScene) and scene.armed_tool is None:
             self._rename()
@@ -352,6 +371,12 @@ class DeviceItem(QGraphicsItem):
 
 
 class PlanScene(QGraphicsScene):
+    """The diagram scene: owns device items, link lines, and tool state.
+
+    armed_tool decides what clicks do (place device / connect / select);
+    show_details toggles detailed cards vs compact nodes.
+    """
+
     def __init__(self, controller: AppController):
         super().__init__()
         self.controller = controller
@@ -428,6 +453,7 @@ class PlanScene(QGraphicsScene):
 
     # ------------------------------------------------------------ mouse flow
     def mousePressEvent(self, event) -> None:
+        """Route left-clicks by armed tool: place, connect, or select."""
         if event.button() != Qt.MouseButton.LeftButton:
             super().mousePressEvent(event)
             return
@@ -511,6 +537,7 @@ class PlanScene(QGraphicsScene):
         return actions[chosen]
 
     def _clear_pending(self) -> None:
+        """Cancel a half-made connection (first device already picked)."""
         if self._pending_source is not None:
             self._pending_source.pending_source = False
             self._pending_source.update()
@@ -518,6 +545,7 @@ class PlanScene(QGraphicsScene):
         self._pending_a_iface = None
 
     def mouseDoubleClickEvent(self, event) -> None:
+        """Double-click empty canvas in select mode: add a device."""
         item = self.itemAt(event.scenePos(), self.views()[0].transform())
         if self.armed_tool is None and item is None:
             self._add_device_with_prompt(event.scenePos())
@@ -525,6 +553,7 @@ class PlanScene(QGraphicsScene):
             super().mouseDoubleClickEvent(event)
 
     def _add_device_with_prompt(self, pos: QPointF) -> None:
+        """Double-click on empty canvas: name a new generic device."""
         name, ok = QInputDialog.getText(None, "New device", "Device name:")
         if ok and name:
             self.controller.add_device(name, DeviceType.OTHER, pos.x(), pos.y())
@@ -532,6 +561,12 @@ class PlanScene(QGraphicsScene):
 
 
 class NetworkCanvas(QGraphicsView):
+    """The scrollable, antialiased view wrapping PlanScene.
+
+    Exposes the small API the main window uses: refresh(), set_tool(),
+    and set_show_details(); Esc resets the palette to select mode.
+    """
+
     def __init__(self, controller: AppController, parent=None):
         self._scene = PlanScene(controller)
         super().__init__(self._scene, parent)
@@ -558,6 +593,7 @@ class NetworkCanvas(QGraphicsView):
         self.viewport().setCursor(cursor)
 
     def keyPressEvent(self, event) -> None:
+        """Esc returns to Select/Move mode via the palette."""
         if event.key() == Qt.Key.Key_Escape:
             window = self.window()
             palette = getattr(window, "palette_dock", None)
