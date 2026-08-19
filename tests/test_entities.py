@@ -702,3 +702,75 @@ def test_broken_png_contains_red_and_black_stripe_pixels(tmp_path):
     red, black = STRIPE_BROKEN
     assert near(blended(red)), "no red stripe pixels found in broken device PNG"
     assert near(blended(black)), "no black stripe pixels found in broken device PNG"
+
+
+def test_auto_layout_assigns_distinct_scaled_positions():
+    from netplanner.domain.entities import Device
+    from netplanner.domain.layout import CANVAS_SCALE, auto_layout
+    from netplanner.domain.model import NetworkPlan
+
+    plan = NetworkPlan("layout")
+    for i in range(5):
+        plan.add_device(Device(name=f"d{i}", device_type=DeviceType.SWITCH))
+    auto_layout(plan, "spring")
+    positions = {(d.x, d.y) for d in plan.devices}
+    assert len(positions) == 5  # nobody stacked on anybody
+    assert all(abs(x) <= CANVAS_SCALE * 1.5 and abs(y) <= CANVAS_SCALE * 1.5
+               for x, y in positions)
+
+
+def test_auto_layout_unknown_algorithm_raises():
+    import pytest
+    from netplanner.domain.layout import auto_layout
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.domain.entities import Device
+
+    plan = NetworkPlan("layout")
+    plan.add_device(Device(name="d0"))
+    with pytest.raises(ValueError):
+        auto_layout(plan, "does_not_exist")
+
+
+def test_auto_layout_empty_plan_is_a_noop():
+    from netplanner.domain.layout import auto_layout
+    from netplanner.domain.model import NetworkPlan
+
+    auto_layout(NetworkPlan("empty"), "spring")  # must not raise
+
+
+def test_auto_layout_survives_missing_numpy(monkeypatch):
+    """Regression test for the reported crash: networkx's layout
+    algorithms raise ModuleNotFoundError when numpy isn't installed
+    (it was missing from the project dependencies). auto_layout must
+    degrade to the fallback circle layout instead of propagating."""
+    import networkx as nx
+    from netplanner.domain.entities import Device
+    from netplanner.domain.layout import auto_layout
+    from netplanner.domain.model import NetworkPlan
+
+    def explode(*args, **kwargs):
+        raise ModuleNotFoundError("No module named 'numpy'")
+
+    monkeypatch.setattr(nx, "spring_layout", explode)
+
+    plan = NetworkPlan("no numpy")
+    for i in range(3):
+        plan.add_device(Device(name=f"d{i}"))
+    auto_layout(plan, "spring")  # must not raise
+    assert len({(d.x, d.y) for d in plan.devices}) == 3
+
+
+def test_auto_layout_single_device_centers_in_fallback(monkeypatch):
+    import networkx as nx
+    from netplanner.domain.entities import Device
+    from netplanner.domain.layout import auto_layout
+    from netplanner.domain.model import NetworkPlan
+
+    monkeypatch.setattr(
+        nx, "spring_layout",
+        lambda *a, **k: (_ for _ in ()).throw(ImportError("numpy")),
+    )
+    plan = NetworkPlan("single")
+    d = plan.add_device(Device(name="only"))
+    auto_layout(plan, "spring")
+    assert (d.x, d.y) == (0.0, 0.0)

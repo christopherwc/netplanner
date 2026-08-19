@@ -83,7 +83,10 @@ equipment, cable it up port-by-port, and export the result.
 - **Validation** — Plan → Validate flags duplicate IPs, duplicate MACs
   (typically a copy-paste typo), overlapping subnets, and devices with
   no links.
-- **Auto-layout** — spring, circular, or Kamada-Kawai via networkx.
+- **Auto-layout** — spring, circular, or Kamada-Kawai via networkx
+  (backed by numpy/scipy, which are project dependencies; if they're
+  ever missing the layout degrades to a simple circle instead of
+  crashing).
 - **Persistence** — plans are saved to SQLite
   (`~/.local/share/netplanner/plans.db`); portable `.netplan` JSON
   import/export is also available.

@@ -10,6 +10,8 @@ requires-python = ">=3.10"
 dependencies = [
     "PyQt6>=6.6",
     "networkx>=3.2",
+    "numpy>=1.26",   # required by networkx layout algorithms (spring/circular)
+    "scipy>=1.11",   # required by networkx kamada_kawai layout
     "SQLAlchemy>=2.0",
     "reportlab>=4.0",
     "Pillow>=10.0",
