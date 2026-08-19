@@ -58,22 +58,27 @@ def build_scene(plan: NetworkPlan) -> Scene:
     if not devices:
         return Scene(width=400, height=300, nodes=[], edges=[], title=plan.name)
 
-    # Normalize coordinates so everything fits with a margin
-    min_x = min(d.x for d in devices)
-    min_y = min(d.y for d in devices)
+    # Build each device's card first so we know its actual footprint —
+    # cards vary in height (interfaces, notes, etc.) and can be wider
+    # than the margin, so normalizing by device *center* alone would
+    # clip whichever card sticks out furthest past its center.
+    cards = {d.id: build_card(d) for d in devices}
 
-    def tx(x: float) -> float:
-        return x - min_x + MARGIN
+    # Find how far each card's top-left corner sits from its device's
+    # raw (x, y) center, then shift everything so the single
+    # leftmost/topmost card edge — not just the leftmost/topmost
+    # center — lands exactly at MARGIN.
+    min_left = min(d.x - cards[d.id].width / 2 for d in devices)
+    min_top = min(d.y - cards[d.id].height / 2 for d in devices)
+    shift_x = MARGIN - min_left
+    shift_y = MARGIN - min_top
 
-    def ty(y: float) -> float:
-        return y - min_y + MARGIN
-
-    centers = {d.id: (tx(d.x), ty(d.y)) for d in devices}
+    centers = {d.id: (d.x + shift_x, d.y + shift_y) for d in devices}
 
     nodes = []
     for d in devices:
         cx, cy = centers[d.id]
-        card = build_card(d)
+        card = cards[d.id]
         nodes.append(NodeShape(x=cx - card.width / 2, y=cy - card.height / 2, card=card))
 
     edges = []
