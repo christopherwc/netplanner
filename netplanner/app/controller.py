@@ -36,6 +36,17 @@ class AppController:
         self.commands.push(AddDeviceCommand(self.plan, device))
         return device
 
+    def next_device_name(self, device_type: DeviceType) -> str:
+        """Generate an auto-incrementing name like rtr1, sw2, fw1."""
+        from netplanner.export.styles import style_for
+
+        prefix = style_for(device_type).name_prefix
+        existing = {d.name for d in self.plan.devices}
+        n = 1
+        while f"{prefix}{n}" in existing:
+            n += 1
+        return f"{prefix}{n}"
+
     def add_link(self, a_device_id: str, b_device_id: str) -> Link:
         link = Link(a_device_id=a_device_id, b_device_id=b_device_id)
         self.commands.push(AddLinkCommand(self.plan, link))

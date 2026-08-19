@@ -10,6 +10,7 @@ from reportlab.pdfgen import canvas as pdf_canvas
 from netplanner.domain.model import NetworkPlan
 
 from .renderer import Scene, build_scene
+from .styles import style_for_value
 
 NODE_FILL = HexColor("#e8f0fe")
 NODE_STROKE = HexColor("#1a56db")
@@ -45,9 +46,10 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
 
     # Nodes
     for n in scene.nodes:
+        style = style_for_value(n.sublabel)
         top = fy(n.y) - 40
-        c.setFillColor(NODE_FILL)
-        c.setStrokeColor(NODE_STROKE)
+        c.setFillColor(HexColor(style.fill))
+        c.setStrokeColor(HexColor(style.stroke))
         c.roundRect(n.x, top - n.h, n.w, n.h, 6, stroke=1, fill=1)
         c.setFillColor(TEXT_COLOR)
         c.setFont("Helvetica-Bold", 10)

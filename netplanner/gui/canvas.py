@@ -1,13 +1,17 @@
 """Diagram canvas: QGraphicsScene/View with draggable device items.
 
-Double-click empty space to add a device. Drag devices to move them
-(recorded as undoable commands on release).
+Interaction model:
+- With an equipment tool armed (from the palette): single-click on empty
+  canvas places a device of that type with an auto-generated name.
+- In select mode: drag devices to move (recorded as undoable commands),
+  double-click empty space to add a device via a name prompt.
+- Esc returns to select mode.
 """
 
 from __future__ import annotations
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QBrush, QColor, QPainter, QPen
+from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPen
 from PyQt6.QtWidgets import (
     QGraphicsItem,
     QGraphicsScene,
@@ -17,6 +21,7 @@ from PyQt6.QtWidgets import (
 
 from netplanner.app.controller import AppController
 from netplanner.domain.entities import Device, DeviceType
+from netplanner.export.styles import style_for
 
 NODE_W, NODE_H = 120, 60
 
@@ -35,14 +40,34 @@ class DeviceItem(QGraphicsItem):
 
     def paint(self, painter: QPainter, option, widget=None) -> None:
         rect = self.boundingRect()
-        painter.setBrush(QBrush(QColor("#e8f0fe")))
-        pen = QPen(QColor("#1a56db"))
-        pen.setWidth(2 if self.isSelected() else 1)
+        style = style_for(self.device.device_type)
+
+        painter.setBrush(QBrush(QColor(style.fill)))
+        pen = QPen(QColor(style.stroke))
+        pen.setWidth(3 if self.isSelected() else 1)
         painter.setPen(pen)
         painter.drawRoundedRect(rect, 6, 6)
+
+        # Glyph on the left
+        glyph_rect = QRectF(rect.left() + 6, rect.top(), 28, rect.height())
+        glyph_font = QFont()
+        glyph_font.setPointSize(16)
+        painter.setFont(glyph_font)
+        painter.setPen(QPen(QColor(style.stroke)))
+        painter.drawText(glyph_rect, Qt.AlignmentFlag.AlignCenter, style.glyph)
+
+        # Name + type on the right
+        text_rect = QRectF(rect.left() + 36, rect.top(), rect.width() - 42, rect.height())
+        name_font = QFont()
+        name_font.setBold(True)
+        name_font.setPointSize(9)
+        painter.setFont(name_font)
         painter.setPen(QPen(QColor("#111111")))
-        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter,
-                         f"{self.device.name}\n{self.device.device_type.value}")
+        painter.drawText(
+            text_rect,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            f"{self.device.name}\n{self.device.device_type.value.replace('_', ' ')}",
+        )
 
     def mouseReleaseEvent(self, event) -> None:
         super().mouseReleaseEvent(event)
@@ -58,9 +83,11 @@ class PlanScene(QGraphicsScene):
     def __init__(self, controller: AppController):
         super().__init__()
         self.controller = controller
+        self.armed_type: DeviceType | None = None
         self._device_items: dict[str, DeviceItem] = {}
         self._link_lines = []
 
+    # -------------------------------------------------------------- rebuild
     def rebuild(self) -> None:
         self.clear()
         self._device_items.clear()
@@ -87,13 +114,33 @@ class PlanScene(QGraphicsScene):
                 line.setZValue(-1)
                 self._link_lines.append(line)
 
+    # ----------------------------------------------------------- placement
+    def mousePressEvent(self, event) -> None:
+        if (
+            self.armed_type is not None
+            and event.button() == Qt.MouseButton.LeftButton
+            and self.itemAt(event.scenePos(), self.views()[0].transform()) is None
+        ):
+            self._place_armed_device(event.scenePos())
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def _place_armed_device(self, pos: QPointF) -> None:
+        name = self.controller.next_device_name(self.armed_type)
+        self.controller.add_device(name, self.armed_type, pos.x(), pos.y())
+        self.rebuild()
+
     def mouseDoubleClickEvent(self, event) -> None:
-        if self.itemAt(event.scenePos(), self.views()[0].transform()) is None:
-            self._add_device_at(event.scenePos())
+        if (
+            self.armed_type is None
+            and self.itemAt(event.scenePos(), self.views()[0].transform()) is None
+        ):
+            self._add_device_with_prompt(event.scenePos())
         else:
             super().mouseDoubleClickEvent(event)
 
-    def _add_device_at(self, pos: QPointF) -> None:
+    def _add_device_with_prompt(self, pos: QPointF) -> None:
         name, ok = QInputDialog.getText(None, "New device", "Device name:")
         if ok and name:
             self.controller.add_device(name, DeviceType.OTHER, pos.x(), pos.y())
@@ -110,3 +157,23 @@ class NetworkCanvas(QGraphicsView):
 
     def refresh(self) -> None:
         self._scene.rebuild()
+
+    def set_tool(self, device_type: DeviceType | None) -> None:
+        self._scene.armed_type = device_type
+        cursor = (
+            Qt.CursorShape.CrossCursor
+            if device_type is not None
+            else Qt.CursorShape.ArrowCursor
+        )
+        self.viewport().setCursor(cursor)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            window = self.window()
+            palette = getattr(window, "palette_dock", None)
+            if palette is not None:
+                palette.reset_to_select()
+            else:
+                self.set_tool(None)
+            return
+        super().keyPressEvent(event)

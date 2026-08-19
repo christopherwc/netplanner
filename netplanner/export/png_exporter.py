@@ -9,6 +9,7 @@ from PIL import Image, ImageDraw
 from netplanner.domain.model import NetworkPlan
 
 from .renderer import build_scene
+from .styles import style_for_value
 
 SCALE = 2  # supersample for crisper output
 NODE_FILL = "#e8f0fe"
@@ -45,7 +46,8 @@ def export_png(plan: NetworkPlan, path: Path) -> None:
             (n.x + n.w) * SCALE,
             (n.y + n.h) * SCALE + off,
         )
-        draw.rounded_rectangle(box, radius=6 * SCALE, fill=NODE_FILL, outline=NODE_STROKE, width=SCALE)
+        style = style_for_value(n.sublabel)
+        draw.rounded_rectangle(box, radius=6 * SCALE, fill=style.fill, outline=style.stroke, width=SCALE)
         cx = (box[0] + box[2]) / 2
         cy = (box[1] + box[3]) / 2
         draw.text((cx, cy - 6 * SCALE), n.label, fill=TEXT_COLOR, anchor="mm")

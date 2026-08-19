@@ -34,3 +34,20 @@ def test_isolated_device_warns():
     plan.add_device(Device(name="lonely-host"))
     issues = validate(plan)
     assert any("no links" in i.message for i in issues)
+
+
+def test_auto_naming():
+    from netplanner.app.controller import AppController
+    from unittest.mock import MagicMock
+
+    ctrl = AppController(repository=MagicMock())
+    assert ctrl.next_device_name(DeviceType.ROUTER) == "rtr1"
+    ctrl.add_device("rtr1", DeviceType.ROUTER, 0, 0)
+    assert ctrl.next_device_name(DeviceType.ROUTER) == "rtr2"
+    assert ctrl.next_device_name(DeviceType.SWITCH) == "sw1"
+
+
+def test_styles_cover_all_types():
+    from netplanner.export.styles import STYLES
+
+    assert set(STYLES) == set(DeviceType)
