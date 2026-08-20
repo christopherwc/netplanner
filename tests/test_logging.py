@@ -261,3 +261,25 @@ def test_netplanner_error_hierarchy():
 
     for error_type in (PersistenceError, ExportError, ConfigImportError):
         assert issubclass(error_type, NetPlannerError)
+
+
+def test_repository_constructs_with_default_path(tmp_path, monkeypatch):
+    """Regression test: PlanRepository() with no argument is the real app's
+    startup path, but every other test passes an explicit db_path — so a
+    broken default_db_path reference shipped despite 86 green tests. This
+    exercises the no-argument constructor under a redirected XDG home."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from netplanner.persistence.repository import PlanRepository
+
+    repo = PlanRepository()  # must not raise
+    assert repo.db_path == tmp_path / "netplanner" / "plans.db"
+
+
+def test_controller_constructs_with_default_repository(tmp_path, monkeypatch):
+    """Same regression one level up: AppController() with no repository is
+    exactly what main() runs at startup."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from netplanner.app.controller import AppController
+
+    ctrl = AppController()  # must not raise
+    assert ctrl.repository.db_path == tmp_path / "netplanner" / "plans.db"
