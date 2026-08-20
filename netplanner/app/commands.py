@@ -17,6 +17,7 @@ from netplanner.domain.entities import (
     DeviceStatus,
     Interface,
     Link,
+    LinkType,
     TextBox,
 )
 from netplanner.domain.model import NetworkPlan
@@ -388,3 +389,38 @@ class DeleteTextBoxCommand(Command):
     def undo(self) -> None:
         if self.textbox:
             self.plan.add_textbox(self.textbox)
+
+
+class EditLinkCommand(Command):
+    """Edit a link's label, media type and bandwidth as one undo step.
+
+    Bundled like device properties: they are edited in a single dialog,
+    so one OK should be one Ctrl+Z.
+    """
+
+    def __init__(
+        self,
+        plan: NetworkPlan,
+        link_id: str,
+        label: str,
+        link_type: LinkType,
+        bandwidth_mbps: int | None,
+    ):
+        self.plan, self.link_id = plan, link_id
+        self.new = (label, link_type, bandwidth_mbps)
+        link = plan.get_link(link_id)
+        self.old = (
+            (link.label, link.link_type, link.bandwidth_mbps) if link else self.new
+        )
+        self.description = "Edit link"
+
+    def _apply(self, values) -> None:
+        link = self.plan.get_link(self.link_id)
+        if link:
+            link.label, link.link_type, link.bandwidth_mbps = values
+
+    def execute(self) -> None:
+        self._apply(self.new)
+
+    def undo(self) -> None:
+        self._apply(self.old)

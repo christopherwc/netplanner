@@ -74,6 +74,15 @@ class NetworkPlan:
         self.graph.add_edge(link.a_device_id, link.b_device_id, key=link.id, link=link)
         return link
 
+    def get_link(self, link_id: str) -> Link | None:
+        """Look up a link by id; None if absent.
+
+        Links live as keyed edge attributes, so this scans rather than
+        indexing — plans are small enough that a dict mirror would be
+        state to keep in sync for no measurable gain.
+        """
+        return next((link for link in self.links if link.id == link_id), None)
+
     def remove_link(self, link: Link) -> None:
         if self.graph.has_edge(link.a_device_id, link.b_device_id, key=link.id):
             self.graph.remove_edge(link.a_device_id, link.b_device_id, key=link.id)

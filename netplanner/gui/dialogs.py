@@ -28,6 +28,8 @@ from PyQt6.QtWidgets import (
 
 from netplanner.domain.entities import (
     ConfigFile,
+    Link,
+    LinkType,
     TextBox,
     ConfigFormat,
     Device,
@@ -38,6 +40,7 @@ from netplanner.domain.entities import (
     blank_mac,
     detect_config_format,
 )
+from netplanner.export.styles import link_style_for
 from netplanner.gui.config_viewer import ConfigViewerDialog
 
 # Row order for the Type dropdown in the interfaces table.
@@ -555,3 +558,82 @@ class TextBoxDialog(QDialog):
 
     def result_width(self) -> float:
         return float(self.width_spin.value())
+
+
+class LinkPropertiesDialog(QDialog):
+    """Edit a cable: its label, media type, and bandwidth.
+
+    The label is the headline field — it's what shows on the diagram —
+    so it takes focus when the dialog opens.
+    """
+
+    # Order shown in the media dropdown; matches the palette's order.
+    LINK_TYPE_CHOICES = [
+        LinkType.ETHERNET,
+        LinkType.FIBER,
+        LinkType.WIRELESS,
+        LinkType.SERIAL,
+        LinkType.WAN,
+    ]
+
+    def __init__(self, link: Link, endpoints: str = "", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Link properties")
+        self.resize(420, 200)
+
+        layout = QVBoxLayout(self)
+
+        if endpoints:
+            header = QLabel(endpoints)
+            header.setStyleSheet("color: #444; font-weight: bold;")
+            layout.addWidget(header)
+
+        form = QFormLayout()
+
+        self.label_edit = QLineEdit(link.label)
+        self.label_edit.setPlaceholderText("e.g. Core uplink, MPLS circuit 4471")
+        form.addRow("Label:", self.label_edit)
+
+        self.type_combo = QComboBox()
+        for choice in self.LINK_TYPE_CHOICES:
+            # Media names live on the style table, not the enum, so the
+            # dropdown reads the same as the palette does.
+            self.type_combo.addItem(link_style_for(choice).label, choice)
+        if link.link_type in self.LINK_TYPE_CHOICES:
+            self.type_combo.setCurrentIndex(self.LINK_TYPE_CHOICES.index(link.link_type))
+        form.addRow("Media:", self.type_combo)
+
+        self.bandwidth_spin = QSpinBox()
+        self.bandwidth_spin.setRange(0, 400_000)
+        self.bandwidth_spin.setSuffix(" Mbps")
+        # 0 doubles as "unset": a spinbox has no empty state, and a link
+        # with no recorded bandwidth is normal rather than an error.
+        self.bandwidth_spin.setSpecialValueText("not set")
+        self.bandwidth_spin.setValue(link.bandwidth_mbps or 0)
+        form.addRow("Bandwidth:", self.bandwidth_spin)
+
+        layout.addLayout(form)
+
+        hint = QLabel("The label is drawn on the cable, on the canvas and in exports.")
+        hint.setStyleSheet("color: #666; font-size: 11px;")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        box.accepted.connect(self.accept)
+        box.rejected.connect(self.reject)
+        layout.addWidget(box)
+
+        self.label_edit.setFocus()
+
+    def result_label(self) -> str:
+        return self.label_edit.text().strip()
+
+    def result_link_type(self) -> LinkType:
+        return self.type_combo.currentData()
+
+    def result_bandwidth(self) -> int | None:
+        value = self.bandwidth_spin.value()
+        return value or None  # 0 means "not set"

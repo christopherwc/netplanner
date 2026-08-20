@@ -98,6 +98,34 @@ def card_exit_point(
     return ex + dx / length * gap, ey + dy / length * gap
 
 
+def lift_above_line(
+    x: float,
+    y: float,
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    amount: float,
+) -> tuple[float, float]:
+    """Move a point off a line, perpendicular, toward the top of the page.
+
+    Labels centred on a cable sit *on* it, so the line strikes through
+    the text. Offsetting perpendicular keeps the label associated with
+    its cable while leaving the cable unbroken. Of the two perpendicular
+    directions the upward one is chosen so labels read consistently
+    rather than flipping side with the link's direction.
+    """
+    dx, dy = x2 - x1, y2 - y1
+    length = (dx * dx + dy * dy) ** 0.5
+    if length == 0:
+        return x, y - amount
+    # Perpendicular unit vector, normalized to point "up" the page.
+    px, py = -dy / length, dx / length
+    if py > 0:
+        px, py = -px, -py
+    return x + px * amount, y + py * amount
+
+
 def label_anchor(
     cx: float,
     cy: float,
@@ -108,13 +136,15 @@ def label_anchor(
     text_w: float,
     text_h: float,
     gap: float = 6.0,
+    lift: float = 0.0,
 ) -> tuple[float, float]:
     """Centre point for a port label that clears the card entirely.
 
     card_exit_point() lands on the card's boundary, so a label centred
     there still has half its width inside the card. This pushes the
     centre further along the link direction by the label's own
-    half-extent, so the whole label sits in open space.
+    half-extent, so the whole label sits in open space. `lift` then
+    raises it clear of the cable itself.
     """
     ex, ey = card_exit_point(cx, cy, tx, ty, half_w, half_h, gap)
     dx, dy = tx - cx, ty - cy
@@ -122,4 +152,7 @@ def label_anchor(
     if length == 0:
         return ex, ey
     ux, uy = dx / length, dy / length
-    return ex + ux * text_w / 2, ey + uy * text_h / 2
+    ax, ay = ex + ux * text_w / 2, ey + uy * text_h / 2
+    if lift:
+        ax, ay = lift_above_line(ax, ay, cx, cy, tx, ty, lift)
+    return ax, ay

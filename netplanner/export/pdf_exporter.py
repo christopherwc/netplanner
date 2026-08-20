@@ -17,7 +17,7 @@ from reportlab.pdfgen import canvas as pdf_canvas
 from netplanner.domain.model import NetworkPlan
 from netplanner.errors import ExportError
 
-from .geometry import label_anchor
+from .geometry import label_anchor, lift_above_line
 from .nodecard import (
     FOOTER_H,
     HEADER_H,
@@ -107,7 +107,11 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
         if e.label:
             c.setFillColor(HexColor(lstyle.color))
             c.setFont("Helvetica", 7)
-            c.drawCentredString((e.x1 + e.x2) / 2, (fy(e.y1) + fy(e.y2)) / 2 + 4, e.label)
+            mx, my = lift_above_line(
+                (e.x1 + e.x2) / 2, (fy(e.y1) + fy(e.y2)) / 2,
+                e.x1, fy(e.y1), e.x2, fy(e.y2), 6,
+            )
+            c.drawCentredString(mx, my - 2, e.label)
     c.setDash([])
 
     # Node cards
@@ -226,7 +230,9 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
             if not port:
                 continue
             text_w = c.stringWidth(port, "Helvetica", 6)
-            px, py = label_anchor(cx, cy, tx, ty, half_w, half_h, text_w, 6)
+            px, py = label_anchor(
+                cx, cy, tx, ty, half_w, half_h, text_w, 6, lift=5
+            )
             c.drawCentredString(px, py - 2, port)
 
     # Text annotations last so they sit above cards if they overlap.

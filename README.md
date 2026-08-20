@@ -70,6 +70,12 @@ equipment, cable it up port-by-port, and export the result.
   export. Exports honour the active filter, so a filtered PDF or PNG
   shows exactly what was on screen — useful for handing someone a
   "here's just VLAN 30" diagram.
+- **Link labels** — double-click a cable (or right-click → *Edit
+  link…*) to set a **label**, change its **media type**, and record its
+  **bandwidth**. The label is drawn on the cable on the canvas and in
+  exports — useful for circuit IDs, carrier references, or capacity
+  notes. Labels and port names sit just above the cable so the line
+  never strikes through the text.
 - **Status tags** — every device is tagged **Active**, **Planned**, or
   **Broken**, changing how its whole card is painted (the device-type
   color scheme is always kept; statuses differ only in the stripe
