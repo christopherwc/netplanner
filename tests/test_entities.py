@@ -1289,3 +1289,16 @@ def test_textboxes_export_to_pdf_and_png(tmp_path):
     ctrl.export_to_png(tmp_path / "a.png")
     assert (tmp_path / "a.pdf").stat().st_size > 0
     assert (tmp_path / "a.png").stat().st_size > 0
+
+
+def test_canvas_background_matches_export_background():
+    """Regression: the canvas used to inherit the system palette, so under
+    a dark desktop theme the diagram surface was dark while every export
+    stayed white — making near-black annotation text and port labels
+    invisible on screen only. Both surfaces must name the same color."""
+    from netplanner.export.png_exporter import BG_COLOR
+    from netplanner.export.styles import CANVAS_BG
+
+    assert BG_COLOR == CANVAS_BG
+    # A light surface is what the dark-on-light text in styles assumes.
+    assert CANVAS_BG.lower() in ("#ffffff", "#fff")

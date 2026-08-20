@@ -38,7 +38,7 @@ from netplanner.app.controller import AppController
 from netplanner.domain.entities import Device, DeviceType, Link, LinkType, TextBox
 from netplanner.export.geometry import offset_endpoints, parallel_link_offsets, point_along
 from netplanner.export import nodecard
-from netplanner.export.styles import link_style_for, style_for
+from netplanner.export.styles import CANVAS_BG, link_style_for, style_for
 from netplanner.gui.dialogs import DevicePropertiesDialog, TextBoxDialog
 from netplanner.gui.palette import TEXT_TOOL
 
@@ -590,6 +590,11 @@ class PlanScene(QGraphicsScene):
         self._device_items: dict[str, DeviceItem] = {}
         self._text_items: dict[str, TextBoxItem] = {}
         self._link_items = []
+        # Paint the diagram surface explicitly instead of inheriting the
+        # system palette: under a dark desktop theme the scene would be
+        # dark while every export stayed white, making dark-on-dark text
+        # (annotations, port labels) invisible on screen only.
+        self.setBackgroundBrush(QBrush(QColor(CANVAS_BG)))
 
     # -------------------------------------------------------------- rebuild
     def rebuild(self) -> None:
@@ -879,6 +884,10 @@ class NetworkCanvas(QGraphicsView):
         self._scene = PlanScene(controller)
         super().__init__(self._scene, parent)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # The scene brush only covers the scene rect; the view brush covers
+        # the whole viewport, including the area beyond it. Both are needed
+        # or a dark theme still shows through around the diagram edges.
+        self.setBackgroundBrush(QBrush(QColor(CANVAS_BG)))
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self.refresh()
 

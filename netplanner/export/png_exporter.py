@@ -36,12 +36,13 @@ from .nodecard import (
 from netplanner.errors import ExportError
 
 from .renderer import build_scene
-from .styles import link_style_for_value
+from .styles import CANVAS_BG, link_style_for_value
 
 SCALE = 2  # supersample factor for crisper output
 TEXT_COLOR = "#111111"
 MAC_COLOR = "#777777"
-BG_COLOR = "#ffffff"
+# Sourced from styles so the canvas and exports can't drift apart.
+BG_COLOR = CANVAS_BG
 TITLE_OFFSET = 40  # room reserved above the diagram for the plan title
 
 
