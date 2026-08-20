@@ -10,11 +10,15 @@ keeps working rather than crashing the app.
 
 from __future__ import annotations
 
+import logging
+
 import math
 
 import networkx as nx
 
 from .model import NetworkPlan
+
+logger = logging.getLogger(__name__)
 
 CANVAS_SCALE = 400.0  # spread normalized coords across the canvas
 
@@ -37,6 +41,7 @@ def auto_layout(plan: NetworkPlan, algorithm: str = "spring") -> None:
         return
 
     if algorithm not in ALGORITHMS:
+        logger.error("Unknown layout algorithm requested: %r", algorithm)
         raise ValueError(f"Unknown layout algorithm: {algorithm}")
 
     try:
@@ -46,9 +51,13 @@ def auto_layout(plan: NetworkPlan, algorithm: str = "spring") -> None:
             pos = nx.circular_layout(plan.graph)
         else:  # kamada_kawai
             pos = nx.kamada_kawai_layout(plan.graph)
-    except ImportError:
-        # numpy/scipy missing from the environment: degrade gracefully
-        # rather than crash the Plan -> Auto layout menu action.
+    except ImportError as exc:
+        # numpy/scipy are declared dependencies, so reaching this means a
+        # broken environment; degrade visibly rather than crash silently.
+        logger.warning(
+            "Layout algorithm '%s' unavailable (%s); using circle fallback",
+            algorithm, exc,
+        )
         pos = _fallback_circle_layout(plan)
 
     for node_id, (x, y) in pos.items():

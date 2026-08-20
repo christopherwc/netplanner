@@ -8,6 +8,8 @@ segment-by-segment.
 
 from __future__ import annotations
 
+import logging
+
 import math
 from pathlib import Path
 
@@ -31,6 +33,8 @@ from .nodecard import (
     STRIPE_WIDTH,
     TYPE_BAND_H,
 )
+from netplanner.errors import ExportError
+
 from .renderer import build_scene
 from .styles import link_style_for_value
 
@@ -41,9 +45,41 @@ BG_COLOR = "#ffffff"
 TITLE_OFFSET = 40  # room reserved above the diagram for the plan title
 
 
+logger = logging.getLogger(__name__)
+
+
 def export_png(plan: NetworkPlan, path: Path) -> None:
-    """Render the plan to PNG; drawn at 2x then downsampled for antialiasing."""
+    """Render the plan to PNG; drawn at 2x then downsampled for antialiasing.
+
+    Failures are logged with the traceback and re-raised as ExportError
+    naming the plan, the destination, and the scene size — enough to
+    tell an unwritable path from a rendering bug from the message alone.
+    """
     scene = build_scene(plan)
+    logger.info(
+        "Exporting plan '%s' (%d devices, %d links) to PNG %s (%.0fx%.0f px)",
+        plan.name, len(plan.devices), len(plan.links), path, scene.width, scene.height,
+    )
+    try:
+        _export_png_impl(scene, path)
+    except OSError as exc:
+        logger.exception("PNG export failed writing %s", path)
+        raise ExportError(
+            f"Could not write PNG for plan '{plan.name}' to {path}: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+    except Exception as exc:  # rendering bug: keep the report verbose
+        logger.exception("PNG rendering failed for plan '%s'", plan.name)
+        raise ExportError(
+            f"PNG rendering failed for plan '{plan.name}' "
+            f"({len(plan.devices)} devices, scene {scene.width:.0f}x{scene.height:.0f}): "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+    logger.debug("PNG export complete: %s", path)
+
+
+def _export_png_impl(scene, path: Path) -> None:
+    """The actual Pillow drawing behind export_png()."""
     w, h = int(scene.width) * SCALE, (int(scene.height) + TITLE_OFFSET) * SCALE
     img = Image.new("RGB", (w, h), BG_COLOR)
     draw = ImageDraw.Draw(img)

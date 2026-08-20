@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import logging
+
+from netplanner.errors import ConfigImportError
 from netplanner.app.commands import (
     AddDeviceCommand,
     AddLinkCommand,
@@ -41,6 +44,9 @@ from netplanner.export.png_exporter import export_png
 from netplanner.persistence.repository import PlanRepository
 
 
+logger = logging.getLogger(__name__)
+
+
 class AppController:
     def __init__(self, repository: PlanRepository | None = None):
         self.repository = repository or PlanRepository()
@@ -50,6 +56,7 @@ class AppController:
     # ------------------------------------------------------------ plan edits
     def add_device(self, name: str, device_type: DeviceType, x: float, y: float) -> Device:
         """Create a device at (x, y) with its type's default interfaces (undoable)."""
+        logger.info("Adding device '%s' (%s) at (%.0f, %.0f)", name, device_type.value, x, y)
         device = Device(
             name=name,
             device_type=device_type,
@@ -164,21 +171,41 @@ class AppController:
         vendor export can't raise; the format is guessed from the
         contents and can be overridden in the dialog.
         """
-        raw = path.read_bytes()
+        try:
+            raw = path.read_bytes()
+        except OSError as exc:
+            logger.exception("Config import failed reading %s", path)
+            raise ConfigImportError(
+                f"Could not read config file {path}: {type(exc).__name__}: {exc}"
+            ) from exc
         text = raw.decode("utf-8", errors="replace")
+        detected = detect_config_format(text, path.name.lower())
+        logger.info(
+            "Imported config %s (%d bytes, detected format: %s)",
+            path, len(raw), detected.value,
+        )
         return ConfigFile(
             filename=path.name,
             content=text,
-            config_format=detect_config_format(text, path.name.lower()),
+            config_format=detected,
             source_path=str(path),
         )
 
     def delete_device(self, device_id: str) -> None:
         """Delete a device and its attached links (undoable as one step)."""
+        device = self.plan.get_device(device_id)
+        logger.info(
+            "Deleting device '%s' (id=%s) with %d attached link(s)",
+            device.name if device else "?", device_id,
+            len(self.links_for_device(device_id)),
+        )
         self.commands.push(DeleteDeviceCommand(self.plan, device_id))
 
     def delete_link(self, link: Link) -> None:
         """Delete a single link, leaving both devices in place (undoable)."""
+        logger.info(
+            "Deleting link id=%s (%s <-> %s)", link.id, link.a_device_id, link.b_device_id
+        )
         self.commands.push(DeleteLinkCommand(self.plan, link))
 
     def links_for_device(self, device_id: str) -> list[Link]:

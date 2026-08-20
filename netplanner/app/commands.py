@@ -7,10 +7,15 @@ the stack.
 
 from __future__ import annotations
 
+import logging
+
 from abc import ABC, abstractmethod
 
 from netplanner.domain.entities import ConfigFile, Device, DeviceStatus, Interface, Link
 from netplanner.domain.model import NetworkPlan
+
+
+logger = logging.getLogger(__name__)
 
 
 class Command(ABC):
@@ -31,18 +36,21 @@ class CommandStack:
         self._redo: list[Command] = []
 
     def push(self, command: Command) -> None:
+        logger.debug("Command: %s", command.description)
         command.execute()
         self._undo.append(command)
         self._redo.clear()
 
     def undo(self) -> None:
         if self._undo:
+            logger.debug("Undo: %s", self._undo[-1].description)
             cmd = self._undo.pop()
             cmd.undo()
             self._redo.append(cmd)
 
     def redo(self) -> None:
         if self._redo:
+            logger.debug("Redo: %s", self._redo[-1].description)
             cmd = self._redo.pop()
             cmd.execute()
             self._undo.append(cmd)

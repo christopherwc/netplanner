@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import functools
-import traceback
+import logging
 from pathlib import Path
 
 from PyQt6.QtGui import QAction, QKeySequence
@@ -14,6 +14,9 @@ from netplanner.app.controller import AppController
 from .canvas import NetworkCanvas
 from .palette import EquipmentPalette
 from .panels import PropertiesPanel
+
+
+logger = logging.getLogger(__name__)
 
 
 class MainWindow(QMainWindow):
@@ -90,11 +93,17 @@ class MainWindow(QMainWindow):
             try:
                 return slot()
             except Exception as exc:  # noqa: BLE001 - last-resort UI guard
-                traceback.print_exc()
+                # logger.exception records the full traceback in the log
+                # file, so the dialog can stay short while the log holds
+                # everything needed to diagnose the failure.
+                logger.exception("Menu action '%s' failed", slot.__name__)
+                from netplanner.log import log_file_path
+
                 QMessageBox.critical(
                     self,
                     "Error",
-                    f"That action failed:\n\n{type(exc).__name__}: {exc}",
+                    f"That action failed:\n\n{type(exc).__name__}: {exc}\n\n"
+                    f"Details were written to:\n{log_file_path()}",
                 )
 
         return wrapper

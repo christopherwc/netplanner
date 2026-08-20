@@ -7,6 +7,7 @@ fields to real columns as querying needs grow.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
@@ -60,8 +61,12 @@ class LinkRow(Base):
     plan: Mapped[PlanRow] = relationship(back_populates="links")
 
 
+logger = logging.getLogger(__name__)
+
+
 def make_session_factory(db_path: Path | None = None) -> sessionmaker:
     path = db_path or default_db_path()
+    logger.debug("Opening SQLite engine at %s", path)
     engine = create_engine(f"sqlite:///{path}")
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine, expire_on_commit=False)
