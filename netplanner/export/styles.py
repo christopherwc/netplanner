@@ -13,6 +13,14 @@ from netplanner.domain.entities import DeviceType, LinkType
 
 
 # ------------------------------------------------------------------ devices
+# The diagram surface color. Shared by the canvas and both exporters so
+# the GUI never inherits a dark system theme that the exports don't have:
+# a plan drawn on a dark canvas but exported on white would show text in
+# the wrong contrast, and near-black annotation text would be invisible
+# on screen while looking fine in the PDF.
+CANVAS_BG = "#ffffff"
+
+
 @dataclass(frozen=True)
 class TypeStyle:
     fill: str         # background color (hex)
