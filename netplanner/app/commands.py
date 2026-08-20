@@ -212,6 +212,17 @@ class EditDevicePropertiesCommand(Command):
             d.native_vlan = native_vlan
             d.status = status
             d.interfaces = list(interfaces)
+            # Port types may have changed, so auto-tracking links follow.
+            # Recomputing in _apply (rather than only on execute) means
+            # undo restores the old interfaces and then re-derives from
+            # them, so speeds stay consistent in both directions without
+            # snapshotting them separately.
+            changed = self.plan.recompute_auto_link_speeds()
+            if changed:
+                logger.debug(
+                    "Interface edit on '%s' updated %d auto link speed(s)",
+                    d.name, len(changed),
+                )
 
     def execute(self) -> None:
         self._apply(self.new)
@@ -405,19 +416,22 @@ class EditLinkCommand(Command):
         label: str,
         link_type: LinkType,
         bandwidth_mbps: int | None,
+        bandwidth_auto: bool = False,
     ):
         self.plan, self.link_id = plan, link_id
-        self.new = (label, link_type, bandwidth_mbps)
+        self.new = (label, link_type, bandwidth_mbps, bandwidth_auto)
         link = plan.get_link(link_id)
         self.old = (
-            (link.label, link.link_type, link.bandwidth_mbps) if link else self.new
+            (link.label, link.link_type, link.bandwidth_mbps, link.bandwidth_auto)
+            if link
+            else self.new
         )
         self.description = "Edit link"
 
     def _apply(self, values) -> None:
         link = self.plan.get_link(self.link_id)
         if link:
-            link.label, link.link_type, link.bandwidth_mbps = values
+            link.label, link.link_type, link.bandwidth_mbps, link.bandwidth_auto = values
 
     def execute(self) -> None:
         self._apply(self.new)

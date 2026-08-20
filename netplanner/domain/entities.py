@@ -380,5 +380,10 @@ class Link:
     b_interface_id: str | None = None
     link_type: LinkType = LinkType.ETHERNET
     bandwidth_mbps: int | None = None
+    # True while the speed is derived from the two interfaces' line
+    # rates, so it can follow a port upgrade. Cleared as soon as the
+    # user types a figure themselves: a measured or contracted rate is
+    # real data that must never be silently overwritten.
+    bandwidth_auto: bool = True
     label: str = ""
     id: str = field(default_factory=new_id)

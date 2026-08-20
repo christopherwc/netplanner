@@ -294,11 +294,22 @@ class AppController:
         label: str,
         link_type: LinkType,
         bandwidth_mbps: int | None,
+        bandwidth_auto: bool = False,
     ) -> None:
-        """Update a link's label, media type and bandwidth (one undo step)."""
-        logger.info("Editing link id=%s (label=%r, type=%s)", link_id, label, link_type.value)
+        """Update a link's label, media type and bandwidth (one undo step).
+
+        `bandwidth_auto` records whether the speed should keep tracking
+        the interfaces. Editing the figure by hand clears it, so a
+        later port change can't overwrite a real measured rate.
+        """
+        logger.info(
+            "Editing link id=%s (label=%r, type=%s, auto_speed=%s)",
+            link_id, label, link_type.value, bandwidth_auto,
+        )
         self.commands.push(
-            EditLinkCommand(self.plan, link_id, label, link_type, bandwidth_mbps)
+            EditLinkCommand(
+                self.plan, link_id, label, link_type, bandwidth_mbps, bandwidth_auto
+            )
         )
 
     def delete_link(self, link: Link) -> None:
