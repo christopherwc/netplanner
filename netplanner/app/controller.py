@@ -24,6 +24,7 @@ from netplanner.app.commands import (
     DeleteLinkCommand,
     EditConfigsCommand,
     EditLinkCommand,
+    RenamePlanCommand,
     AddSiteCommand,
     SetSiteGeometryCommand,
     EditSiteCommand,
@@ -189,6 +190,12 @@ class AppController:
         from netplanner.export.vlans import plan_vlan_usage
 
         return plan_vlan_usage(self.plan)
+
+    def rename_plan(self, new_name: str) -> None:
+        """Rename the plan (undoable). Empty names fall back to the default."""
+        name = new_name.strip() or "Untitled plan"
+        logger.info("Renaming plan %r -> %r", self.plan.name, name)
+        self.commands.push(RenamePlanCommand(self.plan, name))
 
     # ----------------------------------------------------------------- sites
     def add_site(self, name: str, x: float, y: float, **kwargs) -> Site:

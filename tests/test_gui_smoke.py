@@ -346,3 +346,15 @@ def test_site_cannot_be_resized_below_minimum(app, controller):
     item.mouseMoveEvent(FakeEvent(QPointF(-5000, -5000), grip))
     assert site.width >= SiteItem.MIN_W
     assert site.height >= SiteItem.MIN_H
+
+
+def test_window_title_tracks_the_plan_name(app, controller):
+    """The title bar identifies the current plan without opening a dialog."""
+    from netplanner.gui.main_window import MainWindow
+
+    window = MainWindow(controller)
+    assert "Untitled plan" in window.windowTitle()
+
+    controller.rename_plan("HQ Campus")
+    window._refresh_all()
+    assert "HQ Campus" in window.windowTitle()
