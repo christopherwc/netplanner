@@ -1962,3 +1962,74 @@ def test_sites_export_to_pdf_and_png(tmp_path):
     ctrl.export_to_png(tmp_path / "s.png")
     assert (tmp_path / "s.pdf").stat().st_size > 0
     assert (tmp_path / "s.png").stat().st_size > 0
+
+
+# ----------------------------------------------------------- plan renaming
+def test_rename_plan_is_undoable():
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+
+    ctrl = AppController(repository=MagicMock())
+    assert ctrl.plan.name == "Untitled plan"
+    ctrl.rename_plan("HQ Campus")
+    assert ctrl.plan.name == "HQ Campus"
+    ctrl.undo()
+    assert ctrl.plan.name == "Untitled plan"
+    ctrl.redo()
+    assert ctrl.plan.name == "HQ Campus"
+
+
+def test_rename_plan_trims_and_rejects_blank():
+    """A blank title would leave exports with an empty heading."""
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+
+    ctrl = AppController(repository=MagicMock())
+    ctrl.rename_plan("  Branch Office  ")
+    assert ctrl.plan.name == "Branch Office"
+    ctrl.rename_plan("   ")
+    assert ctrl.plan.name == "Untitled plan"
+
+
+def test_renamed_plan_is_the_export_title():
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+    from netplanner.export.renderer import build_scene
+
+    ctrl = AppController(repository=MagicMock())
+    ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    ctrl.rename_plan("HQ Campus")
+    assert build_scene(ctrl.plan).title == "HQ Campus"
+
+
+def test_plan_name_survives_save_and_load(tmp_path):
+    from netplanner.app.controller import AppController
+    from netplanner.persistence.repository import PlanRepository
+
+    repo = PlanRepository(db_path=tmp_path / "named.db")
+    ctrl = AppController(repository=repo)
+    ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    ctrl.rename_plan("HQ Campus")
+    ctrl.save()
+
+    plan_id = ctrl.plan.id
+    ctrl.new_plan()
+    assert ctrl.plan.name == "Untitled plan"  # a fresh plan resets the title
+    ctrl.load(plan_id)
+    assert ctrl.plan.name == "HQ Campus"
+
+
+def test_renamed_plan_appears_in_plan_listings(tmp_path):
+    """The name is how a saved plan is identified, so it must reach the
+    repository listing rather than only the in-memory object."""
+    from netplanner.app.controller import AppController
+    from netplanner.persistence.repository import PlanRepository
+
+    repo = PlanRepository(db_path=tmp_path / "named.db")
+    ctrl = AppController(repository=repo)
+    ctrl.rename_plan("Branch Office")
+    ctrl.save()
+    assert ("Branch Office") in [name for _, name in repo.list_plans()]

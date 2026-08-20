@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 
 from PyQt6.QtGui import QAction, QKeySequence
-from PyQt6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
+from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMainWindow, QMessageBox
 
 from netplanner.app.controller import AppController
 
@@ -24,7 +24,7 @@ class MainWindow(QMainWindow):
     def __init__(self, controller: AppController):
         super().__init__()
         self.controller = controller
-        self.setWindowTitle("NetPlanner")
+        self._update_title()
         self.resize(1200, 800)
 
         self.canvas = NetworkCanvas(controller, self)
@@ -55,6 +55,7 @@ class MainWindow(QMainWindow):
 
         file_menu = bar.addMenu("&File")
         file_menu.addAction(self._action("&New plan", QKeySequence.StandardKey.New, self._new_plan))
+        file_menu.addAction(self._action("&Rename plan…", None, self._rename_plan))
         file_menu.addAction(self._action("&Save", QKeySequence.StandardKey.Save, self._save))
         file_menu.addSeparator()
         file_menu.addAction(self._action("Export &PDF…", None, self._export_pdf))
@@ -130,10 +131,28 @@ class MainWindow(QMainWindow):
         """Delete whatever is selected on the canvas (devices and/or links)."""
         self.canvas.delete_selection()
 
+    def _update_title(self) -> None:
+        """Window title tracks the plan name, so the current plan is
+        identifiable without opening a dialog."""
+        self.setWindowTitle(f"NetPlanner — {self.controller.plan.name}")
+
+    def _rename_plan(self) -> None:
+        """Rename the plan: this is the title on every export."""
+        name, ok = QInputDialog.getText(
+            self,
+            "Rename plan",
+            "Plan name (shown as the title on exports):",
+            text=self.controller.plan.name,
+        )
+        if ok:
+            self.controller.rename_plan(name)
+            self._refresh_all()
+
     def _refresh_all(self) -> None:
         """Redraw the canvas and rebuild the VLAN legend after a change."""
         self.canvas.refresh()
         self.vlan_panel.refresh()
+        self._update_title()
 
     def _undo(self) -> None:
         self.controller.undo()

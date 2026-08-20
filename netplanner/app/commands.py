@@ -523,3 +523,25 @@ class DeleteSiteCommand(Command):
     def undo(self) -> None:
         if self.site:
             self.plan.add_site(self.site)
+
+
+class RenamePlanCommand(Command):
+    """Rename the whole plan.
+
+    The plan name is the diagram's title: it heads every PDF and PNG
+    export and identifies the plan in saved-plan listings, so renaming
+    goes through the undo stack like any other edit rather than being a
+    silent side effect of a dialog.
+    """
+
+    def __init__(self, plan: NetworkPlan, new_name: str):
+        self.plan = plan
+        self.new_name = new_name
+        self.old_name = plan.name
+        self.description = f"Rename plan to '{new_name}'"
+
+    def execute(self) -> None:
+        self.plan.name = self.new_name
+
+    def undo(self) -> None:
+        self.plan.name = self.old_name
