@@ -517,6 +517,7 @@ class LinkItem(QGraphicsLineItem):
                 dialog.result_label(),
                 dialog.result_link_type(),
                 dialog.result_bandwidth(),
+                dialog.result_bandwidth_auto(),
             )
             scene = self.scene()
             if isinstance(scene, PlanScene):

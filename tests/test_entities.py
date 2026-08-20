@@ -1616,3 +1616,151 @@ def test_auto_speed_survives_undo_of_link_creation():
     assert ctrl.plan.links == []
     ctrl.redo()
     assert ctrl.plan.links[0].bandwidth_mbps == 1_000
+
+
+# ------------------------------------------------- auto link speed tracking
+def _linked_10g_to_1g():
+    """A 10G switch port patched into a 1G router port."""
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+    from netplanner.domain.entities import InterfaceType, LinkType
+
+    ctrl = AppController(repository=MagicMock())
+    sw = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    rtr = ctrl.add_device("rtr1", DeviceType.ROUTER, 300, 0)
+    ten_gig = next(i for i in sw.interfaces if i.interface_type is InterfaceType.ETH_10G)
+    link = ctrl.add_link(
+        sw.id, rtr.id, LinkType.FIBER,
+        a_interface_id=ten_gig.id, b_interface_id=rtr.interfaces[0].id,
+    )
+    return ctrl, sw, rtr, link
+
+
+def _edit_port_type(ctrl, device, index, new_type):
+    """Replace a port's type the way the dialog does: new objects, same ids."""
+    from dataclasses import replace
+
+    from netplanner.domain.entities import DeviceStatus
+
+    interfaces = [
+        replace(iface, interface_type=new_type) if i == index else replace(iface)
+        for i, iface in enumerate(device.interfaces)
+    ]
+    ctrl.edit_device_properties(
+        device.id, device.device_model, device.loopback_ip, device.notes,
+        device.native_vlan, DeviceStatus.ACTIVE, interfaces,
+    )
+
+
+def test_new_links_track_interface_speeds_by_default():
+    _, _, _, link = _linked_10g_to_1g()
+    assert link.bandwidth_auto is True
+    assert link.bandwidth_mbps == 1_000
+
+
+def test_link_speed_follows_a_port_upgrade():
+    """The feature: raise the slow end and the link follows."""
+    from netplanner.domain.entities import InterfaceType
+
+    ctrl, _, rtr, link = _linked_10g_to_1g()
+    _edit_port_type(ctrl, rtr, 0, InterfaceType.ETH_25G)
+    assert link.bandwidth_mbps == 10_000  # now capped by the 10G end
+
+
+def test_link_speed_follows_a_port_downgrade():
+    from netplanner.domain.entities import InterfaceType
+
+    ctrl, sw, _, link = _linked_10g_to_1g()
+    index = next(
+        i for i, iface in enumerate(sw.interfaces)
+        if iface.interface_type is InterfaceType.ETH_10G
+    )
+    _edit_port_type(ctrl, sw, index, InterfaceType.ETH_1G)
+    assert link.bandwidth_mbps == 1_000
+
+
+def test_recomputed_speed_undoes_with_the_interface_edit():
+    """Undo restores the ports and re-derives from them, so the speed
+    reverts as part of the same single undo step."""
+    from netplanner.domain.entities import InterfaceType
+
+    ctrl, _, rtr, link = _linked_10g_to_1g()
+    _edit_port_type(ctrl, rtr, 0, InterfaceType.ETH_25G)
+    assert link.bandwidth_mbps == 10_000
+    ctrl.undo()
+    assert link.bandwidth_mbps == 1_000
+    ctrl.redo()
+    assert link.bandwidth_mbps == 10_000
+
+
+def test_manual_bandwidth_is_never_overwritten():
+    """A measured or contracted rate must survive port changes."""
+    from netplanner.domain.entities import InterfaceType, LinkType
+
+    ctrl, _, rtr, link = _linked_10g_to_1g()
+    ctrl.edit_link(link.id, "", LinkType.FIBER, 500, bandwidth_auto=False)
+    assert link.bandwidth_auto is False
+
+    _edit_port_type(ctrl, rtr, 0, InterfaceType.ETH_100G)
+    assert link.bandwidth_mbps == 500  # untouched
+
+
+def test_reenabling_auto_resumes_tracking():
+    from netplanner.domain.entities import InterfaceType, LinkType
+
+    ctrl, _, rtr, link = _linked_10g_to_1g()
+    ctrl.edit_link(link.id, "", LinkType.FIBER, 500, bandwidth_auto=False)
+    ctrl.edit_link(link.id, "", LinkType.FIBER, 1_000, bandwidth_auto=True)
+    _edit_port_type(ctrl, rtr, 0, InterfaceType.ETH_25G)
+    assert link.bandwidth_mbps == 10_000
+
+
+def test_recompute_only_touches_links_that_changed():
+    """The return value drives logging, so it must be accurate."""
+    from netplanner.domain.entities import InterfaceType
+
+    ctrl, _, rtr, link = _linked_10g_to_1g()
+    assert ctrl.plan.recompute_auto_link_speeds() == []  # already correct
+    rtr.interfaces[0].interface_type = InterfaceType.ETH_25G
+    assert ctrl.plan.recompute_auto_link_speeds() == [link.id]
+
+
+def test_editing_an_unrelated_device_leaves_speeds_alone():
+    ctrl, _, _, link = _linked_10g_to_1g()
+    other = ctrl.add_device("ws1", DeviceType.WORKSTATION, 600, 0)
+    _edit_port_type(ctrl, other, 0, other.interfaces[0].interface_type)
+    assert link.bandwidth_mbps == 1_000
+
+
+def test_auto_flag_persists_through_sqlite(tmp_path):
+    from netplanner.domain.entities import Device, Link, LinkType
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.persistence.repository import PlanRepository
+
+    repo = PlanRepository(db_path=tmp_path / "auto.db")
+    plan = NetworkPlan("auto")
+    a = plan.add_device(Device(name="a", device_type=DeviceType.ROUTER))
+    b = plan.add_device(Device(name="b", device_type=DeviceType.SWITCH))
+    plan.add_link(Link(
+        a_device_id=a.id, b_device_id=b.id, link_type=LinkType.WAN,
+        bandwidth_mbps=500, bandwidth_auto=False,
+    ))
+    repo.save(plan)
+    assert repo.load(plan.id).links[0].bandwidth_auto is False
+
+
+def test_legacy_link_with_a_recorded_speed_does_not_start_tracking():
+    """Plans saved before this feature: a stored figure was entered by
+    hand, so it must not suddenly become overwritable."""
+    from netplanner.domain.entities import Device, Link
+    from netplanner.persistence.repository import _link_from_dict, _link_to_dict
+
+    payload = _link_to_dict(Link(a_device_id="a", b_device_id="b", bandwidth_mbps=500))
+    del payload["bandwidth_auto"]
+    assert _link_from_dict(payload).bandwidth_auto is False
+
+    # ...while a legacy link with no figure is free to start tracking.
+    payload = _link_to_dict(Link(a_device_id="a", b_device_id="b"))
+    del payload["bandwidth_auto"]
+    assert _link_from_dict(payload).bandwidth_auto is True

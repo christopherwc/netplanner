@@ -206,6 +206,11 @@ def _link_to_dict(link: Link) -> dict:
 
 
 def _link_from_dict(data: dict) -> Link:
+    """Rebuild a Link, tolerating payloads written before auto speeds."""
     data = dict(data)
     data["link_type"] = LinkType(data["link_type"])
+    # Plans saved before speed auto-tracking existed: treat an already
+    # recorded bandwidth as deliberate rather than silently starting to
+    # overwrite it, and let links with no figure begin tracking.
+    data.setdefault("bandwidth_auto", data.get("bandwidth_mbps") is None)
     return Link(**data)

@@ -9,7 +9,16 @@ from __future__ import annotations
 
 import networkx as nx
 
-from .entities import Device, Link, Site, Subnet, TextBox, Vlan, new_id
+from .entities import (
+    Device,
+    Link,
+    Site,
+    Subnet,
+    TextBox,
+    Vlan,
+    negotiated_speed_mbps,
+    new_id,
+)
 
 
 class NetworkPlan:
@@ -73,6 +82,42 @@ class NetworkPlan:
             raise ValueError("Both devices must exist before linking them")
         self.graph.add_edge(link.a_device_id, link.b_device_id, key=link.id, link=link)
         return link
+
+    def interface_for(self, device_id: str, interface_id: str | None):
+        """Resolve a (device, interface) id pair to the Interface object."""
+        if not interface_id:
+            return None
+        device = self.get_device(device_id)
+        if device is None:
+            return None
+        return next((i for i in device.interfaces if i.id == interface_id), None)
+
+    def derived_link_speed(self, link: Link) -> int | None:
+        """Speed a link would run at, given its interfaces' line rates."""
+        return negotiated_speed_mbps(
+            self.interface_for(link.a_device_id, link.a_interface_id),
+            self.interface_for(link.b_device_id, link.b_interface_id),
+        )
+
+    def recompute_auto_link_speeds(self) -> list[str]:
+        """Refresh every auto-tracking link's speed from its interfaces.
+
+        Called after an interface edit so that changing a port's type
+        updates the links attached to it. Links whose bandwidth was
+        entered by hand (bandwidth_auto False) are left untouched.
+
+        Returns the ids of links whose speed actually changed, so
+        callers can report or log what moved.
+        """
+        changed = []
+        for link in self.links:
+            if not link.bandwidth_auto:
+                continue
+            derived = self.derived_link_speed(link)
+            if derived != link.bandwidth_mbps:
+                link.bandwidth_mbps = derived
+                changed.append(link.id)
+        return changed
 
     def get_link(self, link_id: str) -> Link | None:
         """Look up a link by id; None if absent.

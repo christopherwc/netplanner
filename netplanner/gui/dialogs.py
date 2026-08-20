@@ -648,20 +648,29 @@ class LinkPropertiesDialog(QDialog):
         bandwidth_row.addWidget(self.bandwidth_spin)
         bandwidth_row.addWidget(self.unit_combo)
 
-        derived = derived_speed_mbps
-        if derived:
-            # Offer the interface-derived rate rather than silently
-            # overwriting: the user may have recorded a real measured or
-            # contracted figure that differs from the line rate.
-            self.derive_button = QPushButton(f"Use interface speed ({_format_mbps(derived)})")
-            self.derive_button.setToolTip(
-                "Set bandwidth to the slower of the two connected interfaces."
-            )
-            self.derive_button.clicked.connect(lambda: self._set_mbps(derived))
-            bandwidth_row.addWidget(self.derive_button)
         bandwidth_row.addStretch()
-
         form.addRow("Bandwidth:", bandwidth_row)
+
+        # Auto-tracking: while ticked, the speed follows the slower of
+        # the two interfaces and updates when either port's type
+        # changes. Typing a figure by hand unticks it, so a measured or
+        # contracted rate is never overwritten by a later port edit.
+        self._derived = derived_speed_mbps
+        derived_text = _format_mbps(derived_speed_mbps) if derived_speed_mbps else "not available"
+        self.auto_check = QCheckBox(f"Track interface speeds (currently {derived_text})")
+        self.auto_check.setToolTip(
+            "Keep bandwidth equal to the slower of the two connected "
+            "interfaces, updating automatically if either port's type changes."
+        )
+        self.auto_check.setEnabled(derived_speed_mbps is not None)
+        self.auto_check.setChecked(bool(link.bandwidth_auto) and derived_speed_mbps is not None)
+        self.auto_check.toggled.connect(self._on_auto_toggled)
+        form.addRow("", self.auto_check)
+
+        # Manual entry is what clears the flag; wiring it here rather
+        # than in _set_mbps keeps programmatic updates from unticking.
+        self.bandwidth_spin.valueChanged.connect(self._on_bandwidth_typed)
+        self._on_auto_toggled(self.auto_check.isChecked())
 
         layout.addLayout(form)
 
@@ -715,5 +724,23 @@ class LinkPropertiesDialog(QDialog):
         self.unit_combo.setCurrentIndex(index)
         self._apply_unit(index, mbps)
 
+    def _on_auto_toggled(self, checked: bool) -> None:
+        """Lock the field to the derived rate while tracking is on."""
+        self.bandwidth_spin.setReadOnly(checked)
+        self.bandwidth_spin.setEnabled(not checked)
+        self.unit_combo.setEnabled(not checked)
+        if checked and self._derived:
+            self._set_mbps(self._derived)
+
+    def _on_bandwidth_typed(self, _value: float) -> None:
+        """A hand-typed figure means the user owns this number now."""
+        if self.auto_check.isChecked() and self.bandwidth_spin.isEnabled():
+            self.auto_check.setChecked(False)
+
+    def result_bandwidth_auto(self) -> bool:
+        return self.auto_check.isChecked()
+
     def result_bandwidth(self) -> int | None:
+        if self.auto_check.isChecked() and self._derived:
+            return self._derived
         return self._current_mbps()  # 0 means "not set"
