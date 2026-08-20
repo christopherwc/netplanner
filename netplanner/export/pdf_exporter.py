@@ -17,7 +17,7 @@ from reportlab.pdfgen import canvas as pdf_canvas
 from netplanner.domain.model import NetworkPlan
 from netplanner.errors import ExportError
 
-from .geometry import point_along
+from .geometry import label_anchor
 from .nodecard import (
     FOOTER_H,
     HEADER_H,
@@ -108,13 +108,6 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
             c.setFillColor(HexColor(lstyle.color))
             c.setFont("Helvetica", 7)
             c.drawCentredString((e.x1 + e.x2) / 2, (fy(e.y1) + fy(e.y2)) / 2 + 4, e.label)
-        # Port labels near each endpoint
-        c.setFillColor(MAC_COLOR)
-        c.setFont("Helvetica", 6)
-        for port, t in ((e.a_port, 0.25), (e.b_port, 0.75)):
-            if port:
-                px, py = point_along(e.x1, fy(e.y1), e.x2, fy(e.y2), t)
-                c.drawCentredString(px, py + 3, port)
     c.setDash([])
 
     # Node cards
@@ -217,6 +210,24 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
             for line in card.notes_lines:
                 c.drawString(n.x + 8, y - NOTES_LINE_H / 2 - 2, line)
                 y -= NOTES_LINE_H
+
+    # Port labels after the cards: they are drawn beside the card edge,
+    # but a neighbouring card can still overlap that spot, and whatever
+    # is painted last wins.
+    c.setFillColor(MAC_COLOR)
+    c.setFont("Helvetica", 6)
+    for e in scene.edges:
+        ax, ay = e.x1, fy(e.y1)
+        bx, by = e.x2, fy(e.y2)
+        for port, (cx, cy), (tx, ty), (half_w, half_h) in (
+            (e.a_port, (ax, ay), (bx, by), e.a_half),
+            (e.b_port, (bx, by), (ax, ay), e.b_half),
+        ):
+            if not port:
+                continue
+            text_w = c.stringWidth(port, "Helvetica", 6)
+            px, py = label_anchor(cx, cy, tx, ty, half_w, half_h, text_w, 6)
+            c.drawCentredString(px, py - 2, port)
 
     # Text annotations last so they sit above cards if they overlap.
     for text_shape in scene.texts:

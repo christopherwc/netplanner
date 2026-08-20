@@ -36,6 +36,11 @@ class EdgeShape:
     link_type: str = "ethernet"
     a_port: str = ""
     b_port: str = ""
+    # Half-extents of the card at each end, so renderers can anchor port
+    # labels just outside the card instead of at a fixed fraction along
+    # the line (which lands under the card on short links).
+    a_half: tuple[float, float] = (0.0, 0.0)
+    b_half: tuple[float, float] = (0.0, 0.0)
 
 
 @dataclass
@@ -136,6 +141,8 @@ def build_scene(plan: NetworkPlan, vlan_filter: set[int] | None = None) -> Scene
                 link_type=link.link_type.value,
                 a_port=_port_name(plan, link.a_device_id, link.a_interface_id),
                 b_port=_port_name(plan, link.b_device_id, link.b_interface_id),
+                a_half=(cards[link.a_device_id].width / 2, cards[link.a_device_id].height / 2),
+                b_half=(cards[link.b_device_id].width / 2, cards[link.b_device_id].height / 2),
             )
         )
 

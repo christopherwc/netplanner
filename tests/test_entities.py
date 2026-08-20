@@ -1315,3 +1315,65 @@ def test_textshape_carries_width_for_its_panel():
     plan = NetworkPlan("t")
     plan.add_textbox(TextBox(text="note", width=340))
     assert build_scene(plan).texts[0].width == 340
+
+
+# ----------------------------------------------------------- port labelling
+def test_card_exit_point_lands_on_the_card_boundary():
+    from netplanner.export.geometry import card_exit_point
+
+    # Card 190x300 centred at the origin, link heading right.
+    x, y = card_exit_point(0, 0, 500, 0, 95, 150, gap=0)
+    assert (round(x), round(y)) == (95, 0)
+    # Heading down: the vertical edge is nearer.
+    x, y = card_exit_point(0, 0, 0, 500, 95, 150, gap=0)
+    assert (round(x), round(y)) == (0, 150)
+
+
+def test_card_exit_point_applies_the_gap():
+    from netplanner.export.geometry import card_exit_point
+
+    x, _ = card_exit_point(0, 0, 500, 0, 95, 150, gap=6)
+    assert round(x) == 101
+
+
+def test_card_exit_point_handles_coincident_points():
+    """Two devices at the same spot must not divide by zero."""
+    from netplanner.export.geometry import card_exit_point
+
+    assert card_exit_point(10, 10, 10, 10, 95, 150) == (10, 10)
+
+
+def test_label_anchor_clears_the_card_entirely():
+    """Regression: port labels were placed at a fixed 25%/75% along a
+    centre-to-centre line, which lands inside the card whenever two
+    devices sit close together — the label vanished under the card."""
+    from netplanner.export.geometry import label_anchor
+
+    half_w, half_h = 95, 150
+    text_w, text_h = 30, 7
+    # Short link: the old 25% rule would land at x=50, well inside the card.
+    x, _ = label_anchor(0, 0, 200, 0, half_w, half_h, text_w, text_h)
+    assert x - text_w / 2 >= half_w  # the label's near edge clears the card
+
+
+def test_label_anchor_clears_the_card_on_short_vertical_links():
+    from netplanner.export.geometry import label_anchor
+
+    half_w, half_h = 95, 150
+    _, y = label_anchor(0, 0, 0, 320, half_w, half_h, 30, 7)
+    assert y - 7 / 2 >= half_h
+
+
+def test_edge_shape_carries_card_half_extents():
+    """Exporters need these to anchor labels; they must survive build_scene."""
+    from netplanner.domain.entities import Device, Link
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.export.renderer import build_scene
+
+    plan = NetworkPlan("t")
+    a = plan.add_device(Device(name="sw1", device_type=DeviceType.SWITCH, x=0, y=0))
+    b = plan.add_device(Device(name="rtr1", device_type=DeviceType.ROUTER, x=400, y=0))
+    plan.add_link(Link(a_device_id=a.id, b_device_id=b.id))
+    edge = build_scene(plan).edges[0]
+    assert edge.a_half[0] > 0 and edge.a_half[1] > 0
+    assert edge.b_half[0] > 0 and edge.b_half[1] > 0

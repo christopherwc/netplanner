@@ -36,7 +36,7 @@ from PyQt6.QtWidgets import (
 
 from netplanner.app.controller import AppController
 from netplanner.domain.entities import Device, DeviceType, Link, LinkType, TextBox
-from netplanner.export.geometry import offset_endpoints, parallel_link_offsets, point_along
+from netplanner.export.geometry import label_anchor, offset_endpoints, parallel_link_offsets
 from netplanner.export import nodecard
 from netplanner.export import vlans
 from netplanner.export.styles import DIAGRAM_BG, link_style_for, style_for
@@ -694,20 +694,32 @@ class PlanScene(QGraphicsScene):
                 text.setPos((x1 + x2) / 2, (y1 + y2) / 2)
                 text.setZValue(-0.5)
                 self._link_items.append(text)
-            # Port labels near each end
-            for iface_id, dev_id, t in (
-                (link.a_interface_id, link.a_device_id, 0.25),
-                (link.b_interface_id, link.b_device_id, 0.75),
+            # Port labels, anchored just outside each card rather than at
+            # a fixed fraction along the line: a centre-to-centre line
+            # spends its first stretch underneath the card, so 25%/75%
+            # placement hides the label whenever devices sit close together.
+            for iface_id, dev_id, item, (cx, cy), (tx, ty) in (
+                (link.a_interface_id, link.a_device_id, a, (x1, y1), (x2, y2)),
+                (link.b_interface_id, link.b_device_id, b, (x2, y2), (x1, y1)),
             ):
                 port = self.controller.interface_name(dev_id, iface_id)
-                if port:
-                    px, py = point_along(x1, y1, x2, y2, t)
-                    ptext = self.addSimpleText(port)
-                    ptext.setFont(port_font)
-                    ptext.setBrush(QBrush(QColor("#666666")))
-                    ptext.setPos(px, py)
-                    ptext.setZValue(-0.5)
-                    self._link_items.append(ptext)
+                if not port:
+                    continue
+                ptext = self.addSimpleText(port)
+                ptext.setFont(port_font)
+                ptext.setBrush(QBrush(QColor("#666666")))
+                bounds = item.boundingRect()
+                text_rect = ptext.boundingRect()
+                px, py = label_anchor(
+                    cx, cy, tx, ty,
+                    bounds.width() / 2, bounds.height() / 2,
+                    text_rect.width(), text_rect.height(),
+                )
+                ptext.setPos(px - text_rect.width() / 2, py - text_rect.height() / 2)
+                # Above cards (z 0) but below annotations (z 10): a
+                # neighbouring card must never bury a port label.
+                ptext.setZValue(5)
+                self._link_items.append(ptext)
 
     # ------------------------------------------------------------ mouse flow
     def mousePressEvent(self, event) -> None:
