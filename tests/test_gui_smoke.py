@@ -168,3 +168,50 @@ def test_textbox_item_paints_without_error(app, populated):
     painter = QPainter(image)
     item.paint(painter, None)
     painter.end()
+
+
+def test_vlan_panel_populates_after_canvas_edits(app, controller):
+    """Regression: the legend was built once at startup with an empty
+    plan and only refreshed by menu actions, so devices placed on the
+    canvas never appeared — the dock kept saying 'No VLANs in this plan
+    yet' while the cards clearly showed VLAN membership."""
+    from netplanner.domain.entities import VlanMode
+    from netplanner.gui.main_window import MainWindow
+
+    window = MainWindow(controller)
+    assert window.vlan_panel._checkboxes == {}  # empty plan at startup
+
+    router = controller.add_device("rtr1", DeviceType.ROUTER, 0, 0)
+    router.native_vlan = 13
+    router.interfaces[0].vlan_mode = VlanMode.TRUNK
+    router.interfaces[0].trunk_vlans = [1, 13]
+    window.canvas._scene.rebuild()  # what placing a device triggers
+
+    assert set(window.vlan_panel._checkboxes) == {1, 13}
+    assert not window.vlan_panel._empty_label.isVisible()
+
+
+def test_scene_emits_plan_changed_on_rebuild(app, controller):
+    """The signal the VLAN dock (and any future derived panel) relies on."""
+    from netplanner.gui.canvas import NetworkCanvas
+
+    canvas = NetworkCanvas(controller)
+    fired = []
+    canvas.plan_changed.connect(lambda: fired.append(True))
+    canvas._scene.rebuild()
+    assert fired
+
+
+def test_vlan_panel_refresh_keeps_ticks_across_plan_edits(app, populated):
+    """A highlight must survive an unrelated edit, or exploring a VLAN
+    while editing becomes unusable."""
+    from netplanner.gui.main_window import MainWindow
+
+    window = MainWindow(populated)
+    window.vlan_panel._checkboxes[10].setChecked(True)
+    assert window.vlan_panel.selected_vlans() == {10}
+
+    populated.add_device("sw2", DeviceType.SWITCH, 800, 0)
+    window.canvas._scene.rebuild()
+
+    assert 10 in window.vlan_panel.selected_vlans()

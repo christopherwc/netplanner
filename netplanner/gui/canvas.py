@@ -13,7 +13,7 @@ Interaction model:
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QBrush,
     QColor,
@@ -618,6 +618,13 @@ class PlanScene(QGraphicsScene):
     show_details toggles detailed cards vs compact nodes.
     """
 
+    # Emitted after any rebuild, i.e. whenever devices, links, VLANs or
+    # annotations may have changed. Docked panels derived from the plan
+    # (the VLAN legend) listen to this: canvas edits never pass through
+    # the menu handlers, so without it those panels go stale the moment
+    # a user places a device or edits its VLANs.
+    plan_changed = pyqtSignal()
+
     def __init__(self, controller: AppController):
         super().__init__()
         self.controller = controller
@@ -649,6 +656,7 @@ class PlanScene(QGraphicsScene):
             self._text_items[textbox.id] = item
 
         self.update_links()
+        self.plan_changed.emit()
 
     def update_links(self) -> None:
         """Redraw links only (cheaper than rebuild; used while dragging).
@@ -944,6 +952,11 @@ class NetworkCanvas(QGraphicsView):
         """Toggle sectioned cards (IPs, MACs, type) vs compact nodes."""
         self._scene.show_details = on
         self._scene.rebuild()
+
+    @property
+    def plan_changed(self):
+        """Signal emitted whenever the diagram is rebuilt from the plan."""
+        return self._scene.plan_changed
 
     def set_vlan_filter(self, vlan_ids: set[int]) -> None:
         """Apply a VLAN highlight filter to the scene (used by the VLAN dock)."""
