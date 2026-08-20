@@ -83,7 +83,7 @@ def _export_pdf_impl(scene, path: Path) -> None:
 
 
 def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
-    """Paint the whole scene: title, edges (with port labels), then cards."""
+    """Paint the whole scene: title, edges, cards, then text annotations."""
     page_h = scene.height + TITLE_OFFSET
 
     def fy(y: float) -> float:
@@ -203,6 +203,17 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
             for line in card.notes_lines:
                 c.drawString(n.x + 8, y - NOTES_LINE_H / 2 - 2, line)
                 y -= NOTES_LINE_H
+
+    # Text annotations last so they sit above cards if they overlap.
+    for text_shape in scene.texts:
+        c.setFillColor(HexColor(text_shape.color))
+        font = "Helvetica-Bold" if text_shape.bold else "Helvetica"
+        c.setFont(font, text_shape.font_size)
+        line_height = text_shape.font_size * 1.35
+        ty = fy(text_shape.y) - text_shape.font_size
+        for line in text_shape.lines:
+            c.drawString(text_shape.x, ty, line)
+            ty -= line_height
 
 
 def _draw_status_stripes(

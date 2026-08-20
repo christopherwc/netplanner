@@ -5,6 +5,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QDialog,
@@ -27,6 +28,7 @@ from PyQt6.QtWidgets import (
 
 from netplanner.domain.entities import (
     ConfigFile,
+    TextBox,
     ConfigFormat,
     Device,
     DeviceStatus,
@@ -468,3 +470,88 @@ class _ConfigsTab(QWidget):
 # Backward-compatible alias: earlier code referred to this dialog as
 # InterfacesDialog before it grew a General tab.
 InterfacesDialog = DevicePropertiesDialog
+
+
+class TextBoxDialog(QDialog):
+    """Edit a canvas text annotation: content, size, weight, color, width.
+
+    All fields commit together as one undo step, matching how the device
+    properties dialog behaves.
+    """
+
+    # Named colors keep the picker simple and the palette consistent with
+    # the rest of the diagram (same hues as the device/link styles).
+    COLOR_CHOICES = [
+        ("Default", "#1a1a1a"),
+        ("Muted gray", "#5f6368"),
+        ("Blue", "#1a56db"),
+        ("Green", "#137333"),
+        ("Red", "#c5221f"),
+        ("Purple", "#7627bb"),
+        ("Orange", "#b06000"),
+    ]
+
+    def __init__(self, textbox: TextBox, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Text box")
+        self.resize(460, 340)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.text_edit = QPlainTextEdit(textbox.text)
+        self.text_edit.setPlaceholderText(
+            "Label a region, note a caveat, mark a planned change…"
+        )
+        layout.addWidget(QLabel("Text:"))
+        layout.addWidget(self.text_edit)
+
+        self.size_spin = QSpinBox()
+        self.size_spin.setRange(6, 48)
+        self.size_spin.setValue(int(textbox.font_size))
+        self.size_spin.setSuffix(" pt")
+        form.addRow("Font size:", self.size_spin)
+
+        self.bold_check = QCheckBox("Bold")
+        self.bold_check.setChecked(textbox.bold)
+        form.addRow("Weight:", self.bold_check)
+
+        self.color_combo = QComboBox()
+        for name, value in self.COLOR_CHOICES:
+            self.color_combo.addItem(name, value)
+        existing = [v for _, v in self.COLOR_CHOICES].index(
+            textbox.color
+        ) if textbox.color in [v for _, v in self.COLOR_CHOICES] else 0
+        self.color_combo.setCurrentIndex(existing)
+        form.addRow("Color:", self.color_combo)
+
+        self.width_spin = QSpinBox()
+        self.width_spin.setRange(60, 900)
+        self.width_spin.setValue(int(textbox.width))
+        self.width_spin.setSuffix(" px")
+        self.width_spin.setToolTip("Text wraps at this width; height follows the content.")
+        form.addRow("Wrap width:", self.width_spin)
+
+        layout.addLayout(form)
+
+        box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        box.accepted.connect(self.accept)
+        box.rejected.connect(self.reject)
+        layout.addWidget(box)
+
+    def result_text(self) -> str:
+        return self.text_edit.toPlainText()
+
+    def result_font_size(self) -> float:
+        return float(self.size_spin.value())
+
+    def result_bold(self) -> bool:
+        return self.bold_check.isChecked()
+
+    def result_color(self) -> str:
+        return self.color_combo.currentData()
+
+    def result_width(self) -> float:
+        return float(self.width_spin.value())

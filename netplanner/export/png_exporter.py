@@ -232,6 +232,19 @@ def _export_png_impl(scene, path: Path) -> None:
                 )
                 y += NOTES_LINE_H * SCALE
 
+    # Text annotations last so they sit above cards if they overlap.
+    for text_shape in scene.texts:
+        ty = text_shape.y * SCALE + off
+        line_height = text_shape.font_size * 1.35 * SCALE
+        for line in text_shape.lines:
+            draw.text(
+                (text_shape.x * SCALE, ty),
+                line,
+                fill=text_shape.color,
+                anchor="la",
+            )
+            ty += line_height
+
     # Downsample for antialiasing
     img = img.resize((w // SCALE, h // SCALE), Image.LANCZOS)
     img.save(path, "PNG")

@@ -35,11 +35,12 @@ from PyQt6.QtWidgets import (
 )
 
 from netplanner.app.controller import AppController
-from netplanner.domain.entities import Device, DeviceType, Link, LinkType
+from netplanner.domain.entities import Device, DeviceType, Link, LinkType, TextBox
 from netplanner.export.geometry import offset_endpoints, parallel_link_offsets, point_along
 from netplanner.export import nodecard
 from netplanner.export.styles import link_style_for, style_for
-from netplanner.gui.dialogs import DevicePropertiesDialog
+from netplanner.gui.dialogs import DevicePropertiesDialog, TextBoxDialog
+from netplanner.gui.palette import TEXT_TOOL
 
 # Compact node size used when View -> "Show device details" is off.
 # Detailed-card metrics come from export.nodecard so the GUI and the
@@ -458,6 +459,120 @@ class LinkItem(QGraphicsLineItem):
         event.accept()
 
 
+class TextBoxItem(QGraphicsItem):
+    """A draggable, selectable text annotation on the canvas.
+
+    Drawn with a dashed border only while selected or hovered, so a
+    finished diagram shows clean text rather than boxes, but the
+    clickable region is still discoverable when editing.
+    """
+
+    PADDING = 4.0
+
+    def __init__(self, textbox: TextBox, controller: AppController):
+        super().__init__()
+        self.textbox = textbox
+        self.controller = controller
+        self.setPos(textbox.x, textbox.y)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
+        self.setAcceptHoverEvents(True)
+        self._hovered = False
+        # Above cards so an annotation overlapping a device stays readable.
+        self.setZValue(10)
+
+    def boundingRect(self) -> QRectF:
+        """Bounds from the wrapped text, matching the export layout."""
+        return QRectF(
+            0, 0,
+            self.textbox.width + self.PADDING * 2,
+            self.textbox.height + self.PADDING * 2,
+        )
+
+    def hoverEnterEvent(self, event) -> None:
+        self._hovered = True
+        self.update()
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event) -> None:
+        self._hovered = False
+        self.update()
+        super().hoverLeaveEvent(event)
+
+    def paint(self, painter: QPainter, option, widget=None) -> None:
+        """Draw the wrapped lines, plus a border when selected/hovered."""
+        rect = self.boundingRect()
+
+        if self.isSelected() or self._hovered:
+            pen = QPen(QColor("#e8710a" if self.isSelected() else "#b0b0b0"))
+            pen.setWidthF(1.5 if self.isSelected() else 1.0)
+            pen.setStyle(Qt.PenStyle.DashLine)
+            painter.setPen(pen)
+            painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            painter.drawRect(rect)
+
+        font = QFont()
+        # Pixel size, not point size: the exporters treat font_size as
+        # canvas units, and Qt's point sizes are DPI-scaled (15pt renders
+        # ~20px at 96dpi), which would make canvas text wider than the
+        # wrap width computed by TextBox.display_lines.
+        font.setPixelSize(max(1, int(round(self.textbox.font_size))))
+        font.setBold(self.textbox.bold)
+        painter.setFont(font)
+        painter.setPen(QPen(QColor(self.textbox.color)))
+
+        line_height = self.textbox.font_size * 1.35
+        y = self.PADDING
+        for line in self.textbox.display_lines:
+            painter.drawText(
+                QRectF(self.PADDING, y, self.textbox.width, line_height),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                line,
+            )
+            y += line_height
+
+    def mouseReleaseEvent(self, event) -> None:
+        """Record a completed drag as an undoable move."""
+        super().mouseReleaseEvent(event)
+        if (self.pos().x(), self.pos().y()) != (self.textbox.x, self.textbox.y):
+            self.controller.move_textbox(self.textbox.id, self.pos().x(), self.pos().y())
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        """Double-click opens the editor, matching device rename behavior."""
+        self._edit()
+        event.accept()
+
+    def contextMenuEvent(self, event) -> None:
+        menu = QMenu()
+        edit_action = menu.addAction("Edit text…")
+        menu.addSeparator()
+        delete_action = menu.addAction("Delete text box")
+        chosen = menu.exec(event.screenPos())
+        if chosen is edit_action:
+            self._edit()
+        elif chosen is delete_action:
+            scene = self.scene()
+            if isinstance(scene, PlanScene):
+                scene.delete_items([self])
+        event.accept()
+
+    def _edit(self) -> None:
+        """Open the text box dialog and commit changes as one undo step."""
+        dialog = TextBoxDialog(self.textbox)
+        if dialog.exec():
+            self.controller.edit_textbox(
+                self.textbox.id,
+                dialog.result_text(),
+                dialog.result_font_size(),
+                dialog.result_bold(),
+                dialog.result_color(),
+                dialog.result_width(),
+            )
+            scene = self.scene()
+            if isinstance(scene, PlanScene):
+                scene.rebuild()  # size follows the text, so re-lay out
+
+
 class PlanScene(QGraphicsScene):
     """The diagram scene: owns device items, link lines, and tool state.
 
@@ -468,11 +583,12 @@ class PlanScene(QGraphicsScene):
     def __init__(self, controller: AppController):
         super().__init__()
         self.controller = controller
-        self.armed_tool: DeviceType | LinkType | None = None
+        self.armed_tool: DeviceType | LinkType | str | None = None
         self.show_details = True  # sectioned cards by default; View menu toggles
         self._pending_source: DeviceItem | None = None
         self._pending_a_iface: str | None = None
         self._device_items: dict[str, DeviceItem] = {}
+        self._text_items: dict[str, TextBoxItem] = {}
         self._link_items = []
 
     # -------------------------------------------------------------- rebuild
@@ -480,12 +596,18 @@ class PlanScene(QGraphicsScene):
         """Recreate every graphics item from the plan (full refresh)."""
         self.clear()
         self._device_items.clear()
+        self._text_items.clear()
         self._link_items.clear()
         self._pending_source = None
         for device in self.controller.plan.devices:
             item = DeviceItem(device, self.controller)
             self.addItem(item)
             self._device_items[device.id] = item
+        for textbox in self.controller.plan.textboxes.values():
+            item = TextBoxItem(textbox, self.controller)
+            self.addItem(item)
+            self._text_items[textbox.id] = item
+
         self.update_links()
 
     def update_links(self) -> None:
@@ -549,6 +671,11 @@ class PlanScene(QGraphicsScene):
         item = self.itemAt(event.scenePos(), self.views()[0].transform())
         device_item = item if isinstance(item, DeviceItem) else None
 
+        if self.armed_tool == TEXT_TOOL and device_item is None:
+            self._place_textbox(event.scenePos())
+            event.accept()
+            return
+
         if isinstance(self.armed_tool, DeviceType) and device_item is None:
             self._place_armed_device(event.scenePos())
             event.accept()
@@ -560,6 +687,26 @@ class PlanScene(QGraphicsScene):
             return
 
         super().mousePressEvent(event)
+
+    def _place_textbox(self, pos: QPointF) -> None:
+        """Prompt for text, then place an annotation at the click point."""
+        placeholder = TextBox(x=pos.x(), y=pos.y())
+        dialog = TextBoxDialog(placeholder)
+        if not dialog.exec():
+            return
+        text = dialog.result_text()
+        if not text.strip():
+            return  # an empty annotation would be invisible and unclickable
+        self.controller.add_textbox(
+            text,
+            pos.x(),
+            pos.y(),
+            font_size=dialog.result_font_size(),
+            bold=dialog.result_bold(),
+            color=dialog.result_color(),
+            width=dialog.result_width(),
+        )
+        self.rebuild()
 
     def _place_armed_device(self, pos: QPointF) -> None:
         """Equipment tool click: drop an auto-named device at pos."""
@@ -634,7 +781,8 @@ class PlanScene(QGraphicsScene):
         """
         devices = [i for i in items if isinstance(i, DeviceItem)]
         links = [i for i in items if isinstance(i, LinkItem)]
-        if not devices and not links:
+        texts = [i for i in items if isinstance(i, TextBoxItem)]
+        if not devices and not links and not texts:
             return
 
         # Count cables that would disappear as a side effect of removing
@@ -655,6 +803,8 @@ class PlanScene(QGraphicsScene):
             )
         if links:
             summary.append(f"{len(links)} link(s)")
+        if texts:
+            summary.append(f"{len(texts)} text box(es)")
         message = "Delete " + " and ".join(summary) + "?"
         if cascading:
             message += (
@@ -678,6 +828,8 @@ class PlanScene(QGraphicsScene):
             self.controller.delete_link(item.link)
         for item in devices:
             self.controller.delete_device(item.device.id)
+        for item in texts:
+            self.controller.delete_textbox(item.textbox.id)
         self.rebuild()
 
     def delete_selection(self) -> None:

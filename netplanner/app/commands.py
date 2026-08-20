@@ -11,7 +11,14 @@ import logging
 
 from abc import ABC, abstractmethod
 
-from netplanner.domain.entities import ConfigFile, Device, DeviceStatus, Interface, Link
+from netplanner.domain.entities import (
+    ConfigFile,
+    Device,
+    DeviceStatus,
+    Interface,
+    Link,
+    TextBox,
+)
 from netplanner.domain.model import NetworkPlan
 
 
@@ -287,3 +294,97 @@ class EditConfigsCommand(Command):
         d = self.plan.get_device(self.device_id)
         if d:
             d.configs = list(self.old_configs)
+
+
+class AddTextBoxCommand(Command):
+    """Place a new text annotation on the canvas."""
+
+    def __init__(self, plan: NetworkPlan, textbox: TextBox):
+        self.plan, self.textbox = plan, textbox
+        preview = textbox.text.splitlines()[0][:24] if textbox.text else "empty"
+        self.description = f"Add text box '{preview}'"
+
+    def execute(self) -> None:
+        self.plan.add_textbox(self.textbox)
+
+    def undo(self) -> None:
+        self.plan.remove_textbox(self.textbox.id)
+
+
+class MoveTextBoxCommand(Command):
+    """Reposition a text annotation (captures the old spot for undo)."""
+
+    def __init__(self, plan: NetworkPlan, textbox_id: str, x: float, y: float):
+        self.plan, self.textbox_id = plan, textbox_id
+        self.new = (x, y)
+        box = plan.get_textbox(textbox_id)
+        self.old = (box.x, box.y) if box else (x, y)
+        self.description = "Move text box"
+
+    def _apply(self, pos: tuple[float, float]) -> None:
+        box = self.plan.get_textbox(self.textbox_id)
+        if box:
+            box.x, box.y = pos
+
+    def execute(self) -> None:
+        self._apply(self.new)
+
+    def undo(self) -> None:
+        self._apply(self.old)
+
+
+class EditTextBoxCommand(Command):
+    """Change a text annotation's content and formatting as one step.
+
+    Text, size, weight and color are bundled because they are all edited
+    in a single dialog; separate commands would make one OK click take
+    four undos to reverse.
+    """
+
+    def __init__(
+        self,
+        plan: NetworkPlan,
+        textbox_id: str,
+        text: str,
+        font_size: float,
+        bold: bool,
+        color: str,
+        width: float,
+    ):
+        self.plan, self.textbox_id = plan, textbox_id
+        self.new = (text, font_size, bold, color, width)
+        box = plan.get_textbox(textbox_id)
+        self.old = (
+            (box.text, box.font_size, box.bold, box.color, box.width)
+            if box
+            else self.new
+        )
+        self.description = "Edit text box"
+
+    def _apply(self, values) -> None:
+        box = self.plan.get_textbox(self.textbox_id)
+        if box:
+            box.text, box.font_size, box.bold, box.color, box.width = values
+
+    def execute(self) -> None:
+        self._apply(self.new)
+
+    def undo(self) -> None:
+        self._apply(self.old)
+
+
+class DeleteTextBoxCommand(Command):
+    """Remove a text annotation, keeping it for undo."""
+
+    def __init__(self, plan: NetworkPlan, textbox_id: str):
+        self.plan = plan
+        self.textbox = plan.get_textbox(textbox_id)
+        self.description = "Delete text box"
+
+    def execute(self) -> None:
+        if self.textbox:
+            self.plan.remove_textbox(self.textbox.id)
+
+    def undo(self) -> None:
+        if self.textbox:
+            self.plan.add_textbox(self.textbox)

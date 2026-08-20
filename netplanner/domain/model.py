@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import networkx as nx
 
-from .entities import Device, Link, Site, Subnet, Vlan, new_id
+from .entities import Device, Link, Site, Subnet, TextBox, Vlan, new_id
 
 
 class NetworkPlan:
@@ -20,6 +20,23 @@ class NetworkPlan:
         self.subnets: dict[str, Subnet] = {}
         self.vlans: dict[str, Vlan] = {}
         self.sites: dict[str, Site] = {}
+        # Annotations are not topology, so they sit beside the graph
+        # rather than inside it (see TextBox).
+        self.textboxes: dict[str, TextBox] = {}
+
+    # -------------------------------------------------------------- textboxes
+    def add_textbox(self, textbox: TextBox) -> TextBox:
+        """Add a text annotation; returns it for chaining."""
+        self.textboxes[textbox.id] = textbox
+        return textbox
+
+    def remove_textbox(self, textbox_id: str) -> None:
+        """Remove a text annotation; no-op if it does not exist."""
+        self.textboxes.pop(textbox_id, None)
+
+    def get_textbox(self, textbox_id: str) -> TextBox | None:
+        """Look up a text annotation by id; None if absent."""
+        return self.textboxes.get(textbox_id)
 
     # ------------------------------------------------------------------ devices
     def add_device(self, device: Device) -> Device:

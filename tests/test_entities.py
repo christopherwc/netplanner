@@ -1034,3 +1034,258 @@ def test_card_shows_config_indicator():
                              configs=[ConfigFile(filename=f"{i}.cfg") for i in range(3)]))
     assert many.config_line == "3 config files attached"    # plural
     assert many.height > plain.height  # the indicator takes vertical space
+
+
+# ----------------------------------------------------------------- text boxes
+def test_textbox_defaults():
+    from netplanner.domain.entities import TextBox
+
+    box = TextBox(text="DMZ")
+    assert box.display_lines == ["DMZ"]
+    assert box.width == 200.0
+    assert box.bold is False
+    assert box.height > 0
+
+
+def test_textbox_wraps_at_width():
+    from netplanner.domain.entities import TextBox
+
+    box = TextBox(text="word " * 40, width=200, font_size=11)
+    lines = box.display_lines
+    assert len(lines) > 1
+    # Every wrapped line must fit the estimated character budget.
+    budget = int(200 / (11 * 0.55))
+    assert all(len(line) <= budget for line in lines)
+
+
+def test_textbox_preserves_explicit_blank_lines():
+    from netplanner.domain.entities import TextBox
+
+    box = TextBox(text="Title\n\nBody text here")
+    assert box.display_lines[0] == "Title"
+    assert box.display_lines[1] == ""  # the deliberate paragraph break survives
+
+
+def test_textbox_bold_wraps_sooner_than_regular():
+    """Bold glyphs are wider, so the same text must wrap earlier or it
+    would overflow the box on the canvas."""
+    from netplanner.domain.entities import TextBox
+
+    text = "the quick brown fox jumps over the lazy dog"
+    regular = TextBox(text=text, bold=False)
+    bold = TextBox(text=text, bold=True)
+    assert len(bold.display_lines) >= len(regular.display_lines)
+
+
+def test_textbox_height_grows_with_line_count():
+    from netplanner.domain.entities import TextBox
+
+    short = TextBox(text="one line")
+    long = TextBox(text="word " * 60)
+    assert long.height > short.height
+
+
+def test_empty_textbox_still_has_one_line():
+    """Guards the renderers against an empty lines list."""
+    from netplanner.domain.entities import TextBox
+
+    assert TextBox(text="").display_lines == [""]
+
+
+def test_plan_textbox_crud():
+    from netplanner.domain.entities import TextBox
+    from netplanner.domain.model import NetworkPlan
+
+    plan = NetworkPlan("t")
+    box = plan.add_textbox(TextBox(text="DMZ"))
+    assert plan.get_textbox(box.id) is box
+    plan.remove_textbox(box.id)
+    assert plan.get_textbox(box.id) is None
+    plan.remove_textbox("nonexistent")  # must not raise
+
+
+def test_textboxes_are_not_topology():
+    """Annotations must never leak into graph queries or validation."""
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+
+    ctrl = AppController(repository=MagicMock())
+    ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    ctrl.add_textbox("just a label", 10, 10)
+    assert len(ctrl.plan.devices) == 1          # not counted as a device
+    assert ctrl.plan.graph.number_of_nodes() == 1
+    issues = ctrl.validate_plan()
+    assert not any("label" in issue.message for issue in issues)
+
+
+def test_add_textbox_is_undoable():
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+
+    ctrl = AppController(repository=MagicMock())
+    ctrl.add_textbox("note", 5, 5)
+    assert len(ctrl.plan.textboxes) == 1
+    ctrl.undo()
+    assert len(ctrl.plan.textboxes) == 0
+    ctrl.redo()
+    assert len(ctrl.plan.textboxes) == 1
+
+
+def test_move_textbox_is_undoable():
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+
+    ctrl = AppController(repository=MagicMock())
+    box = ctrl.add_textbox("note", 0, 0)
+    ctrl.move_textbox(box.id, 120, 250)
+    assert (box.x, box.y) == (120, 250)
+    ctrl.undo()
+    assert (box.x, box.y) == (0, 0)
+
+
+def test_edit_textbox_is_one_undo_step():
+    """Content and all four formatting fields revert together."""
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+
+    ctrl = AppController(repository=MagicMock())
+    box = ctrl.add_textbox("before", 0, 0)
+    ctrl.edit_textbox(box.id, "after", 20.0, True, "#c5221f", 320.0)
+    assert (box.text, box.font_size, box.bold, box.color, box.width) == (
+        "after", 20.0, True, "#c5221f", 320.0
+    )
+    ctrl.undo()
+    assert box.text == "before"
+    assert box.font_size == 11.0
+    assert box.bold is False
+    assert box.color == "#1a1a1a"
+
+
+def test_delete_textbox_is_undoable():
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+
+    ctrl = AppController(repository=MagicMock())
+    box = ctrl.add_textbox("note", 0, 0)
+    ctrl.delete_textbox(box.id)
+    assert len(ctrl.plan.textboxes) == 0
+    ctrl.undo()
+    assert ctrl.plan.get_textbox(box.id) is not None
+
+
+def test_deleting_device_leaves_textboxes_alone():
+    """A device cascade removes links, never annotations."""
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+
+    ctrl = AppController(repository=MagicMock())
+    device = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    ctrl.add_textbox("rack label", 0, 0)
+    ctrl.delete_device(device.id)
+    assert len(ctrl.plan.textboxes) == 1
+
+
+def test_textboxes_persist_through_sqlite(tmp_path):
+    from netplanner.domain.entities import TextBox
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.persistence.repository import PlanRepository
+
+    repo = PlanRepository(db_path=tmp_path / "tb.db")
+    plan = NetworkPlan("annotated")
+    plan.add_textbox(TextBox(text="DMZ", x=10, y=20, font_size=18,
+                             bold=True, color="#c5221f", width=260))
+    repo.save(plan)
+    loaded = repo.load(plan.id)
+    box = next(iter(loaded.textboxes.values()))
+    assert (box.text, box.x, box.y, box.bold, box.color, box.width) == (
+        "DMZ", 10, 20, True, "#c5221f", 260
+    )
+
+
+def test_textboxes_persist_through_netplan_json(tmp_path):
+    from netplanner.domain.entities import TextBox
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.persistence.project_file import load_project, save_project
+
+    plan = NetworkPlan("annotated json")
+    plan.add_textbox(TextBox(text="Core rack", x=5, y=6))
+    path = tmp_path / "p.netplan"
+    save_project(plan, path)
+    assert next(iter(load_project(path).textboxes.values())).text == "Core rack"
+
+
+def test_legacy_plan_without_textboxes_loads(tmp_path):
+    """Plans saved before annotations existed must still load."""
+    import json
+
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.persistence.project_file import load_project, save_project
+
+    path = tmp_path / "old.netplan"
+    save_project(NetworkPlan("old"), path)
+    doc = json.loads(path.read_text())
+    del doc["textboxes"]
+    path.write_text(json.dumps(doc))
+    assert load_project(path).textboxes == {}
+
+
+def test_scene_includes_textboxes_and_grows_to_fit():
+    from netplanner.domain.entities import Device, TextBox
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.export.renderer import build_scene
+
+    plan = NetworkPlan("t")
+    plan.add_device(Device(name="sw1", device_type=DeviceType.SWITCH, x=0, y=0))
+    without = build_scene(plan)
+    # An annotation far to the right must expand the page, not be clipped.
+    plan.add_textbox(TextBox(text="far away note", x=900, y=0))
+    with_box = build_scene(plan)
+    assert len(with_box.texts) == 1
+    assert with_box.width > without.width
+
+
+def test_scene_normalizes_textbox_outside_device_bounds():
+    """A note placed above/left of every device must land inside the page."""
+    from netplanner.domain.entities import Device, TextBox
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.export.renderer import build_scene
+
+    plan = NetworkPlan("t")
+    plan.add_device(Device(name="sw1", device_type=DeviceType.SWITCH, x=0, y=0))
+    plan.add_textbox(TextBox(text="header", x=-800, y=-400))
+    scene = build_scene(plan)
+    assert scene.texts[0].x >= 0
+    assert scene.texts[0].y >= 0
+
+
+def test_text_only_plan_renders():
+    """A plan with annotations but no devices is still a valid diagram."""
+    from netplanner.domain.entities import TextBox
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.export.renderer import build_scene
+
+    plan = NetworkPlan("notes only")
+    plan.add_textbox(TextBox(text="Design notes go here"))
+    scene = build_scene(plan)
+    assert len(scene.texts) == 1
+    assert scene.nodes == []
+
+
+def test_textboxes_export_to_pdf_and_png(tmp_path):
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+
+    ctrl = AppController(repository=MagicMock())
+    ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    ctrl.add_textbox("DMZ ZONE", -300, -120, font_size=16, bold=True)
+    ctrl.export_to_pdf(tmp_path / "a.pdf")
+    ctrl.export_to_png(tmp_path / "a.png")
+    assert (tmp_path / "a.pdf").stat().st_size > 0
+    assert (tmp_path / "a.png").stat().st_size > 0
