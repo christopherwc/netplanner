@@ -61,3 +61,65 @@ def point_along(
 ) -> tuple[float, float]:
     """Point at fraction t (0..1) along the segment; used for port labels."""
     return x1 + (x2 - x1) * t, y1 + (y2 - y1) * t
+
+
+def card_exit_point(
+    cx: float,
+    cy: float,
+    tx: float,
+    ty: float,
+    half_w: float,
+    half_h: float,
+    gap: float = 6.0,
+) -> tuple[float, float]:
+    """Point just outside a card's edge, along the line toward (tx, ty).
+
+    Link lines run centre-to-centre and are drawn beneath cards, so a
+    port label placed at a fixed fraction along the line (25% / 75%)
+    disappears under the card whenever the two devices are close
+    together or the cards are tall. Anchoring to the card's boundary
+    instead means the label always sits in open space next to the
+    device it belongs to, regardless of link length.
+
+    Solves for where the ray from the card centre crosses the
+    axis-aligned card rectangle, then steps `gap` further along it.
+    """
+    dx, dy = tx - cx, ty - cy
+    if dx == 0 and dy == 0:
+        return cx, cy
+
+    # Scale needed to reach each edge; the nearer one is the real exit.
+    scale_x = half_w / abs(dx) if dx else float("inf")
+    scale_y = half_h / abs(dy) if dy else float("inf")
+    scale = min(scale_x, scale_y)
+
+    ex, ey = cx + dx * scale, cy + dy * scale
+    length = (dx * dx + dy * dy) ** 0.5
+    return ex + dx / length * gap, ey + dy / length * gap
+
+
+def label_anchor(
+    cx: float,
+    cy: float,
+    tx: float,
+    ty: float,
+    half_w: float,
+    half_h: float,
+    text_w: float,
+    text_h: float,
+    gap: float = 6.0,
+) -> tuple[float, float]:
+    """Centre point for a port label that clears the card entirely.
+
+    card_exit_point() lands on the card's boundary, so a label centred
+    there still has half its width inside the card. This pushes the
+    centre further along the link direction by the label's own
+    half-extent, so the whole label sits in open space.
+    """
+    ex, ey = card_exit_point(cx, cy, tx, ty, half_w, half_h, gap)
+    dx, dy = tx - cx, ty - cy
+    length = (dx * dx + dy * dy) ** 0.5
+    if length == 0:
+        return ex, ey
+    ux, uy = dx / length, dy / length
+    return ex + ux * text_w / 2, ey + uy * text_h / 2

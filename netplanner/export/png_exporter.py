@@ -17,7 +17,7 @@ from PIL import Image, ImageChops, ImageDraw
 
 from netplanner.domain.model import NetworkPlan
 
-from .geometry import point_along
+from .geometry import label_anchor
 from .nodecard import (
     FOOTER_H,
     HEADER_H,
@@ -103,10 +103,6 @@ def _export_png_impl(scene, path: Path) -> None:
         if e.label:
             mid = ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2 - 8 * SCALE)
             draw.text(mid, e.label, fill=lstyle.color, anchor="mm")
-        for port, t in ((e.a_port, 0.25), (e.b_port, 0.75)):
-            if port:
-                pp = point_along(p1[0], p1[1], p2[0], p2[1], t)
-                draw.text((pp[0], pp[1] - 6 * SCALE), port, fill=MAC_COLOR, anchor="mm")
 
     # Node cards
     for n in scene.nodes:
@@ -254,6 +250,24 @@ def _export_png_impl(scene, path: Path) -> None:
                     anchor="lm",
                 )
                 y += NOTES_LINE_H * SCALE
+
+    # Port labels after the cards: anchored beside the card edge, but a
+    # neighbouring card can still overlap that spot, and last drawn wins.
+    for e in scene.edges:
+        ax, ay = e.x1 * SCALE, e.y1 * SCALE + off
+        bx, by = e.x2 * SCALE, e.y2 * SCALE + off
+        for port, (cx, cy), (tx, ty), (half_w, half_h) in (
+            (e.a_port, (ax, ay), (bx, by), e.a_half),
+            (e.b_port, (bx, by), (ax, ay), e.b_half),
+        ):
+            if not port:
+                continue
+            text_w = draw.textlength(port)
+            px, py = label_anchor(
+                cx, cy, tx, ty, half_w * SCALE, half_h * SCALE,
+                text_w, 7 * SCALE, gap=6 * SCALE,
+            )
+            draw.text((px, py), port, fill=MAC_COLOR, anchor="mm")
 
     # Text annotations last so they sit above cards if they overlap.
     for text_shape in scene.texts:
