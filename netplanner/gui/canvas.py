@@ -506,7 +506,11 @@ class LinkItem(QGraphicsLineItem):
 
     def _edit(self) -> None:
         """Open the link dialog and commit changes as one undo step."""
-        dialog = LinkPropertiesDialog(self.link, self._endpoint_summary())
+        dialog = LinkPropertiesDialog(
+            self.link,
+            self._endpoint_summary(),
+            self.controller.link_derived_speed(self.link),
+        )
         if dialog.exec():
             self.controller.edit_link(
                 self.link.id,

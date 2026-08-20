@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
     QDialog,
     QDialogButtonBox,
@@ -59,6 +60,20 @@ _VLAN_MODE_CHOICES = [VlanMode.ACCESS, VlanMode.TRUNK]
 _STATUS_CHOICES = [DeviceStatus.ACTIVE, DeviceStatus.PLANNED, DeviceStatus.BROKEN]
 
 VLAN_MIN, VLAN_MAX = 1, 4094  # valid 802.1Q VLAN ID range
+
+# Bandwidth entry units and their Mbps multiplier. Storage stays Mbps;
+# only the input is converted, so a plan saved in Gbps and reopened in
+# Mbps holds the same number.
+BANDWIDTH_UNITS = (("Mbps", 1), ("Gbps", 1000))
+
+
+def _format_mbps(mbps: int) -> str:
+    """Render a Mbps figure in whichever unit reads better."""
+    if mbps >= 1000 and mbps % 1000 == 0:
+        return f"{mbps // 1000} Gbps"
+    if mbps >= 1000:
+        return f"{mbps / 1000:g} Gbps"
+    return f"{mbps} Mbps"
 
 
 class DevicePropertiesDialog(QDialog):
@@ -576,7 +591,13 @@ class LinkPropertiesDialog(QDialog):
         LinkType.WAN,
     ]
 
-    def __init__(self, link: Link, endpoints: str = "", parent=None):
+    def __init__(
+        self,
+        link: Link,
+        endpoints: str = "",
+        derived_speed_mbps: int | None = None,
+        parent=None,
+    ):
         super().__init__(parent)
         self.setWindowTitle("Link properties")
         self.resize(420, 200)
@@ -603,14 +624,44 @@ class LinkPropertiesDialog(QDialog):
             self.type_combo.setCurrentIndex(self.LINK_TYPE_CHOICES.index(link.link_type))
         form.addRow("Media:", self.type_combo)
 
-        self.bandwidth_spin = QSpinBox()
+        # Bandwidth is stored in Mbps but entered in whichever unit suits
+        # the number: 500 Mbps and 100 Gbps are both natural to type, and
+        # forcing one unit makes the other awkward.
+        self.bandwidth_spin = QDoubleSpinBox()
+        self.bandwidth_spin.setDecimals(0)
         self.bandwidth_spin.setRange(0, 400_000)
-        self.bandwidth_spin.setSuffix(" Mbps")
         # 0 doubles as "unset": a spinbox has no empty state, and a link
         # with no recorded bandwidth is normal rather than an error.
         self.bandwidth_spin.setSpecialValueText("not set")
-        self.bandwidth_spin.setValue(link.bandwidth_mbps or 0)
-        form.addRow("Bandwidth:", self.bandwidth_spin)
+
+        self.unit_combo = QComboBox()
+        for name, factor in BANDWIDTH_UNITS:
+            self.unit_combo.addItem(name, factor)
+        # Default to whichever unit renders the stored value most
+        # readably: 10000 Mbps reads better as 10 Gbps.
+        default_unit = 1 if (link.bandwidth_mbps or 0) >= 1000 else 0
+        self.unit_combo.setCurrentIndex(default_unit)
+        self._apply_unit(default_unit, link.bandwidth_mbps)
+        self.unit_combo.currentIndexChanged.connect(self._on_unit_changed)
+
+        bandwidth_row = QHBoxLayout()
+        bandwidth_row.addWidget(self.bandwidth_spin)
+        bandwidth_row.addWidget(self.unit_combo)
+
+        derived = derived_speed_mbps
+        if derived:
+            # Offer the interface-derived rate rather than silently
+            # overwriting: the user may have recorded a real measured or
+            # contracted figure that differs from the line rate.
+            self.derive_button = QPushButton(f"Use interface speed ({_format_mbps(derived)})")
+            self.derive_button.setToolTip(
+                "Set bandwidth to the slower of the two connected interfaces."
+            )
+            self.derive_button.clicked.connect(lambda: self._set_mbps(derived))
+            bandwidth_row.addWidget(self.derive_button)
+        bandwidth_row.addStretch()
+
+        form.addRow("Bandwidth:", bandwidth_row)
 
         layout.addLayout(form)
 
@@ -634,6 +685,35 @@ class LinkPropertiesDialog(QDialog):
     def result_link_type(self) -> LinkType:
         return self.type_combo.currentData()
 
+    # ------------------------------------------------------------ bandwidth
+    def _apply_unit(self, index: int, mbps: int | None) -> None:
+        """Configure the spinbox for a unit and show `mbps` in it."""
+        _, factor = BANDWIDTH_UNITS[index]
+        # Remember the unit the displayed number is currently in. On a
+        # unit change the combo has already moved, so converting with
+        # currentData() would use the new factor against the old number
+        # and silently divide the value by 1000.
+        self._display_factor = factor
+        self.bandwidth_spin.setSuffix(f" {BANDWIDTH_UNITS[index][0]}")
+        self.bandwidth_spin.setRange(0, 400_000 / factor)
+        # Gbps needs decimals to express sub-gigabit links (500 Mbps).
+        self.bandwidth_spin.setDecimals(0 if factor == 1 else 2)
+        self.bandwidth_spin.setValue((mbps or 0) / factor)
+
+    def _on_unit_changed(self, index: int) -> None:
+        """Switch units, preserving the value rather than the number."""
+        current = int(round(self.bandwidth_spin.value() * self._display_factor)) or None
+        self._apply_unit(index, current)
+
+    def _current_mbps(self) -> int | None:
+        """The field's value in Mbps, whatever unit it's displayed in."""
+        return int(round(self.bandwidth_spin.value() * self._display_factor)) or None
+
+    def _set_mbps(self, mbps: int) -> None:
+        """Set the field from a Mbps figure, picking a readable unit."""
+        index = 1 if mbps >= 1000 else 0
+        self.unit_combo.setCurrentIndex(index)
+        self._apply_unit(index, mbps)
+
     def result_bandwidth(self) -> int | None:
-        value = self.bandwidth_spin.value()
-        return value or None  # 0 means "not set"
+        return self._current_mbps()  # 0 means "not set"
