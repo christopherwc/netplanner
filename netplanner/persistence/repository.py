@@ -27,7 +27,7 @@ from netplanner.domain.entities import (
 )
 from netplanner.domain.model import NetworkPlan
 
-from .db import DeviceRow, LinkRow, PlanRow, make_session_factory
+from .db import DeviceRow, LinkRow, PlanRow, default_db_path, make_session_factory
 
 
 logger = logging.getLogger(__name__)
