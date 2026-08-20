@@ -7,12 +7,15 @@ cards the GUI shows (header / type band / interface IP+MAC blocks).
 
 from __future__ import annotations
 
+import logging
+
 from pathlib import Path
 
 from reportlab.lib.colors import HexColor
 from reportlab.pdfgen import canvas as pdf_canvas
 
 from netplanner.domain.model import NetworkPlan
+from netplanner.errors import ExportError
 
 from .geometry import point_along
 from .nodecard import (
@@ -38,9 +41,41 @@ MAC_COLOR = HexColor("#777777")
 TITLE_OFFSET = 40  # room reserved above the diagram for the plan title
 
 
+logger = logging.getLogger(__name__)
+
+
 def export_pdf(plan: NetworkPlan, path: Path) -> None:
-    """Render the plan to a single-page PDF sized to fit the diagram."""
+    """Render the plan to a single-page PDF sized to fit the diagram.
+
+    Failures are logged with the traceback and re-raised as ExportError
+    naming the plan, the destination, and the scene size — enough to
+    tell an unwritable path from a rendering bug from the message alone.
+    """
     scene = build_scene(plan)
+    logger.info(
+        "Exporting plan '%s' (%d devices, %d links) to PDF %s (%.0fx%.0f pts)",
+        plan.name, len(plan.devices), len(plan.links), path, scene.width, scene.height,
+    )
+    try:
+        _export_pdf_impl(scene, path)
+    except OSError as exc:
+        logger.exception("PDF export failed writing %s", path)
+        raise ExportError(
+            f"Could not write PDF for plan '{plan.name}' to {path}: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+    except Exception as exc:  # rendering bug: keep the report verbose
+        logger.exception("PDF rendering failed for plan '%s'", plan.name)
+        raise ExportError(
+            f"PDF rendering failed for plan '{plan.name}' "
+            f"({len(plan.devices)} devices, scene {scene.width:.0f}x{scene.height:.0f}): "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+    logger.debug("PDF export complete: %s", path)
+
+
+def _export_pdf_impl(scene, path: Path) -> None:
+    """The actual reportlab drawing behind export_pdf()."""
     c = pdf_canvas.Canvas(str(path), pagesize=(scene.width, scene.height + TITLE_OFFSET))
     _draw(c, scene)
     c.showPage()

@@ -5,6 +5,11 @@ from __future__ import annotations
 from dataclasses import asdict
 from pathlib import Path
 
+import logging
+
+from sqlalchemy.exc import SQLAlchemyError
+
+from netplanner.errors import PersistenceError
 from netplanner.domain.entities import (
     ConfigFile,
     ConfigFormat,
@@ -25,12 +30,45 @@ from netplanner.domain.model import NetworkPlan
 from .db import DeviceRow, LinkRow, PlanRow, make_session_factory
 
 
+logger = logging.getLogger(__name__)
+
+
 class PlanRepository:
     def __init__(self, db_path: Path | None = None):
+        # Kept for log/error messages: every PersistenceError names the
+        # database it was talking to.
+        self.db_path = db_path or default_db_path()
         self._session_factory = make_session_factory(db_path)
+        logger.debug("Repository opened at %s", self.db_path)
 
     # ------------------------------------------------------------------- save
+    def _describe(self, plan: NetworkPlan) -> str:
+        """One-line description of a plan for log/error messages."""
+        return (
+            f"plan '{plan.name}' (id={plan.id}, {len(plan.devices)} devices, "
+            f"{len(plan.links)} links)"
+        )
+
     def save(self, plan: NetworkPlan) -> None:
+        """Persist a plan (upsert by id), with verbose failure context.
+
+        Failures are logged with the full traceback and re-raised as
+        PersistenceError naming the plan and database path, so the
+        error is diagnosable from the message alone.
+        """
+        logger.info("Saving %s to %s", self._describe(plan), self.db_path)
+        try:
+            self._save_impl(plan)
+        except (SQLAlchemyError, OSError) as exc:
+            logger.exception("Save failed for %s", self._describe(plan))
+            raise PersistenceError(
+                f"Could not save {self._describe(plan)} to {self.db_path}: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+        logger.debug("Save complete for plan id=%s", plan.id)
+
+    def _save_impl(self, plan: NetworkPlan) -> None:
+        """The actual upsert; separated so save() stays a guarded shell."""
         with self._session_factory() as session:
             row = session.get(PlanRow, plan.id) or PlanRow(id=plan.id)
             row.name = plan.name
@@ -50,10 +88,34 @@ class PlanRepository:
 
     # ------------------------------------------------------------------- load
     def load(self, plan_id: str) -> NetworkPlan:
+        """Load a plan by id, with verbose failure context.
+
+        A missing id raises PersistenceError (not a bare KeyError) so
+        callers and the GUI guard get a human-readable message naming
+        the id and database it was expected in.
+        """
+        logger.info("Loading plan id=%s from %s", plan_id, self.db_path)
+        try:
+            plan = self._load_impl(plan_id)
+        except PersistenceError:
+            raise  # already contextual; don't double-wrap
+        except (SQLAlchemyError, OSError) as exc:
+            logger.exception("Load failed for plan id=%s", plan_id)
+            raise PersistenceError(
+                f"Could not load plan id={plan_id} from {self.db_path}: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+        logger.debug("Loaded %s", self._describe(plan))
+        return plan
+
+    def _load_impl(self, plan_id: str) -> NetworkPlan:
+        """The actual query + reconstruction behind load()."""
         with self._session_factory() as session:
             row = session.get(PlanRow, plan_id)
             if row is None:
-                raise KeyError(f"No plan with id {plan_id}")
+                raise PersistenceError(
+                    f"No plan with id {plan_id} exists in {self.db_path}"
+                )
             plan = NetworkPlan(name=row.name, plan_id=row.id)
             for meta_subnet in row.meta.get("subnets", []):
                 plan.add_subnet(Subnet(**meta_subnet))
