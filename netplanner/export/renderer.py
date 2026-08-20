@@ -44,6 +44,19 @@ class EdgeShape:
 
 
 @dataclass
+class SiteShape:
+    """A positioned site box ready for drawing."""
+
+    x: float
+    y: float
+    width: float
+    height: float
+    name: str
+    notes_lines: list[str]
+    color: str
+
+
+@dataclass
 class TextShape:
     """A positioned text annotation ready for drawing."""
 
@@ -64,6 +77,7 @@ class Scene:
     edges: list[EdgeShape]
     title: str
     texts: list[TextShape] = field(default_factory=list)
+    sites: list[SiteShape] = field(default_factory=list)
 
 
 def build_scene(plan: NetworkPlan, vlan_filter: set[int] | None = None) -> Scene:
@@ -75,6 +89,7 @@ def build_scene(plan: NetworkPlan, vlan_filter: set[int] | None = None) -> Scene
     """
     devices = plan.devices
     boxes = list(plan.textboxes.values())
+    site_list = list(plan.sites.values())
     if not devices:
         # A plan can legitimately hold only annotations; normalize those
         # on their own rather than returning a fixed empty canvas.
@@ -117,6 +132,11 @@ def build_scene(plan: NetworkPlan, vlan_filter: set[int] | None = None) -> Scene
     if boxes:
         min_left = min(min_left, min(b.x for b in boxes))
         min_top = min(min_top, min(b.y for b in boxes))
+    # Sites are backdrops and usually extend past the devices they hold,
+    # so they must take part in the bounds or they'd be cropped.
+    if site_list:
+        min_left = min(min_left, min(s.x for s in site_list))
+        min_top = min(min_top, min(s.y for s in site_list))
     shift_x = MARGIN - min_left
     shift_y = MARGIN - min_top
 
@@ -159,8 +179,19 @@ def build_scene(plan: NetworkPlan, vlan_filter: set[int] | None = None) -> Scene
         for b in boxes
     ]
 
+    sites = [
+        SiteShape(
+            x=s.x + shift_x, y=s.y + shift_y, width=s.width, height=s.height,
+            name=s.name, notes_lines=_wrap_site_notes(s), color=s.color,
+        )
+        for s in site_list
+    ]
+
     width = max(n.x + n.card.width for n in nodes) + MARGIN
     height = max(n.y + n.card.height for n in nodes) + MARGIN
+    for shape in sites:
+        width = max(width, shape.x + shape.width + MARGIN)
+        height = max(height, shape.y + shape.height + MARGIN)
     # Grow the page if an annotation extends past the device cluster.
     for text_shape, box in zip(texts, boxes):
         width = max(width, text_shape.x + box.width + MARGIN)
@@ -168,8 +199,33 @@ def build_scene(plan: NetworkPlan, vlan_filter: set[int] | None = None) -> Scene
 
     return Scene(
         width=width, height=height, nodes=nodes, edges=edges,
-        title=plan.name, texts=texts,
+        title=plan.name, texts=texts, sites=sites,
     )
+
+
+def _wrap_site_notes(site, max_lines: int = 4) -> list[str]:
+    """Wrap a site's notes to its box width, capped like the canvas does."""
+    if not site.notes:
+        return []
+    chars = max(12, int((site.width - 16) / 6))
+    lines: list[str] = []
+    for paragraph in site.notes.split("\n"):
+        current = ""
+        for word in paragraph.split():
+            candidate = f"{current} {word}".strip()
+            if len(candidate) > chars and current:
+                lines.append(current)
+                current = word
+            else:
+                current = candidate
+        if current:
+            lines.append(current)
+        if len(lines) > max_lines:
+            break
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        lines[-1] = lines[-1].rstrip() + "\u2026"
+    return lines
 
 
 def _port_name(plan: NetworkPlan, device_id: str, interface_id: str | None) -> str:

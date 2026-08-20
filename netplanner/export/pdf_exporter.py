@@ -97,6 +97,27 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
     c.setFont("Helvetica-Bold", 16)
     c.drawString(20, page_h - 25, scene.title)
 
+    # Sites first of all: they are backdrops for everything else.
+    for s in scene.sites:
+        color = HexColor(s.color)
+        top = fy(s.y)
+        c.setFillColor(color, alpha=0.08)
+        c.setStrokeColor(color, alpha=0.9)
+        c.setLineWidth(1.5)
+        c.roundRect(s.x, top - s.height, s.width, s.height, 8, stroke=1, fill=1)
+
+        c.setFillColor(color, alpha=0.20)
+        c.rect(s.x, top - 26, s.width, 26, stroke=0, fill=1)
+        c.setFillColor(color)
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(s.x + 10, top - 18, s.name or "(unnamed site)")
+
+        c.setFont("Helvetica", 7.5)
+        ny = top - 26 - 10
+        for line in s.notes_lines:
+            c.drawString(s.x + 10, ny, line)
+            ny -= 10
+
     # Edges first so they render under the node cards
     for e in scene.edges:
         lstyle = link_style_for_value(e.link_type)

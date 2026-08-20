@@ -24,6 +24,10 @@ from netplanner.app.commands import (
     DeleteLinkCommand,
     EditConfigsCommand,
     EditLinkCommand,
+    AddSiteCommand,
+    SetSiteGeometryCommand,
+    EditSiteCommand,
+    DeleteSiteCommand,
     AddTextBoxCommand,
     MoveTextBoxCommand,
     EditTextBoxCommand,
@@ -38,6 +42,7 @@ from netplanner.domain.entities import (
     Interface,
     Link,
     LinkType,
+    Site,
     TextBox,
     detect_config_format,
     negotiated_speed_mbps,
@@ -184,6 +189,35 @@ class AppController:
         from netplanner.export.vlans import plan_vlan_usage
 
         return plan_vlan_usage(self.plan)
+
+    # ----------------------------------------------------------------- sites
+    def add_site(self, name: str, x: float, y: float, **kwargs) -> Site:
+        """Place a site box at the given canvas position (undoable)."""
+        site = Site(name=name, x=x, y=y, **kwargs)
+        logger.info("Adding site %r at (%.0f, %.0f)", name, x, y)
+        self.commands.push(AddSiteCommand(self.plan, site))
+        return site
+
+    def set_site_geometry(
+        self, site_id: str, x: float, y: float, width: float, height: float
+    ) -> None:
+        """Move or resize a site box (undoable)."""
+        self.commands.push(
+            SetSiteGeometryCommand(self.plan, site_id, x, y, width, height)
+        )
+
+    def edit_site(self, site_id: str, name: str, notes: str, color: str) -> None:
+        """Update a site's name, notes and colour (one undo step)."""
+        self.commands.push(EditSiteCommand(self.plan, site_id, name, notes, color))
+
+    def delete_site(self, site_id: str) -> None:
+        """Remove a site box, leaving the devices inside it in place."""
+        logger.info("Deleting site id=%s", site_id)
+        self.commands.push(DeleteSiteCommand(self.plan, site_id))
+
+    def devices_in_site(self, site_id: str) -> list[Device]:
+        """Devices positioned inside a site's box."""
+        return self.plan.devices_in_site(site_id)
 
     # ------------------------------------------------------------- textboxes
     def add_textbox(self, text: str, x: float, y: float, **kwargs) -> TextBox:

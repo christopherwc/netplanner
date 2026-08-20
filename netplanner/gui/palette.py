@@ -39,6 +39,7 @@ PALETTE_DEVICE_TYPES = [
 # their own enums; a text box is neither, so the palette emits this
 # marker and the canvas compares against it by value.
 TEXT_TOOL = "text_box"
+SITE_TOOL = "site"
 
 PALETTE_LINK_TYPES = [
     LinkType.ETHERNET,
@@ -82,6 +83,12 @@ class EquipmentPalette(QDockWidget):
         text_btn.setToolTip(
             "Click the canvas to place a text label. Annotations are not part "
             "of the topology — they carry no ports and never affect validation."
+        )
+
+        site_btn = self._make_button("▭  Site", SITE_TOOL, layout)
+        site_btn.setToolTip(
+            "Click the canvas to place a location box. Sites sit behind "
+            "everything else; drag the bottom-right corner to resize."
         )
 
         layout.addStretch()

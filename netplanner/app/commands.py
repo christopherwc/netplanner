@@ -18,6 +18,7 @@ from netplanner.domain.entities import (
     Interface,
     Link,
     LinkType,
+    Site,
     TextBox,
 )
 from netplanner.domain.model import NetworkPlan
@@ -438,3 +439,87 @@ class EditLinkCommand(Command):
 
     def undo(self) -> None:
         self._apply(self.old)
+
+
+class AddSiteCommand(Command):
+    """Place a new site box on the canvas."""
+
+    def __init__(self, plan: NetworkPlan, site: Site):
+        self.plan, self.site = plan, site
+        self.description = f"Add site '{site.name or 'untitled'}'"
+
+    def execute(self) -> None:
+        self.plan.add_site(self.site)
+
+    def undo(self) -> None:
+        self.plan.remove_site(self.site.id)
+
+
+class SetSiteGeometryCommand(Command):
+    """Move or resize a site box.
+
+    Moving and resizing share one command because both are committed on
+    mouse release and both are described the same way in the undo stack;
+    splitting them would only matter if the two could happen at once.
+    """
+
+    def __init__(
+        self, plan: NetworkPlan, site_id: str, x: float, y: float, width: float, height: float
+    ):
+        self.plan, self.site_id = plan, site_id
+        self.new = (x, y, width, height)
+        site = plan.get_site(site_id)
+        self.old = (site.x, site.y, site.width, site.height) if site else self.new
+        self.description = "Resize site" if site and (
+            (width, height) != (site.width, site.height)
+        ) else "Move site"
+
+    def _apply(self, values) -> None:
+        site = self.plan.get_site(self.site_id)
+        if site:
+            site.x, site.y, site.width, site.height = values
+
+    def execute(self) -> None:
+        self._apply(self.new)
+
+    def undo(self) -> None:
+        self._apply(self.old)
+
+
+class EditSiteCommand(Command):
+    """Change a site's name, notes and colour as one undo step."""
+
+    def __init__(self, plan: NetworkPlan, site_id: str, name: str, notes: str, color: str):
+        self.plan, self.site_id = plan, site_id
+        self.new = (name, notes, color)
+        site = plan.get_site(site_id)
+        self.old = (site.name, site.notes, site.color) if site else self.new
+        self.description = "Edit site"
+
+    def _apply(self, values) -> None:
+        site = self.plan.get_site(self.site_id)
+        if site:
+            site.name, site.notes, site.color = values
+
+    def execute(self) -> None:
+        self._apply(self.new)
+
+    def undo(self) -> None:
+        self._apply(self.old)
+
+
+class DeleteSiteCommand(Command):
+    """Remove a site box. Devices inside it are left exactly where they are."""
+
+    def __init__(self, plan: NetworkPlan, site_id: str):
+        self.plan = plan
+        self.site = plan.get_site(site_id)
+        self.description = f"Delete site '{self.site.name}'" if self.site else "Delete site"
+
+    def execute(self) -> None:
+        if self.site:
+            self.plan.remove_site(self.site.id)
+
+    def undo(self) -> None:
+        if self.site:
+            self.plan.add_site(self.site)

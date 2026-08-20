@@ -90,6 +90,30 @@ def _export_png_impl(scene, path: Path) -> None:
     draw.text((20 * SCALE, 12 * SCALE), scene.title, fill=TEXT_COLOR)
     off = TITLE_OFFSET * SCALE  # vertical shift below the title area
 
+    # Sites first of all: they are backdrops for everything else.
+    for s in scene.sites:
+        left, top = s.x * SCALE, s.y * SCALE + off
+        right, bottom = left + s.width * SCALE, top + s.height * SCALE
+        # Pillow has no alpha on plain fills, so blend toward the page
+        # colour for the tint, matching the canvas's translucent look.
+        draw.rounded_rectangle(
+            (left, top, right, bottom), radius=8 * SCALE,
+            fill=_blend(s.color, DIAGRAM_BG, 0.08),
+            outline=s.color, width=max(1, int(1.5 * SCALE)),
+        )
+        draw.rectangle(
+            (left, top, right, top + 26 * SCALE),
+            fill=_blend(s.color, DIAGRAM_BG, 0.20),
+        )
+        draw.text(
+            (left + 10 * SCALE, top + 13 * SCALE),
+            s.name or "(unnamed site)", fill=s.color, anchor="lm",
+        )
+        ny = top + 26 * SCALE + 7 * SCALE
+        for line in s.notes_lines:
+            draw.text((left + 10 * SCALE, ny), line, fill=s.color, anchor="lm")
+            ny += 10 * SCALE
+
     # Edges first so they render under the node cards
     for e in scene.edges:
         lstyle = link_style_for_value(e.link_type)
