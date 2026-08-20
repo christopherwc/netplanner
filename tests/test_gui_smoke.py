@@ -269,3 +269,80 @@ def test_bandwidth_zero_means_not_set(app, controller):
     dialog = LinkPropertiesDialog(link, "", None)
     dialog._set_mbps(0)
     assert dialog.result_bandwidth() is None
+
+
+def test_site_item_paints_and_sits_behind(app, controller):
+    """Sites are backdrops: they must render and stay under everything."""
+    from PyQt6.QtGui import QImage, QPainter
+
+    from netplanner.gui.canvas import DeviceItem, SiteItem
+
+    site = controller.add_site("IDF 1", 0, 0, width=400, height=300, notes="Rack 3-5")
+    controller.add_device("sw1", DeviceType.SWITCH, 100, 100)
+    item = SiteItem(site, controller)
+    assert item.zValue() < DeviceItem(controller.plan.devices[0], controller).zValue()
+
+    rect = item.boundingRect()
+    image = QImage(int(rect.width()) + 4, int(rect.height()) + 4, QImage.Format.Format_RGB32)
+    painter = QPainter(image)
+    item.paint(painter, None)
+    painter.end()
+
+
+def test_site_resize_commits_once_and_undoes(app, controller):
+    from PyQt6.QtCore import QPointF
+
+    from netplanner.gui.canvas import SiteItem
+
+    site = controller.add_site("IDF 1", 0, 0, width=400, height=300)
+    item = SiteItem(site, controller)
+
+    class FakeEvent:
+        def __init__(self, scene_pos, pos):
+            self._scene_pos, self._pos = scene_pos, pos
+
+        def scenePos(self):
+            return self._scene_pos
+
+        def pos(self):
+            return self._pos
+
+        def accept(self):
+            pass
+
+    grip = item._grip_rect().center()
+    item.mousePressEvent(FakeEvent(QPointF(0, 0), grip))
+    item.mouseMoveEvent(FakeEvent(QPointF(100, 50), grip))
+    item.mouseReleaseEvent(FakeEvent(QPointF(100, 50), grip))
+    assert (site.width, site.height) == (500, 350)
+
+    controller.undo()
+    assert (site.width, site.height) == (400, 300)
+
+
+def test_site_cannot_be_resized_below_minimum(app, controller):
+    from PyQt6.QtCore import QPointF
+
+    from netplanner.gui.canvas import SiteItem
+
+    site = controller.add_site("IDF 1", 0, 0, width=400, height=300)
+    item = SiteItem(site, controller)
+
+    class FakeEvent:
+        def __init__(self, scene_pos, pos):
+            self._scene_pos, self._pos = scene_pos, pos
+
+        def scenePos(self):
+            return self._scene_pos
+
+        def pos(self):
+            return self._pos
+
+        def accept(self):
+            pass
+
+    grip = item._grip_rect().center()
+    item.mousePressEvent(FakeEvent(QPointF(0, 0), grip))
+    item.mouseMoveEvent(FakeEvent(QPointF(-5000, -5000), grip))
+    assert site.width >= SiteItem.MIN_W
+    assert site.height >= SiteItem.MIN_H

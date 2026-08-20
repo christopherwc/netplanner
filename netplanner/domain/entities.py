@@ -194,11 +194,28 @@ class TextBox:
 
 @dataclass
 class Site:
-    """A physical or logical location grouping devices."""
+    """A physical or logical location grouping devices.
 
-    name: str
+    Drawn as a resizable box behind everything else on the canvas — a
+    backdrop for the equipment that lives in that room, rack, or
+    building. Membership is deliberately positional rather than a
+    stored device list: users move equipment around constantly, and a
+    box that says what it visually contains can't fall out of sync with
+    what the diagram shows.
+    """
+
+    name: str = ""
+    x: float = 0.0
+    y: float = 0.0
+    width: float = 420.0
+    height: float = 320.0
+    color: str = "#1a73e8"   # border/label hue; the fill is a light tint of it
     id: str = field(default_factory=new_id)
     notes: str = ""
+
+    def contains_point(self, px: float, py: float) -> bool:
+        """Whether a canvas point falls inside this site's box."""
+        return self.x <= px <= self.x + self.width and self.y <= py <= self.y + self.height
 
 
 @dataclass

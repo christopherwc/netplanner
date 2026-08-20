@@ -146,6 +146,26 @@ class NetworkPlan:
         self.vlans[vlan.id] = vlan
         return vlan
 
+    def get_site(self, site_id: str) -> Site | None:
+        """Look up a site by id; None if absent."""
+        return self.sites.get(site_id)
+
+    def remove_site(self, site_id: str) -> None:
+        """Remove a site; no-op if it does not exist. Devices are untouched."""
+        self.sites.pop(site_id, None)
+
+    def devices_in_site(self, site_id: str) -> list[Device]:
+        """Devices whose position falls inside the site's box.
+
+        Membership is computed from geometry rather than stored, so
+        dragging a device into or out of a site changes what the site
+        contains without any extra bookkeeping.
+        """
+        site = self.sites.get(site_id)
+        if site is None:
+            return []
+        return [d for d in self.devices if site.contains_point(d.x, d.y)]
+
     def add_site(self, site: Site) -> Site:
         self.sites[site.id] = site
         return site

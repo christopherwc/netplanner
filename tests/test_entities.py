@@ -1764,3 +1764,201 @@ def test_legacy_link_with_a_recorded_speed_does_not_start_tracking():
     payload = _link_to_dict(Link(a_device_id="a", b_device_id="b"))
     del payload["bandwidth_auto"]
     assert _link_from_dict(payload).bandwidth_auto is True
+
+
+# ----------------------------------------------------------------- sites
+def test_site_defaults_and_containment():
+    from netplanner.domain.entities import Site
+
+    site = Site(name="IDF 1", x=0, y=0, width=400, height=300)
+    assert site.contains_point(100, 100)
+    assert site.contains_point(0, 0)        # boundary counts as inside
+    assert site.contains_point(400, 300)
+    assert not site.contains_point(401, 100)
+    assert not site.contains_point(100, -1)
+
+
+def test_site_membership_is_positional():
+    """Membership follows geometry, so dragging equipment in or out
+    changes what a site contains with no extra bookkeeping."""
+    from netplanner.domain.entities import Device, Site
+    from netplanner.domain.model import NetworkPlan
+
+    plan = NetworkPlan("t")
+    site = plan.add_site(Site(name="IDF 1", x=0, y=0, width=400, height=300))
+    inside = plan.add_device(Device(name="sw1", device_type=DeviceType.SWITCH, x=100, y=100))
+    plan.add_device(Device(name="sw2", device_type=DeviceType.SWITCH, x=900, y=100))
+
+    assert [d.name for d in plan.devices_in_site(site.id)] == ["sw1"]
+    inside.x = 900  # dragged out
+    assert plan.devices_in_site(site.id) == []
+
+
+def test_devices_in_missing_site_is_empty():
+    from netplanner.domain.model import NetworkPlan
+
+    assert NetworkPlan("t").devices_in_site("nope") == []
+
+
+def test_site_crud_and_lookup():
+    from netplanner.domain.entities import Site
+    from netplanner.domain.model import NetworkPlan
+
+    plan = NetworkPlan("t")
+    site = plan.add_site(Site(name="IDF 1"))
+    assert plan.get_site(site.id) is site
+    plan.remove_site(site.id)
+    assert plan.get_site(site.id) is None
+    plan.remove_site("nonexistent")  # must not raise
+
+
+def test_add_site_is_undoable():
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+
+    ctrl = AppController(repository=MagicMock())
+    ctrl.add_site("IDF 1", 0, 0)
+    assert len(ctrl.plan.sites) == 1
+    ctrl.undo()
+    assert len(ctrl.plan.sites) == 0
+    ctrl.redo()
+    assert len(ctrl.plan.sites) == 1
+
+
+def test_site_geometry_change_is_undoable():
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+
+    ctrl = AppController(repository=MagicMock())
+    site = ctrl.add_site("IDF 1", 0, 0, width=400, height=300)
+    ctrl.set_site_geometry(site.id, 50, 60, 700, 500)
+    assert (site.x, site.y, site.width, site.height) == (50, 60, 700, 500)
+    ctrl.undo()
+    assert (site.x, site.y, site.width, site.height) == (0, 0, 400, 300)
+
+
+def test_edit_site_is_one_undo_step():
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+
+    ctrl = AppController(repository=MagicMock())
+    site = ctrl.add_site("IDF 1", 0, 0)
+    ctrl.edit_site(site.id, "MDF", "Basement, UPS-backed", "#137333")
+    assert (site.name, site.notes, site.color) == ("MDF", "Basement, UPS-backed", "#137333")
+    ctrl.undo()
+    assert site.name == "IDF 1"
+    assert site.notes == ""
+
+
+def test_deleting_a_site_leaves_its_devices_alone():
+    """A site is a backdrop, not a container: removing it must not
+    remove the equipment drawn on top of it."""
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+
+    ctrl = AppController(repository=MagicMock())
+    site = ctrl.add_site("IDF 1", 0, 0, width=400, height=300)
+    ctrl.add_device("sw1", DeviceType.SWITCH, 100, 100)
+    ctrl.delete_site(site.id)
+    assert len(ctrl.plan.sites) == 0
+    assert len(ctrl.plan.devices) == 1
+    ctrl.undo()
+    assert len(ctrl.plan.sites) == 1
+
+
+def test_deleting_a_device_leaves_sites_alone():
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+
+    ctrl = AppController(repository=MagicMock())
+    ctrl.add_site("IDF 1", 0, 0, width=400, height=300)
+    device = ctrl.add_device("sw1", DeviceType.SWITCH, 100, 100)
+    ctrl.delete_device(device.id)
+    assert len(ctrl.plan.sites) == 1
+
+
+def test_sites_persist_through_sqlite(tmp_path):
+    from netplanner.domain.entities import Site
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.persistence.repository import PlanRepository
+
+    repo = PlanRepository(db_path=tmp_path / "sites.db")
+    plan = NetworkPlan("sited")
+    plan.add_site(Site(
+        name="IDF 1", x=10, y=20, width=500, height=400,
+        color="#137333", notes="Rack 3-5",
+    ))
+    repo.save(plan)
+    site = next(iter(repo.load(plan.id).sites.values()))
+    assert (site.name, site.x, site.y, site.width, site.height) == (
+        "IDF 1", 10, 20, 500, 400
+    )
+    assert site.color == "#137333"
+    assert site.notes == "Rack 3-5"
+
+
+def test_sites_persist_through_netplan_json(tmp_path):
+    from netplanner.domain.entities import Site
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.persistence.project_file import load_project, save_project
+
+    plan = NetworkPlan("sited json")
+    plan.add_site(Site(name="MDF", x=5, y=6, width=300, height=200))
+    path = tmp_path / "p.netplan"
+    save_project(plan, path)
+    assert next(iter(load_project(path).sites.values())).name == "MDF"
+
+
+def test_legacy_site_without_geometry_gets_defaults():
+    """Sites existed as name+notes before they had boxes; those plans
+    must still load, taking the default geometry."""
+    from netplanner.domain.entities import Site
+
+    revived = Site(**{"name": "IDF 1", "notes": "old plan", "id": "abc"})
+    assert revived.width > 0 and revived.height > 0
+    assert revived.x == 0 and revived.y == 0
+
+
+def test_scene_includes_sites_and_grows_to_fit():
+    from netplanner.domain.entities import Device, Site
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.export.renderer import build_scene
+
+    plan = NetworkPlan("t")
+    plan.add_device(Device(name="sw1", device_type=DeviceType.SWITCH, x=0, y=0))
+    without = build_scene(plan)
+    plan.add_site(Site(name="Far", x=1200, y=0, width=400, height=300))
+    with_site = build_scene(plan)
+    assert len(with_site.sites) == 1
+    assert with_site.width > without.width
+
+
+def test_scene_normalizes_sites_outside_device_bounds():
+    from netplanner.domain.entities import Device, Site
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.export.renderer import build_scene
+
+    plan = NetworkPlan("t")
+    plan.add_device(Device(name="sw1", device_type=DeviceType.SWITCH, x=0, y=0))
+    plan.add_site(Site(name="Wrapper", x=-900, y=-700, width=2000, height=1500))
+    scene = build_scene(plan)
+    assert scene.sites[0].x >= 0 and scene.sites[0].y >= 0
+
+
+def test_sites_export_to_pdf_and_png(tmp_path):
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+
+    ctrl = AppController(repository=MagicMock())
+    ctrl.add_site("IDF 1", -60, -60, width=500, height=400, notes="Rack 3-5")
+    ctrl.add_device("sw1", DeviceType.SWITCH, 100, 100)
+    ctrl.export_to_pdf(tmp_path / "s.pdf")
+    ctrl.export_to_png(tmp_path / "s.png")
+    assert (tmp_path / "s.pdf").stat().st_size > 0
+    assert (tmp_path / "s.png").stat().st_size > 0

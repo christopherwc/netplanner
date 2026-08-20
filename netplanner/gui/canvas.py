@@ -35,7 +35,7 @@ from PyQt6.QtWidgets import (
 )
 
 from netplanner.app.controller import AppController
-from netplanner.domain.entities import Device, DeviceType, Link, LinkType, TextBox
+from netplanner.domain.entities import Device, DeviceType, Link, LinkType, Site, TextBox
 from netplanner.export.geometry import (
     label_anchor,
     lift_above_line,
@@ -45,8 +45,13 @@ from netplanner.export.geometry import (
 from netplanner.export import nodecard
 from netplanner.export import vlans
 from netplanner.export.styles import DIAGRAM_BG, link_style_for, style_for
-from netplanner.gui.dialogs import DevicePropertiesDialog, LinkPropertiesDialog, TextBoxDialog
-from netplanner.gui.palette import TEXT_TOOL
+from netplanner.gui.dialogs import (
+    DevicePropertiesDialog,
+    LinkPropertiesDialog,
+    SiteDialog,
+    TextBoxDialog,
+)
+from netplanner.gui.palette import SITE_TOOL, TEXT_TOOL
 
 # Compact node size used when View -> "Show device details" is off.
 # Detailed-card metrics come from export.nodecard so the GUI and the
@@ -442,6 +447,233 @@ class DeviceItem(QGraphicsItem):
         super().mouseDoubleClickEvent(event)
 
 
+class SiteItem(QGraphicsItem):
+    """A resizable backdrop box marking a physical location.
+
+    Sits behind every other item so equipment drawn on top of it reads
+    as being *in* that location. Dragging the body moves the box;
+    dragging the bottom-right grip resizes it. Both commit on release
+    as a single undoable change.
+    """
+
+    HEADER_H = 26.0    # title band across the top
+    GRIP = 16.0        # bottom-right resize handle
+    MIN_W = 160.0
+    MIN_H = 120.0
+    NOTES_LINE_H = 12.0
+    NOTES_MAX_LINES = 4
+
+    def __init__(self, site: Site, controller: AppController):
+        super().__init__()
+        self.site = site
+        self.controller = controller
+        self.setPos(site.x, site.y)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
+        self.setAcceptHoverEvents(True)
+        # Behind links (-1) and cards (0): a site is a backdrop.
+        self.setZValue(-20)
+        self._resizing = False
+        self._resize_origin = QPointF()
+        self._origin_size = (site.width, site.height)
+
+    # ---------------------------------------------------------- geometry
+    def boundingRect(self) -> QRectF:
+        return QRectF(0, 0, self.site.width, self.site.height)
+
+    def _grip_rect(self) -> QRectF:
+        return QRectF(
+            self.site.width - self.GRIP, self.site.height - self.GRIP, self.GRIP, self.GRIP
+        )
+
+    def _notes_lines(self) -> list[str]:
+        """Notes wrapped to the box width, capped so a long note can't
+        cover the equipment drawn on top of the site."""
+        if not self.site.notes:
+            return []
+        chars = max(12, int((self.site.width - 16) / 6))
+        lines: list[str] = []
+        for paragraph in self.site.notes.split("\n"):
+            current = ""
+            for word in paragraph.split():
+                candidate = f"{current} {word}".strip()
+                if len(candidate) > chars and current:
+                    lines.append(current)
+                    current = word
+                else:
+                    current = candidate
+            lines.append(current)
+            if len(lines) > self.NOTES_MAX_LINES:
+                break
+        if len(lines) > self.NOTES_MAX_LINES:
+            lines = lines[: self.NOTES_MAX_LINES]
+            lines[-1] = lines[-1].rstrip() + "…"
+        return [line for line in lines if line]
+
+    # ------------------------------------------------------------- paint
+    def paint(self, painter: QPainter, option, widget=None) -> None:
+        rect = self.boundingRect()
+        color = QColor(self.site.color)
+
+        # Light tint of the site colour: visible as a region without
+        # competing with the device cards drawn on top.
+        fill = QColor(color)
+        fill.setAlphaF(0.08)
+        painter.setBrush(QBrush(fill))
+        pen = QPen(color)
+        pen.setWidthF(2.0 if self.isSelected() else 1.5)
+        if not self.isSelected():
+            pen.setStyle(Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        painter.drawRoundedRect(rect, 8, 8)
+
+        # Header band with the site name.
+        header = QRectF(0, 0, self.site.width, self.HEADER_H)
+        header_fill = QColor(color)
+        header_fill.setAlphaF(0.20)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(header_fill))
+        painter.drawRoundedRect(header, 8, 8)
+        painter.drawRect(QRectF(0, self.HEADER_H - 8, self.site.width, 8))
+
+        title_font = QFont()
+        title_font.setBold(True)
+        title_font.setPixelSize(13)
+        painter.setFont(title_font)
+        painter.setPen(QPen(color))
+        painter.drawText(
+            header.adjusted(10, 0, -10, 0),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            self.site.name or "(unnamed site)",
+        )
+
+        # Notes under the header, in the site colour but muted.
+        notes_lines = self._notes_lines()
+        if notes_lines:
+            notes_font = QFont()
+            notes_font.setPixelSize(10)
+            painter.setFont(notes_font)
+            notes_color = QColor(color)
+            notes_color.setAlphaF(0.85)
+            painter.setPen(QPen(notes_color))
+            y = self.HEADER_H + 4
+            for line in notes_lines:
+                painter.drawText(
+                    QRectF(10, y, self.site.width - 20, self.NOTES_LINE_H),
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                    line,
+                )
+                y += self.NOTES_LINE_H
+
+        # Resize grip: two short strokes in the corner, shown on hover
+        # or selection so an idle diagram stays clean.
+        if self.isSelected() or self._hovered_grip:
+            grip = self._grip_rect()
+            grip_pen = QPen(color)
+            grip_pen.setWidthF(2.0)
+            painter.setPen(grip_pen)
+            for inset in (4, 9):
+                painter.drawLine(
+                    QPointF(grip.right() - inset, grip.bottom() - 2),
+                    QPointF(grip.right() - 2, grip.bottom() - inset),
+                )
+
+    # ------------------------------------------------------------- mouse
+    _hovered_grip = False
+
+    def hoverMoveEvent(self, event) -> None:
+        """Show the grip and a resize cursor when over the corner."""
+        over = self._grip_rect().contains(event.pos())
+        if over != self._hovered_grip:
+            self._hovered_grip = over
+            self.setCursor(
+                QCursor(Qt.CursorShape.SizeFDiagCursor if over else Qt.CursorShape.ArrowCursor)
+            )
+            self.update()
+        super().hoverMoveEvent(event)
+
+    def hoverLeaveEvent(self, event) -> None:
+        self._hovered_grip = False
+        self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+        self.update()
+        super().hoverLeaveEvent(event)
+
+    def mousePressEvent(self, event) -> None:
+        """Start a resize when the press lands on the grip, else move."""
+        if self._grip_rect().contains(event.pos()):
+            self._resizing = True
+            self._resize_origin = event.scenePos()
+            self._origin_size = (self.site.width, self.site.height)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._resizing:
+            delta = event.scenePos() - self._resize_origin
+            self.prepareGeometryChange()
+            self.site.width = max(self.MIN_W, self._origin_size[0] + delta.x())
+            self.site.height = max(self.MIN_H, self._origin_size[1] + delta.y())
+            self.update()
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        """Commit the move or resize as one undoable command."""
+        if self._resizing:
+            self._resizing = False
+            # Reset to the pre-drag size so the command's snapshot of the
+            # old geometry is accurate, then apply through the stack.
+            width, height = self.site.width, self.site.height
+            self.site.width, self.site.height = self._origin_size
+            self.controller.set_site_geometry(
+                self.site.id, self.site.x, self.site.y, width, height
+            )
+            event.accept()
+            return
+
+        super().mouseReleaseEvent(event)
+        if (self.pos().x(), self.pos().y()) != (self.site.x, self.site.y):
+            self.controller.set_site_geometry(
+                self.site.id, self.pos().x(), self.pos().y(),
+                self.site.width, self.site.height,
+            )
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        self._edit()
+        event.accept()
+
+    def contextMenuEvent(self, event) -> None:
+        menu = QMenu()
+        edit_action = menu.addAction("Edit site…")
+        menu.addSeparator()
+        delete_action = menu.addAction("Delete site")
+        chosen = menu.exec(event.screenPos())
+        if chosen is edit_action:
+            self._edit()
+        elif chosen is delete_action:
+            scene = self.scene()
+            if isinstance(scene, PlanScene):
+                scene.delete_items([self])
+        event.accept()
+
+    def _edit(self) -> None:
+        dialog = SiteDialog(
+            self.site, len(self.controller.devices_in_site(self.site.id))
+        )
+        if dialog.exec():
+            self.controller.edit_site(
+                self.site.id,
+                dialog.result_name(),
+                dialog.result_notes(),
+                dialog.result_color(),
+            )
+            scene = self.scene()
+            if isinstance(scene, PlanScene):
+                scene.rebuild()
+
+
 class LinkItem(QGraphicsLineItem):
     """A selectable cable between two devices.
 
@@ -679,6 +911,7 @@ class PlanScene(QGraphicsScene):
         self._pending_a_iface: str | None = None
         self._device_items: dict[str, DeviceItem] = {}
         self._text_items: dict[str, TextBoxItem] = {}
+        self._site_items: dict[str, SiteItem] = {}
         self._link_items = []
         # Active VLAN highlight filter; empty set = show everything normally.
         self.vlan_filter: set[int] = set()
@@ -689,12 +922,20 @@ class PlanScene(QGraphicsScene):
         self.clear()
         self._device_items.clear()
         self._text_items.clear()
+        self._site_items.clear()
         self._link_items.clear()
         self._pending_source = None
         for device in self.controller.plan.devices:
             item = DeviceItem(device, self.controller)
             self.addItem(item)
             self._device_items[device.id] = item
+        # Sites first so they're underneath; z-values enforce it anyway,
+        # but creation order keeps the scene's item list readable.
+        for site in self.controller.plan.sites.values():
+            item = SiteItem(site, self.controller)
+            self.addItem(item)
+            self._site_items[site.id] = item
+
         for textbox in self.controller.plan.textboxes.values():
             item = TextBoxItem(textbox, self.controller)
             self.addItem(item)
@@ -783,6 +1024,11 @@ class PlanScene(QGraphicsScene):
         item = self.itemAt(event.scenePos(), self.views()[0].transform())
         device_item = item if isinstance(item, DeviceItem) else None
 
+        if self.armed_tool == SITE_TOOL and device_item is None:
+            self._place_site(event.scenePos())
+            event.accept()
+            return
+
         if self.armed_tool == TEXT_TOOL and device_item is None:
             self._place_textbox(event.scenePos())
             event.accept()
@@ -799,6 +1045,21 @@ class PlanScene(QGraphicsScene):
             return
 
         super().mousePressEvent(event)
+
+    def _place_site(self, pos: QPointF) -> None:
+        """Prompt for a name, then drop a site box at the click point."""
+        placeholder = Site(x=pos.x(), y=pos.y())
+        dialog = SiteDialog(placeholder, 0)
+        if not dialog.exec():
+            return
+        self.controller.add_site(
+            dialog.result_name(),
+            pos.x(),
+            pos.y(),
+            notes=dialog.result_notes(),
+            color=dialog.result_color(),
+        )
+        self.rebuild()
 
     def _place_textbox(self, pos: QPointF) -> None:
         """Prompt for text, then place an annotation at the click point."""
@@ -908,7 +1169,8 @@ class PlanScene(QGraphicsScene):
         devices = [i for i in items if isinstance(i, DeviceItem)]
         links = [i for i in items if isinstance(i, LinkItem)]
         texts = [i for i in items if isinstance(i, TextBoxItem)]
-        if not devices and not links and not texts:
+        sites = [i for i in items if isinstance(i, SiteItem)]
+        if not devices and not links and not texts and not sites:
             return
 
         # Count cables that would disappear as a side effect of removing
@@ -931,6 +1193,8 @@ class PlanScene(QGraphicsScene):
             summary.append(f"{len(links)} link(s)")
         if texts:
             summary.append(f"{len(texts)} text box(es)")
+        if sites:
+            summary.append(f"{len(sites)} site(s)")
         message = "Delete " + " and ".join(summary) + "?"
         if cascading:
             message += (
@@ -956,6 +1220,11 @@ class PlanScene(QGraphicsScene):
             self.controller.delete_device(item.device.id)
         for item in texts:
             self.controller.delete_textbox(item.textbox.id)
+        # Sites last: deleting one never affects the devices drawn over
+        # it, so ordering is cosmetic, but it keeps the undo stack
+        # reading outermost-container-last.
+        for item in sites:
+            self.controller.delete_site(item.site.id)
         self.rebuild()
 
     def delete_selection(self) -> None:

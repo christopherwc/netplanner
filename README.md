@@ -37,6 +37,23 @@ equipment, cable it up port-by-port, and export the result.
 
   All of the above are undoable together as one edit and visible on the
   canvas by default.
+- **Sites** — click **▭ Site** under *Annotations*, then click the
+  canvas to drop a location box. Sites sit **behind** everything else
+  and mark where equipment physically lives — a room, rack, building,
+  or closet. Each has a coloured header with its **name** and a
+  **notes** section shown right on the box (address, rack numbers,
+  access instructions, contacts).
+
+  Drag the body to move a site; drag the **bottom-right corner** to
+  resize it. Double-click (or right-click → *Edit site…*) to change the
+  name, notes, and colour. Sites render on the canvas and in both
+  exports, and the exported page grows to include them.
+
+  Membership is **positional**: a device belongs to whichever site its
+  box covers, so dragging equipment in or out just works — there's no
+  list to maintain and nothing to fall out of sync. Deleting a site
+  removes only the box; the devices drawn on it stay exactly where they
+  are.
 - **Text boxes** — click **🗨 Text box** under *Annotations* in the
   palette, then click the canvas to place a free-floating label. Set the
   text, font size, bold, color, and wrap width in the dialog; drag to

@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
 from netplanner.domain.entities import (
     ConfigFile,
     Link,
+    Site,
     LinkType,
     TextBox,
     ConfigFormat,
@@ -744,3 +745,75 @@ class LinkPropertiesDialog(QDialog):
         if self.auto_check.isChecked() and self._derived:
             return self._derived
         return self._current_mbps()  # 0 means "not set"
+
+
+class SiteDialog(QDialog):
+    """Edit a site box: its name, notes, and colour."""
+
+    # Same hues as the text box palette, so annotations and sites read
+    # as one visual family.
+    COLOR_CHOICES = [
+        ("Blue", "#1a73e8"),
+        ("Green", "#137333"),
+        ("Purple", "#7627bb"),
+        ("Orange", "#b06000"),
+        ("Red", "#c5221f"),
+        ("Teal", "#00838f"),
+        ("Gray", "#5f6368"),
+    ]
+
+    def __init__(self, site: Site, contained: int = 0, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Site")
+        self.resize(460, 340)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.name_edit = QLineEdit(site.name)
+        self.name_edit.setPlaceholderText("e.g. IDF 1, HQ Server Room, Rack 12")
+        form.addRow("Name:", self.name_edit)
+
+        self.color_combo = QComboBox()
+        for name, value in self.COLOR_CHOICES:
+            self.color_combo.addItem(name, value)
+        values = [v for _, v in self.COLOR_CHOICES]
+        self.color_combo.setCurrentIndex(values.index(site.color) if site.color in values else 0)
+        form.addRow("Colour:", self.color_combo)
+
+        layout.addLayout(form)
+
+        layout.addWidget(QLabel("Notes:"))
+        self.notes_edit = QPlainTextEdit(site.notes)
+        self.notes_edit.setPlaceholderText(
+            "Address, rack numbers, access instructions, contacts…"
+        )
+        layout.addWidget(self.notes_edit)
+
+        # Membership is positional, so tell the user what the box
+        # currently covers rather than making them count devices.
+        summary = QLabel(
+            f"{contained} device(s) currently sit inside this site's box. "
+            "Membership follows position — drag equipment in or out to change it."
+        )
+        summary.setWordWrap(True)
+        summary.setStyleSheet("color: #666; font-size: 11px;")
+        layout.addWidget(summary)
+
+        box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        box.accepted.connect(self.accept)
+        box.rejected.connect(self.reject)
+        layout.addWidget(box)
+
+        self.name_edit.setFocus()
+
+    def result_name(self) -> str:
+        return self.name_edit.text().strip()
+
+    def result_notes(self) -> str:
+        return self.notes_edit.toPlainText()
+
+    def result_color(self) -> str:
+        return self.color_combo.currentData()
