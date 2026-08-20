@@ -34,7 +34,9 @@ from .nodecard import (
     TYPE_BAND_H,
 )
 from .renderer import Scene, build_scene
+from .nodecard import VLAN_CHIP_GAP, VLAN_CHIP_H, VLAN_CHIP_W
 from .styles import DIAGRAM_BG, link_style_for_value
+from .vlans import MUTED_COLOR, MUTED_TEXT
 
 TEXT_COLOR = HexColor("#111111")
 MAC_COLOR = HexColor("#777777")
@@ -44,14 +46,14 @@ TITLE_OFFSET = 40  # room reserved above the diagram for the plan title
 logger = logging.getLogger(__name__)
 
 
-def export_pdf(plan: NetworkPlan, path: Path) -> None:
+def export_pdf(plan: NetworkPlan, path: Path, vlan_filter: set[int] | None = None) -> None:
     """Render the plan to a single-page PDF sized to fit the diagram.
 
     Failures are logged with the traceback and re-raised as ExportError
     naming the plan, the destination, and the scene size — enough to
     tell an unwritable path from a rendering bug from the message alone.
     """
-    scene = build_scene(plan)
+    scene = build_scene(plan, vlan_filter)
     logger.info(
         "Exporting plan '%s' (%d devices, %d links) to PDF %s (%.0fx%.0f pts)",
         plan.name, len(plan.devices), len(plan.links), path, scene.width, scene.height,
@@ -123,8 +125,13 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
         # Background + border, via a path so it can be reused for clipping
         card_path = c.beginPath()
         card_path.roundRect(n.x, top - card.height, card.width, card.height, 6)
-        c.setFillColor(HexColor(card.fill))
-        c.setStrokeColor(HexColor(card.stroke))
+        # Dim devices excluded by an active VLAN filter, mirroring the canvas.
+        if card.matches_filter:
+            c.setFillColor(HexColor(card.fill))
+            c.setStrokeColor(HexColor(card.stroke))
+        else:
+            c.setFillColor(HexColor(card.fill), alpha=0.25)
+            c.setStrokeColor(HexColor(MUTED_COLOR))
         c.drawPath(card_path, fill=1, stroke=1)
 
         if card.striped:
@@ -181,9 +188,16 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
             c.setFillColor(MAC_COLOR)
             c.setFont("Helvetica", 6.5)
             c.drawString(n.x + 16, y - third * 2 + 2, block.mac)
-            c.setFillColor(HexColor("#1a56db"))
+            chip_x = n.x + 16
+            chip_y = y - third * 3 + 1.5
+            for chip_color in block.vlan_colors:
+                c.setFillColor(HexColor(MUTED_COLOR if not block.matches_filter else chip_color))
+                c.rect(chip_x, chip_y, VLAN_CHIP_W, VLAN_CHIP_H, stroke=0, fill=1)
+                chip_x += VLAN_CHIP_W + VLAN_CHIP_GAP
+            text_x = chip_x + 3 if block.vlan_colors else n.x + 16
+            c.setFillColor(HexColor(MUTED_TEXT if not block.matches_filter else "#1a56db"))
             c.setFont("Helvetica", 6.5)
-            c.drawString(n.x + 16, y - third * 3 + 2, block.vlan)
+            c.drawString(text_x, y - third * 3 + 2, block.vlan)
             y -= IFACE_BLOCK_H
 
         if card.more_count:

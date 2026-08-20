@@ -38,6 +38,7 @@ from netplanner.app.controller import AppController
 from netplanner.domain.entities import Device, DeviceType, Link, LinkType, TextBox
 from netplanner.export.geometry import offset_endpoints, parallel_link_offsets, point_along
 from netplanner.export import nodecard
+from netplanner.export import vlans
 from netplanner.export.styles import DIAGRAM_BG, link_style_for, style_for
 from netplanner.gui.dialogs import DevicePropertiesDialog, TextBoxDialog
 from netplanner.gui.palette import TEXT_TOOL
@@ -74,6 +75,11 @@ class DeviceItem(QGraphicsItem):
         self.setPos(device.x, device.y)
 
     # ------------------------------------------------------------- geometry
+    def _vlan_filter(self) -> set[int]:
+        """The scene's active VLAN filter, or empty when unattached."""
+        scene = self.scene()
+        return scene.vlan_filter if isinstance(scene, PlanScene) else set()
+
     def _details_on(self) -> bool:
         """Whether the scene is showing detailed cards vs compact nodes."""
         scene = self.scene()
@@ -100,8 +106,15 @@ class DeviceItem(QGraphicsItem):
         Uses the card's already-status-adjusted fill/stroke (grayed out
         for BROKEN devices) rather than the raw device-type colors.
         """
-        painter.setBrush(QBrush(QColor(card.fill)))
-        pen = QPen(QColor("#e8710a" if self.pending_source else card.stroke))
+        # A VLAN filter dims non-members rather than hiding them, so the
+        # topology stays legible while members stand out.
+        fill = QColor(card.fill)
+        stroke = QColor(card.stroke)
+        if not card.matches_filter:
+            fill.setAlphaF(0.25)
+            stroke = QColor(vlans.MUTED_COLOR)
+        painter.setBrush(QBrush(fill))
+        pen = QPen(QColor("#e8710a") if self.pending_source else stroke)
         pen.setWidth(3 if (self.isSelected() or self.pending_source) else 1)
         painter.setPen(pen)
         painter.drawRoundedRect(rect, 6, 6)
@@ -151,7 +164,7 @@ class DeviceItem(QGraphicsItem):
         Layout and sizing come from export.nodecard, so this rendering is
         pixel-compatible with the PDF/PNG exporters.
         """
-        card = nodecard.build_card(self.device)
+        card = nodecard.build_card(self.device, self._vlan_filter())
         rect = self.boundingRect()
         self._frame(painter, rect, card)
 
@@ -273,9 +286,27 @@ class DeviceItem(QGraphicsItem):
                 block.mac,
             )
             painter.setFont(vlan_font)
-            painter.setPen(QPen(QColor("#1a56db")))
+            # Colour chips make VLAN membership scannable without reading
+            # the numbers; the text stays for exact ids.
+            chip_x = left + 16
+            chip_y = y + third * 2 + (third - nodecard.VLAN_CHIP_H) / 2
+            for chip_color in block.vlan_colors:
+                color = QColor(chip_color)
+                if not block.matches_filter:
+                    color = QColor(vlans.MUTED_COLOR)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(color))
+                painter.drawRect(
+                    QRectF(chip_x, chip_y, nodecard.VLAN_CHIP_W, nodecard.VLAN_CHIP_H)
+                )
+                chip_x += nodecard.VLAN_CHIP_W + nodecard.VLAN_CHIP_GAP
+
+            text_x = chip_x + 3 if block.vlan_colors else left + 16
+            painter.setPen(
+                QPen(QColor(vlans.MUTED_TEXT if not block.matches_filter else "#1a56db"))
+            )
             painter.drawText(
-                QRectF(left + 16, y + third * 2, card.width - 24, third),
+                QRectF(text_x, y + third * 2, card.width - (text_x - left) - 8, third),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                 block.vlan,
             )
@@ -318,7 +349,7 @@ class DeviceItem(QGraphicsItem):
         in compact mode too.
         """
         rect = self.boundingRect()
-        card = nodecard.build_card(self.device)
+        card = nodecard.build_card(self.device, self._vlan_filter())
         self._frame(painter, rect, card)
 
         glyph_rect = QRectF(rect.left() + 6, rect.top(), 28, rect.height())
@@ -597,6 +628,8 @@ class PlanScene(QGraphicsScene):
         self._device_items: dict[str, DeviceItem] = {}
         self._text_items: dict[str, TextBoxItem] = {}
         self._link_items = []
+        # Active VLAN highlight filter; empty set = show everything normally.
+        self.vlan_filter: set[int] = set()
 
     # -------------------------------------------------------------- rebuild
     def rebuild(self) -> None:
@@ -778,6 +811,20 @@ class PlanScene(QGraphicsScene):
             return _CANCELLED
         return actions[chosen]
 
+    def set_vlan_filter(self, vlan_ids: set[int]) -> None:
+        """Highlight the given VLANs, dimming everything else.
+
+        An empty set clears the filter. Only repaints — card geometry is
+        filter-independent, so device positions never shift.
+        """
+        self.vlan_filter = set(vlan_ids)
+        # Mirror onto the controller so File -> Export renders exactly
+        # what is currently on screen.
+        self.controller.set_vlan_filter(self.vlan_filter)
+        for item in self._device_items.values():
+            item.update()
+        self.update()
+
     def delete_items(self, items) -> None:
         """Delete the given device/link items, confirming cascading loss.
 
@@ -897,6 +944,10 @@ class NetworkCanvas(QGraphicsView):
         """Toggle sectioned cards (IPs, MACs, type) vs compact nodes."""
         self._scene.show_details = on
         self._scene.rebuild()
+
+    def set_vlan_filter(self, vlan_ids: set[int]) -> None:
+        """Apply a VLAN highlight filter to the scene (used by the VLAN dock)."""
+        self._scene.set_vlan_filter(vlan_ids)
 
     def delete_selection(self) -> None:
         """Delete the canvas selection (used by the Edit menu action)."""
