@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QComboBox,
+    QFileDialog,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QPlainTextEdit,
@@ -16,19 +19,24 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
+    QMessageBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from netplanner.domain.entities import (
+    ConfigFile,
+    ConfigFormat,
     Device,
     DeviceStatus,
     Interface,
     InterfaceType,
     VlanMode,
     blank_mac,
+    detect_config_format,
 )
+from netplanner.gui.config_viewer import ConfigViewerDialog
 
 # Row order for the Type dropdown in the interfaces table.
 _TYPE_CHOICES = [
@@ -54,6 +62,8 @@ class DevicePropertiesDialog(QDialog):
     - **General**: device model, loopback IP, native VLAN, status
       (Active/Planned/Broken), and notes.
     - **Interfaces**: name, type, IP, MAC, VLAN mode, and VLAN(s) per port.
+    - **Configs**: attached configuration files, importable from disk and
+      viewable in a read-only syntax-highlighted viewer.
 
     Existing interfaces keep their ids so links referencing them stay
     attached; new rows become brand-new Interface objects on accept.
@@ -73,6 +83,9 @@ class DevicePropertiesDialog(QDialog):
 
         self._interfaces = _InterfacesTab(device)
         tabs.addTab(self._interfaces, "Interfaces")
+
+        self._configs = _ConfigsTab(device)
+        tabs.addTab(self._configs, f"Configs ({len(device.configs)})")
 
         box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -99,6 +112,9 @@ class DevicePropertiesDialog(QDialog):
 
     def result_interfaces(self) -> list[Interface]:
         return self._interfaces.result_interfaces()
+
+    def result_configs(self) -> list[ConfigFile]:
+        return self._configs.result_configs()
 
 
 class _GeneralTab(QWidget):
@@ -306,6 +322,147 @@ def _hint_label() -> QLabel:
     label = QLabel("VLAN(s): a single ID for Access, or comma-separated IDs for Trunk (e.g. 10,20,30)")
     label.setStyleSheet("color: #666; font-size: 11px;")
     return label
+
+
+class _ConfigsTab(QWidget):
+    """Attached configuration files: import, view, rename, remove.
+
+    Files are copied into the plan on import, so the plan stays
+    self-contained — a saved plan or exported .netplan carries its
+    configs with it and remains readable on another machine.
+    """
+
+    def __init__(self, device: Device, parent=None):
+        super().__init__(parent)
+        self.device = device
+        # Work on a copy; the dialog only commits on OK.
+        self._configs: list[ConfigFile] = list(device.configs)
+
+        layout = QVBoxLayout(self)
+
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["File name", "Format", "Size"])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        # Double-clicking a row opens the viewer rather than editing in place.
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.doubleClicked.connect(self._view_selected)
+        layout.addWidget(self.table)
+
+        buttons_row = QHBoxLayout()
+        import_btn = QPushButton("Import config…")
+        import_btn.clicked.connect(self._import_configs)
+        view_btn = QPushButton("View")
+        view_btn.clicked.connect(self._view_selected)
+        rename_btn = QPushButton("Rename")
+        rename_btn.clicked.connect(self._rename_selected)
+        export_btn = QPushButton("Save a copy…")
+        export_btn.clicked.connect(self._export_selected)
+        remove_btn = QPushButton("Remove")
+        remove_btn.clicked.connect(self._remove_selected)
+        for btn in (import_btn, view_btn, rename_btn, export_btn, remove_btn):
+            buttons_row.addWidget(btn)
+        buttons_row.addStretch()
+        layout.addLayout(buttons_row)
+
+        hint = QLabel(
+            "Configs are stored inside the plan. Double-click a file to open it. "
+            "Viewing is read-only — re-import to update a file."
+        )
+        hint.setStyleSheet("color: #666; font-size: 11px;")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        self._refresh_table()
+
+    # ------------------------------------------------------------ helpers
+    def _refresh_table(self) -> None:
+        """Rebuild the row list from self._configs."""
+        self.table.setRowCount(0)
+        for cfg in self._configs:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            self.table.setItem(row, 0, QTableWidgetItem(cfg.filename))
+            self.table.setItem(row, 1, QTableWidgetItem(cfg.config_format.label))
+            self.table.setItem(row, 2, QTableWidgetItem(f"{cfg.line_count} lines · {cfg.size_label}"))
+
+    def _selected_index(self) -> int:
+        """Row index of the current selection, or -1 when nothing is picked."""
+        rows = {i.row() for i in self.table.selectedIndexes()}
+        return min(rows) if rows else -1
+
+    # ------------------------------------------------------------ actions
+    def _import_configs(self) -> None:
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Import configuration files",
+            "",
+            "Config files (*.cfg *.conf *.txt *.rsc *.boot);;All files (*)",
+        )
+        for path_str in paths:
+            try:
+                # Import via the controller helper so format detection and
+                # tolerant decoding behave the same everywhere.
+                from pathlib import Path
+
+                from netplanner.app.controller import AppController
+
+                self._configs.append(AppController.read_config_file(Path(path_str)))
+            except OSError as exc:
+                QMessageBox.warning(self, "Import failed", f"Could not read {path_str}:\n\n{exc}")
+        self._refresh_table()
+
+    def _view_selected(self) -> None:
+        index = self._selected_index()
+        if index < 0:
+            return
+        ConfigViewerDialog(self._configs[index], self.device.name, self).exec()
+
+    def _rename_selected(self) -> None:
+        index = self._selected_index()
+        if index < 0:
+            return
+        current = self._configs[index]
+        name, ok = QInputDialog.getText(
+            self, "Rename config", "File name:", text=current.filename
+        )
+        if ok and name.strip():
+            current.filename = name.strip()
+            self._refresh_table()
+
+    def _export_selected(self) -> None:
+        """Write a stored config back out to disk."""
+        index = self._selected_index()
+        if index < 0:
+            return
+        cfg = self._configs[index]
+        path, _ = QFileDialog.getSaveFileName(self, "Save config copy", cfg.filename)
+        if path:
+            try:
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(cfg.content)
+            except OSError as exc:
+                QMessageBox.warning(self, "Save failed", f"Could not write {path}:\n\n{exc}")
+
+    def _remove_selected(self) -> None:
+        index = self._selected_index()
+        if index < 0:
+            return
+        cfg = self._configs[index]
+        confirm = QMessageBox.question(
+            self,
+            "Remove config",
+            f"Remove '{cfg.filename}' from this device?\n\n"
+            "The original file on disk is not affected.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm is QMessageBox.StandardButton.Yes:
+            del self._configs[index]
+            self._refresh_table()
+
+    def result_configs(self) -> list[ConfigFile]:
+        return list(self._configs)
 
 
 # Backward-compatible alias: earlier code referred to this dialog as

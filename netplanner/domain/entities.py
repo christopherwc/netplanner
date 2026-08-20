@@ -135,6 +135,93 @@ class Subnet:
         return IPv4Network(self.cidr)
 
 
+class ConfigFormat(Enum):
+    """Vendor/format of a stored configuration file.
+
+    Drives syntax highlighting in the viewer and the comment character
+    used when detecting the format from file contents.
+    """
+
+    PLAIN_TEXT = "text"
+    CISCO_IOS = "cisco_ios"
+    UBIQUITI = "ubiquiti"
+    MIKROTIK = "mikrotik"
+
+    @property
+    def label(self) -> str:
+        """Human-readable label for the format dropdown."""
+        return {
+            ConfigFormat.PLAIN_TEXT: "Plain text",
+            ConfigFormat.CISCO_IOS: "Cisco IOS",
+            ConfigFormat.UBIQUITI: "Ubiquiti",
+            ConfigFormat.MIKROTIK: "MikroTik RouterOS",
+        }[self]
+
+    @property
+    def comment_prefixes(self) -> tuple[str, ...]:
+        """Line prefixes that mark a comment in this format."""
+        return {
+            ConfigFormat.PLAIN_TEXT: ("#",),
+            ConfigFormat.CISCO_IOS: ("!",),
+            ConfigFormat.UBIQUITI: ("#",),
+            ConfigFormat.MIKROTIK: ("#",),
+        }[self]
+
+
+def detect_config_format(text: str, filename: str = "") -> ConfigFormat:
+    """Best-effort guess at a config's vendor from its contents.
+
+    Uses signature lines each vendor emits in exported configs. Falls
+    back to PLAIN_TEXT rather than guessing wrong — the user can always
+    override the format in the dialog.
+    """
+    head = "\n".join(text.splitlines()[:80]).lower()
+
+    # MikroTik exports open with "# <date> by RouterOS" and use /path commands.
+    if "routeros" in head or "/interface " in head or "/ip address add" in head:
+        return ConfigFormat.MIKROTIK
+    # Cisco IOS uses ! comments plus these near-universal globals.
+    if "version " in head and ("service timestamps" in head or "hostname " in head):
+        return ConfigFormat.CISCO_IOS
+    if "interface gigabitethernet" in head or "spanning-tree mode" in head:
+        return ConfigFormat.CISCO_IOS
+    # UniFi/EdgeOS style: brace blocks or "set" commands.
+    if "ubnt" in head or "edgeos" in head or head.startswith("set "):
+        return ConfigFormat.UBIQUITI
+    if filename.endswith(".cfg") and "{" in head and "}" in head:
+        return ConfigFormat.UBIQUITI
+    return ConfigFormat.PLAIN_TEXT
+
+
+@dataclass
+class ConfigFile:
+    """A configuration file stored on a device.
+
+    Content is held in the plan itself rather than as a path reference,
+    so a saved plan or exported .netplan travels with its configs and
+    stays readable on another machine.
+    """
+
+    filename: str  # display name, e.g. "core-sw-running.cfg"
+    content: str = ""
+    config_format: ConfigFormat = ConfigFormat.PLAIN_TEXT
+    source_path: str = ""  # where it was imported from, for reference only
+    id: str = field(default_factory=new_id)
+
+    @property
+    def line_count(self) -> int:
+        """Number of lines, shown in the config list."""
+        return len(self.content.splitlines())
+
+    @property
+    def size_label(self) -> str:
+        """Compact size description for the config list."""
+        chars = len(self.content)
+        if chars < 1024:
+            return f"{chars} B"
+        return f"{chars / 1024:.1f} KB"
+
+
 @dataclass
 class Interface:
     """A single port on a device.
@@ -185,6 +272,7 @@ class Device:
     loopback_ip: str | None = None  # CIDR, e.g. "10.255.0.1/32"; not tied to a physical interface
     native_vlan: int = 1  # device-wide native/management VLAN, shown on the card
     status: DeviceStatus = DeviceStatus.ACTIVE  # deployment tag, shown on the card
+    configs: list[ConfigFile] = field(default_factory=list)  # attached config files
     id: str = field(default_factory=new_id)
 
     def interface_by_name(self, name: str) -> Interface | None:

@@ -21,6 +21,7 @@ from .nodecard import (
     IFACE_BLOCK_H,
     LOOPBACK_H,
     MODEL_H,
+    CONFIG_H,
     NATIVE_VLAN_H,
     NOTES_LINE_H,
     PAD,
@@ -128,6 +129,13 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
             c.setFont("Helvetica-Bold", 7)
             c.drawString(n.x + 8, y - LOOPBACK_H / 2 - 3, card.loopback_line)
             y -= LOOPBACK_H
+
+        # Config attachment indicator
+        if card.config_line:
+            c.setFillColor(HexColor("#7627bb"))
+            c.setFont("Helvetica-Oblique", 7)
+            c.drawString(n.x + 8, y - CONFIG_H / 2 - 2.5, card.config_line)
+            y -= CONFIG_H
 
         # Interface blocks: name+IP, MAC beneath in gray, VLAN beneath that in blue
         third = IFACE_BLOCK_H / 3

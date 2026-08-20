@@ -234,6 +234,20 @@ class DeviceItem(QGraphicsItem):
             )
             y += nodecard.LOOPBACK_H
 
+        # Config attachment indicator, only when files are attached
+        if card.config_line:
+            config_font = QFont()
+            config_font.setPointSize(7)
+            config_font.setItalic(True)
+            painter.setFont(config_font)
+            painter.setPen(QPen(QColor("#7627bb")))
+            painter.drawText(
+                QRectF(left + 8, y, card.width - 16, nodecard.CONFIG_H),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                card.config_line,
+            )
+            y += nodecard.CONFIG_H
+
         # Interface blocks: "name  ip" line, MAC beneath in gray, VLAN beneath that
         iface_font = QFont()
         iface_font.setPointSize(8)
@@ -361,6 +375,12 @@ class DeviceItem(QGraphicsItem):
                     dialog.result_status(),
                     dialog.result_interfaces(),
                 )
+                # Configs are a separate undo step: they are bulk content
+                # rather than device settings, and pushing them together
+                # would make one Ctrl+Z revert both a config import and a
+                # VLAN change the user made in the same sitting.
+                if dialog.result_configs() != self.device.configs:
+                    self.controller.edit_configs(self.device.id, dialog.result_configs())
                 scene = self.scene()
                 if isinstance(scene, PlanScene):
                     scene.rebuild()  # card height depends on all edited fields

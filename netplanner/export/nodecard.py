@@ -11,6 +11,7 @@ in PDF/PNG exports:
     |==============================|
     | Native VLAN: 1                |   device-wide native VLAN (always shown)
     | Loopback: 10.255.0.1/32      |   loopback section (optional)
+    | 2 config files attached      |   config indicator (optional)
     |------------------------------|
     | eth0  10.0.1.1/24            |   one block per interface:
     |   00:00:00:00:00:00          |     MAC line
@@ -51,6 +52,7 @@ MODEL_H = 14.0          # device-model line, shown under the name when set
 TYPE_BAND_H = 16.0
 NATIVE_VLAN_H = 16.0    # single line, always shown (defaults to VLAN 1)
 LOOPBACK_H = 16.0       # single line, shown when a loopback IP is set
+CONFIG_H = 14.0         # single line, shown when configs are attached
 IFACE_BLOCK_H = 34.0    # name+IP line, MAC line, VLAN line
 FOOTER_H = 14.0         # "+N more..." row
 NOTES_LINE_H = 12.0
@@ -106,6 +108,7 @@ class NodeCard:
     device_model: str = ""
     native_vlan_line: str = ""    # "Native VLAN: 1" — always set (default VLAN 1)
     loopback_line: str = ""       # "Loopback: 10.255.0.1/32", or "" if unset
+    config_line: str = ""         # "2 config file(s)", or "" when none attached
     iface_blocks: list[IfaceBlock] = field(default_factory=list)
     more_count: int = 0           # interfaces hidden past the cap
     notes_lines: list[str] = field(default_factory=list)  # wrapped, pre-truncated
@@ -155,6 +158,13 @@ def build_card(device: Device) -> NodeCard:
     more = max(0, len(device.interfaces) - MAX_IFACE_BLOCKS)
 
     loopback_line = f"Loopback: {device.loopback_ip}" if device.loopback_ip else ""
+    # Surface attachments on the diagram itself; a card that silently hid
+    # its configs would make them easy to forget about.
+    if device.configs:
+        count = len(device.configs)
+        config_line = f"{count} config file{'s' if count != 1 else ''} attached"
+    else:
+        config_line = ""
     native_vlan_line = f"Native VLAN: {device.native_vlan}"
     notes_lines = _wrap_notes(device.notes)
 
@@ -165,6 +175,8 @@ def build_card(device: Device) -> NodeCard:
         height += FOOTER_H
     if loopback_line:
         height += LOOPBACK_H
+    if config_line:
+        height += CONFIG_H
     if notes_lines:
         height += len(notes_lines) * NOTES_LINE_H + PAD
 
@@ -192,6 +204,7 @@ def build_card(device: Device) -> NodeCard:
         device_model=device.device_model,
         native_vlan_line=native_vlan_line,
         loopback_line=loopback_line,
+        config_line=config_line,
         iface_blocks=blocks,
         more_count=more,
         notes_lines=notes_lines,

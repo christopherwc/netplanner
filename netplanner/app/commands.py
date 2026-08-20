@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from netplanner.domain.entities import Device, DeviceStatus, Interface, Link
+from netplanner.domain.entities import ConfigFile, Device, DeviceStatus, Interface, Link
 from netplanner.domain.model import NetworkPlan
 
 
@@ -253,3 +253,29 @@ class DeleteLinkCommand(Command):
 
     def undo(self) -> None:
         self.plan.add_link(self.link)
+
+
+class EditConfigsCommand(Command):
+    """Replace a device's attached config files (undoable).
+
+    Configs are swapped wholesale like interfaces are, so importing,
+    renaming and removing several files in one dialog session collapses
+    into a single undo step.
+    """
+
+    def __init__(self, plan: NetworkPlan, device_id: str, new_configs: list[ConfigFile]):
+        self.plan, self.device_id = plan, device_id
+        self.new_configs = list(new_configs)
+        device = plan.get_device(device_id)
+        self.old_configs = list(device.configs) if device else []
+        self.description = "Edit device configs"
+
+    def execute(self) -> None:
+        d = self.plan.get_device(self.device_id)
+        if d:
+            d.configs = list(self.new_configs)
+
+    def undo(self) -> None:
+        d = self.plan.get_device(self.device_id)
+        if d:
+            d.configs = list(self.old_configs)

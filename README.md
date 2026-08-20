@@ -52,6 +52,21 @@ equipment, cable it up port-by-port, and export the result.
   VLANs, notes) stays readable underneath. Status is set from the
   **General** tab of *Edit properties…* and renders identically on the
   canvas, in PDF exports, and in PNG exports.
+- **Configuration files** — attach real device configs to any device via
+  *Edit properties…* → **Configs**. Import one or more files from disk;
+  the vendor format is auto-detected (**Cisco IOS**, **MikroTik
+  RouterOS**, **Ubiquiti**, or plain text) and files are stored *inside*
+  the plan, so a saved plan or exported `.netplan` carries its configs
+  and stays readable on another machine. Double-click a file to open a
+  read-only viewer with line numbers, find-as-you-type, and vendor-aware
+  highlighting (comments, commands, IP addresses, quoted strings). You
+  can also rename a file, or save a copy back out to disk. Devices with
+  attached configs show an indicator on their card, on the canvas and in
+  exports.
+
+  Viewing is deliberately read-only: a stored config documents what the
+  hardware actually runs, and silently editing it would let the plan
+  drift from reality. Re-import to update one.
 - **VLANs per interface** — every interface has its own VLAN
   configuration, set from the **Interfaces** tab of *Edit properties…*:
   - **Access mode** (default): the interface carries a single VLAN,

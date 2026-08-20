@@ -19,9 +19,20 @@ from netplanner.app.commands import (
     EditDevicePropertiesCommand,
     DeleteDeviceCommand,
     DeleteLinkCommand,
+    EditConfigsCommand,
 )
 from netplanner.app.validation import Issue, validate
-from netplanner.domain.entities import Device, DeviceStatus, DeviceType, Interface, Link, LinkType
+from netplanner.domain.entities import (
+    ConfigFile,
+    Device,
+    DeviceStatus,
+    DeviceType,
+    Interface,
+    Link,
+    LinkType,
+    detect_config_format,
+)
+from pathlib import Path as _Path
 from netplanner.domain.interfaces import default_interfaces
 from netplanner.domain.layout import auto_layout
 from netplanner.domain.model import NetworkPlan
@@ -139,6 +150,28 @@ class AppController:
     def rename_device(self, device_id: str, new_name: str) -> None:
         """Rename a device (undoable)."""
         self.commands.push(RenameDeviceCommand(self.plan, device_id, new_name))
+
+    # ----------------------------------------------------------- config files
+    def edit_configs(self, device_id: str, new_configs: list[ConfigFile]) -> None:
+        """Replace a device's attached config files (undoable)."""
+        self.commands.push(EditConfigsCommand(self.plan, device_id, new_configs))
+
+    @staticmethod
+    def read_config_file(path: _Path) -> ConfigFile:
+        """Load a config from disk into an unattached ConfigFile.
+
+        Decoded as UTF-8 with replacement so a stray non-UTF-8 byte in a
+        vendor export can't raise; the format is guessed from the
+        contents and can be overridden in the dialog.
+        """
+        raw = path.read_bytes()
+        text = raw.decode("utf-8", errors="replace")
+        return ConfigFile(
+            filename=path.name,
+            content=text,
+            config_format=detect_config_format(text, path.name.lower()),
+            source_path=str(path),
+        )
 
     def delete_device(self, device_id: str) -> None:
         """Delete a device and its attached links (undoable as one step)."""

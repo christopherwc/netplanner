@@ -888,3 +888,149 @@ def test_delete_device_then_save_load_round_trip():
     ctrl.load(plan_id)
     assert len(ctrl.plan.devices) == 1
     assert len(ctrl.plan.links) == 0
+
+
+# --------------------------------------------------------------- config files
+def _cisco_text() -> str:
+    return (
+        "! Last configuration change at 09:14\n"
+        "version 15.2\n"
+        "service timestamps debug datetime msec\n"
+        "hostname core-sw1\n"
+        "interface GigabitEthernet0/1\n"
+        " switchport mode trunk\n"
+    )
+
+
+def test_config_format_detection_per_vendor():
+    from netplanner.domain.entities import ConfigFormat, detect_config_format
+
+    assert detect_config_format(_cisco_text()) is ConfigFormat.CISCO_IOS
+    assert detect_config_format(
+        "# jan/02/2026 by RouterOS 7.1\n/interface bridge add name=br0\n"
+    ) is ConfigFormat.MIKROTIK
+    assert detect_config_format("set system host-name ubnt-rtr\n") is ConfigFormat.UBIQUITI
+    # Anything unrecognised stays plain text rather than guessing wrong.
+    assert detect_config_format("just some notes about this box\n") is ConfigFormat.PLAIN_TEXT
+
+
+def test_config_file_metadata():
+    from netplanner.domain.entities import ConfigFile, ConfigFormat
+
+    cfg = ConfigFile(filename="sw1.cfg", content=_cisco_text(),
+                     config_format=ConfigFormat.CISCO_IOS)
+    assert cfg.line_count == 6
+    assert cfg.size_label.endswith("B")
+    big = ConfigFile(filename="big.cfg", content="x" * 4096)
+    assert big.size_label == "4.0 KB"
+
+
+def test_devices_start_with_no_configs():
+    from netplanner.app.controller import AppController
+    from unittest.mock import MagicMock
+
+    ctrl = AppController(repository=MagicMock())
+    assert ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0).configs == []
+
+
+def test_edit_configs_is_undoable():
+    from netplanner.app.controller import AppController
+    from netplanner.domain.entities import ConfigFile
+    from unittest.mock import MagicMock
+
+    ctrl = AppController(repository=MagicMock())
+    d = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    ctrl.edit_configs(d.id, [ConfigFile(filename="a.cfg", content="hostname a")])
+    assert len(d.configs) == 1
+    ctrl.undo()
+    assert d.configs == []
+    ctrl.redo()
+    assert len(d.configs) == 1
+
+
+def test_read_config_file_detects_and_records_source(tmp_path):
+    from netplanner.app.controller import AppController
+    from netplanner.domain.entities import ConfigFormat
+
+    path = tmp_path / "core-sw1-running.cfg"
+    path.write_text(_cisco_text())
+    cfg = AppController.read_config_file(path)
+    assert cfg.filename == "core-sw1-running.cfg"
+    assert cfg.config_format is ConfigFormat.CISCO_IOS
+    assert cfg.source_path == str(path)
+    assert "hostname core-sw1" in cfg.content
+
+
+def test_read_config_file_survives_non_utf8_bytes(tmp_path):
+    """Vendor exports sometimes carry stray high bytes; import must not raise."""
+    from netplanner.app.controller import AppController
+
+    path = tmp_path / "odd.cfg"
+    path.write_bytes(b"hostname sw1\ndescription caf\xe9 uplink\n")
+    cfg = AppController.read_config_file(path)
+    assert "hostname sw1" in cfg.content
+
+
+def test_configs_persist_through_sqlite(tmp_path):
+    from netplanner.domain.entities import ConfigFile, ConfigFormat, Device
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.persistence.repository import PlanRepository
+
+    repo = PlanRepository(db_path=tmp_path / "cfg.db")
+    plan = NetworkPlan("configs")
+    plan.add_device(Device(
+        name="sw1", device_type=DeviceType.SWITCH,
+        configs=[
+            ConfigFile(filename="run.cfg", content=_cisco_text(),
+                       config_format=ConfigFormat.CISCO_IOS),
+            ConfigFile(filename="notes.txt", content="rack 3"),
+        ],
+    ))
+    repo.save(plan)
+    loaded = repo.load(plan.id)
+    configs = loaded.devices[0].configs
+    assert [c.filename for c in configs] == ["run.cfg", "notes.txt"]
+    assert configs[0].config_format is ConfigFormat.CISCO_IOS
+    assert "hostname core-sw1" in configs[0].content   # content travels with the plan
+
+
+def test_configs_persist_through_netplan_json(tmp_path):
+    from netplanner.domain.entities import ConfigFile, ConfigFormat, Device
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.persistence.project_file import load_project, save_project
+
+    plan = NetworkPlan("configs json")
+    plan.add_device(Device(name="rtr1", device_type=DeviceType.ROUTER,
+                           configs=[ConfigFile(filename="r.rsc", content="/ip address add",
+                                               config_format=ConfigFormat.MIKROTIK)]))
+    path = tmp_path / "p.netplan"
+    save_project(plan, path)
+    loaded = load_project(path)
+    assert loaded.devices[0].configs[0].config_format is ConfigFormat.MIKROTIK
+
+
+def test_legacy_payload_without_configs_loads():
+    """Plans saved before config attachments existed must still load."""
+    from netplanner.domain.entities import Device
+    from netplanner.persistence.repository import _device_from_dict, _device_to_dict
+
+    legacy = _device_to_dict(Device(name="sw1", device_type=DeviceType.SWITCH))
+    del legacy["configs"]
+    assert _device_from_dict(legacy).configs == []
+
+
+def test_card_shows_config_indicator():
+    from netplanner.domain.entities import ConfigFile, Device
+    from netplanner.export.nodecard import build_card
+
+    plain = build_card(Device(name="sw1", device_type=DeviceType.SWITCH))
+    assert plain.config_line == ""
+
+    one = build_card(Device(name="sw2", device_type=DeviceType.SWITCH,
+                            configs=[ConfigFile(filename="a.cfg")]))
+    assert one.config_line == "1 config file attached"      # singular
+
+    many = build_card(Device(name="sw3", device_type=DeviceType.SWITCH,
+                             configs=[ConfigFile(filename=f"{i}.cfg") for i in range(3)]))
+    assert many.config_line == "3 config files attached"    # plural
+    assert many.height > plain.height  # the indicator takes vertical space

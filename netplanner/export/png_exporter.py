@@ -22,6 +22,7 @@ from .nodecard import (
     IFACE_BLOCK_H,
     LOOPBACK_H,
     MODEL_H,
+    CONFIG_H,
     NATIVE_VLAN_H,
     NOTES_LINE_H,
     PAD,
@@ -139,6 +140,16 @@ def export_png(plan: NetworkPlan, path: Path) -> None:
                 anchor="lm",
             )
             y += LOOPBACK_H * SCALE
+
+        # Config attachment indicator
+        if card.config_line:
+            draw.text(
+                (left + 8 * SCALE, y + CONFIG_H * SCALE / 2),
+                card.config_line,
+                fill="#7627bb",
+                anchor="lm",
+            )
+            y += CONFIG_H * SCALE
 
         # Interface blocks: name+IP, MAC beneath in gray, VLAN beneath that in blue
         for block in card.iface_blocks:
