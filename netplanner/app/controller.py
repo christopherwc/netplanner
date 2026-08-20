@@ -57,6 +57,8 @@ class AppController:
         self.repository = repository or PlanRepository()
         self.plan = NetworkPlan()
         self.commands = CommandStack()
+        # Active VLAN highlight; exports mirror what the canvas shows.
+        self.vlan_filter: set[int] = set()
 
     # ------------------------------------------------------------ plan edits
     def add_device(self, name: str, device_type: DeviceType, x: float, y: float) -> Device:
@@ -162,6 +164,16 @@ class AppController:
     def rename_device(self, device_id: str, new_name: str) -> None:
         """Rename a device (undoable)."""
         self.commands.push(RenameDeviceCommand(self.plan, device_id, new_name))
+
+    def set_vlan_filter(self, vlan_ids: set[int]) -> None:
+        """Set the VLAN highlight used by the canvas and by exports."""
+        self.vlan_filter = set(vlan_ids)
+
+    def vlan_usage(self):
+        """Every VLAN in use across the plan, for the legend."""
+        from netplanner.export.vlans import plan_vlan_usage
+
+        return plan_vlan_usage(self.plan)
 
     # ------------------------------------------------------------- textboxes
     def add_textbox(self, text: str, x: float, y: float, **kwargs) -> TextBox:
@@ -276,6 +288,8 @@ class AppController:
         """Start a fresh plan, discarding the current one and its history."""
         self.plan = NetworkPlan(name=name)
         self.commands = CommandStack()
+        # Active VLAN highlight; exports mirror what the canvas shows.
+        self.vlan_filter: set[int] = set()
 
     def save(self) -> None:
         """Persist the current plan to the SQLite database."""
@@ -285,12 +299,14 @@ class AppController:
         """Load a stored plan by id; resets undo history."""
         self.plan = self.repository.load(plan_id)
         self.commands = CommandStack()
+        # Active VLAN highlight; exports mirror what the canvas shows.
+        self.vlan_filter: set[int] = set()
 
     # ---------------------------------------------------------------- export
     def export_to_pdf(self, path: Path) -> None:
-        """Render the plan to a single-page PDF at the given path."""
-        export_pdf(self.plan, path)
+        """Render the plan to a single-page PDF, honouring the VLAN filter."""
+        export_pdf(self.plan, path, self.vlan_filter)
 
     def export_to_png(self, path: Path) -> None:
-        """Render the plan to an antialiased PNG at the given path."""
-        export_png(self.plan, path)
+        """Render the plan to an antialiased PNG, honouring the VLAN filter."""
+        export_png(self.plan, path, self.vlan_filter)

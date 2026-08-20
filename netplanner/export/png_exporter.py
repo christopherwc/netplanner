@@ -36,7 +36,9 @@ from .nodecard import (
 from netplanner.errors import ExportError
 
 from .renderer import build_scene
+from .nodecard import VLAN_CHIP_GAP, VLAN_CHIP_H, VLAN_CHIP_W
 from .styles import DIAGRAM_BG, link_style_for_value
+from .vlans import MUTED_COLOR, MUTED_TEXT
 
 SCALE = 2  # supersample factor for crisper output
 TEXT_COLOR = "#111111"
@@ -49,14 +51,14 @@ TITLE_OFFSET = 40  # room reserved above the diagram for the plan title
 logger = logging.getLogger(__name__)
 
 
-def export_png(plan: NetworkPlan, path: Path) -> None:
+def export_png(plan: NetworkPlan, path: Path, vlan_filter: set[int] | None = None) -> None:
     """Render the plan to PNG; drawn at 2x then downsampled for antialiasing.
 
     Failures are logged with the traceback and re-raised as ExportError
     naming the plan, the destination, and the scene size — enough to
     tell an unwritable path from a rendering bug from the message alone.
     """
-    scene = build_scene(plan)
+    scene = build_scene(plan, vlan_filter)
     logger.info(
         "Exporting plan '%s' (%d devices, %d links) to PNG %s (%.0fx%.0f px)",
         plan.name, len(plan.devices), len(plan.links), path, scene.width, scene.height,
@@ -115,11 +117,18 @@ def _export_png_impl(scene, path: Path) -> None:
         bottom = top + card.height * SCALE
 
         # Background + border
+        # Dim devices excluded by an active VLAN filter. Pillow has no
+        # alpha on a plain fill here, so blend the card colour toward the
+        # page background instead — visually equivalent at this opacity.
+        if card.matches_filter:
+            card_fill, card_stroke = card.fill, card.stroke
+        else:
+            card_fill, card_stroke = _blend(card.fill, DIAGRAM_BG, 0.25), MUTED_COLOR
         draw.rounded_rectangle(
             (left, top, right, bottom),
             radius=6 * SCALE,
-            fill=card.fill,
-            outline=card.stroke,
+            fill=card_fill,
+            outline=card_stroke,
             width=SCALE,
         )
 
@@ -202,10 +211,23 @@ def _export_png_impl(scene, path: Path) -> None:
                 fill=MAC_COLOR,
                 anchor="lm",
             )
+            chip_x = left + 16 * SCALE
+            chip_cy = y + IFACE_BLOCK_H * SCALE * 0.82
+            for chip_color in block.vlan_colors:
+                fill = MUTED_COLOR if not block.matches_filter else chip_color
+                draw.rectangle(
+                    (
+                        chip_x, chip_cy - VLAN_CHIP_H * SCALE / 2,
+                        chip_x + VLAN_CHIP_W * SCALE, chip_cy + VLAN_CHIP_H * SCALE / 2,
+                    ),
+                    fill=fill,
+                )
+                chip_x += (VLAN_CHIP_W + VLAN_CHIP_GAP) * SCALE
+            text_x = chip_x + 3 * SCALE if block.vlan_colors else left + 16 * SCALE
             draw.text(
-                (left + 16 * SCALE, y + IFACE_BLOCK_H * SCALE * 0.82),
+                (text_x, chip_cy),
                 block.vlan,
-                fill="#1a56db",
+                fill=MUTED_TEXT if not block.matches_filter else "#1a56db",
                 anchor="lm",
             )
             y += IFACE_BLOCK_H * SCALE
@@ -304,6 +326,16 @@ def _draw_status_stripes(
         combined_mask = combined_mask.point(lambda v: int(v * STRIPE_ALPHA))
         stripe_fill = Image.new("RGB", (w_i, h_i), color)
         img.paste(stripe_fill, (int(left), int(top)), mask=combined_mask)
+
+
+def _blend(color: str, toward: str, amount: float) -> tuple[int, int, int]:
+    """Mix `color` toward `toward`; used to fake alpha for dimmed cards."""
+    def rgb(value: str) -> tuple[int, int, int]:
+        value = value.lstrip("#")
+        return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
+
+    a, b = rgb(color), rgb(toward)
+    return tuple(int(a[i] * amount + b[i] * (1 - amount)) for i in range(3))
 
 
 def _dashed_line(draw, p1, p2, color, width, pattern) -> None:

@@ -61,7 +61,7 @@ class Scene:
     texts: list[TextShape] = field(default_factory=list)
 
 
-def build_scene(plan: NetworkPlan) -> Scene:
+def build_scene(plan: NetworkPlan, vlan_filter: set[int] | None = None) -> Scene:
     """Convert a plan into positioned, styled drawing primitives.
 
     Coordinates are normalized so the whole diagram fits in the output
@@ -99,7 +99,7 @@ def build_scene(plan: NetworkPlan) -> Scene:
     # cards vary in height (interfaces, notes, etc.) and can be wider
     # than the margin, so normalizing by device *center* alone would
     # clip whichever card sticks out furthest past its center.
-    cards = {d.id: build_card(d) for d in devices}
+    cards = {d.id: build_card(d, vlan_filter) for d in devices}
 
     # Find how far each card's top-left corner sits from its device's
     # raw (x, y) center, then shift everything so the single

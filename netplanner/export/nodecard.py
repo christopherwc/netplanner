@@ -60,6 +60,10 @@ NOTES_MAX_LINES = 3     # notes are capped and truncated with an ellipsis
 PAD = 6.0
 MAX_IFACE_BLOCKS = 6    # cap so many-port switches stay readable
 NOTES_CHARS_PER_LINE = 30  # rough wrap width for the notes section
+MAX_VLAN_CHIPS = 6      # colour chips drawn per interface before truncating
+VLAN_CHIP_W = 5.0       # width of one VLAN colour chip
+VLAN_CHIP_H = 5.0
+VLAN_CHIP_GAP = 1.5
 
 # Status tag styling — shared by canvas + both exporters so a device
 # looks identical everywhere regardless of its deployment status.
@@ -75,11 +79,13 @@ STRIPE_ALPHA = 0.45                 # stripe opacity, so card text stays readabl
 
 @dataclass
 class IfaceBlock:
-    """One interface's three display lines."""
+    """One interface's three display lines, plus its VLAN colouring."""
 
     top: str    # "eth0  10.0.1.1/24" (IP omitted when unset)
     mac: str    # "00:00:00:00:00:00"
     vlan: str   # "VLAN 10" or "Trunk: 10,20,30"
+    vlan_colors: list[str] = field(default_factory=list)  # chip per VLAN carried
+    matches_filter: bool = True  # False = dim; only meaningful with a filter on
 
 
 @dataclass
@@ -94,6 +100,7 @@ class NodeCard:
     fill: str
     stroke: str
     status: DeviceStatus = DeviceStatus.ACTIVE
+    matches_filter: bool = True   # False when a VLAN filter excludes this device
     # Diagonal-stripe overlay colors, cycled per line by the renderers.
     # Empty = no stripes (ACTIVE). One color = uniform hatch (PLANNED,
     # gray). Two colors = alternating hazard-tape pattern (BROKEN,
@@ -143,17 +150,34 @@ def _wrap_notes(notes: str) -> list[str]:
     return lines
 
 
-def build_card(device: Device) -> NodeCard:
-    """Compute the card contents and size for a device."""
+def build_card(device: Device, vlan_filter: set[int] | None = None) -> NodeCard:
+    """Compute the card contents and size for a device.
+
+    `vlan_filter` drives VLAN highlighting: when it is non-empty, every
+    interface and the card itself are marked as matching or not, and the
+    renderers dim the non-matching ones. Sizing is unaffected, so
+    toggling a filter never re-flows the diagram — only its colouring
+    changes, which keeps positions stable while a user explores VLANs.
+    """
     from .styles import style_for  # local import avoids a cycle at module load
+    from .vlans import device_matches_filter, interface_matches_filter, interface_vlans, vlan_color
 
     style = style_for(device.device_type)
 
     blocks = []
     for iface in device.interfaces[:MAX_IFACE_BLOCKS]:
         ip = f"  {iface.ip_address}" if iface.ip_address else ""
+        carried = sorted(interface_vlans(iface))
         blocks.append(
-            IfaceBlock(top=f"{iface.name}{ip}", mac=iface.mac_address, vlan=iface.vlan_summary())
+            IfaceBlock(
+                top=f"{iface.name}{ip}",
+                mac=iface.mac_address,
+                vlan=iface.vlan_summary(),
+                # Cap the chips: a trunk allowing 30 VLANs would otherwise
+                # draw a stripe wider than the card.
+                vlan_colors=[vlan_color(v) for v in carried[:MAX_VLAN_CHIPS]],
+                matches_filter=interface_matches_filter(iface, vlan_filter),
+            )
         )
     more = max(0, len(device.interfaces) - MAX_IFACE_BLOCKS)
 
@@ -200,6 +224,7 @@ def build_card(device: Device) -> NodeCard:
         fill=style.fill,
         stroke=style.stroke,
         status=device.status,
+        matches_filter=device_matches_filter(device, vlan_filter),
         stripe_colors=stripe_colors,
         device_model=device.device_model,
         native_vlan_line=native_vlan_line,

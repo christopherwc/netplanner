@@ -53,6 +53,23 @@ equipment, cable it up port-by-port, and export the result.
   no links, never appear in validation, and deleting a device never
   removes them. Use them to label regions ("DMZ", "Rack 3"), record
   caveats, or mark planned changes.
+- **VLAN highlighting** — the **VLANs** dock lists every VLAN in the
+  plan with a colour swatch, its name (from the VLAN catalog, if set),
+  and where it appears — e.g. *"3 device(s) · 6 access, 2 trunk, native
+  on 1"*. Every interface on every card shows a small colour chip per
+  VLAN it carries, so membership is scannable without reading numbers.
+
+  Tick one or more VLANs to **highlight** them: matching devices and
+  interfaces keep full colour, everything else dims to gray. Untick to
+  return to the normal view. *Select all* / *Clear* toggle the whole
+  list at once. Highlighting only recolours — card sizes and device
+  positions never shift, so the diagram stays stable while you explore.
+
+  A VLAN's colour comes from its ID, not from the order VLANs appear,
+  so VLAN 20 is the same colour in every plan, every session, and every
+  export. Exports honour the active filter, so a filtered PDF or PNG
+  shows exactly what was on screen — useful for handing someone a
+  "here's just VLAN 30" diagram.
 - **Status tags** — every device is tagged **Active**, **Planned**, or
   **Broken**, changing how its whole card is painted (the device-type
   color scheme is always kept; statuses differ only in the stripe

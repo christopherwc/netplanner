@@ -38,6 +38,10 @@ class MainWindow(QMainWindow):
             self.properties_panel.preferred_area(), self.properties_panel
         )
 
+        self.vlan_panel = VlanPanel(controller, self)
+        self.vlan_panel.filter_changed.connect(self.canvas.set_vlan_filter)
+        self.addDockWidget(self.vlan_panel.preferred_area(), self.vlan_panel)
+
         self._build_menus()
 
     # ----------------------------------------------------------------- menus
@@ -111,7 +115,7 @@ class MainWindow(QMainWindow):
     # --------------------------------------------------------------- handlers
     def _new_plan(self) -> None:
         self.controller.new_plan()
-        self.canvas.refresh()
+        self._refresh_all()
 
     def _save(self) -> None:
         self.controller.save()
@@ -121,17 +125,22 @@ class MainWindow(QMainWindow):
         """Delete whatever is selected on the canvas (devices and/or links)."""
         self.canvas.delete_selection()
 
+    def _refresh_all(self) -> None:
+        """Redraw the canvas and rebuild the VLAN legend after a change."""
+        self.canvas.refresh()
+        self.vlan_panel.refresh()
+
     def _undo(self) -> None:
         self.controller.undo()
-        self.canvas.refresh()
+        self._refresh_all()
 
     def _redo(self) -> None:
         self.controller.redo()
-        self.canvas.refresh()
+        self._refresh_all()
 
     def _auto_layout(self) -> None:
         self.controller.run_auto_layout()
-        self.canvas.refresh()
+        self._refresh_all()
 
     def _validate(self) -> None:
         issues = self.controller.validate_plan()
