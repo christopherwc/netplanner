@@ -103,6 +103,61 @@ class LinkType(Enum):
 
 
 @dataclass
+class TextBox:
+    """A free-floating text annotation placed on the canvas.
+
+    Unlike devices, text boxes are not part of the network topology —
+    they carry no ports and no links, and never appear in validation or
+    graph queries. They exist purely to label regions of a diagram
+    ("DMZ", "Rack 3 — scheduled for replacement Q3"), so they live in a
+    plain list on the plan rather than as graph nodes.
+    """
+
+    text: str = ""
+    x: float = 0.0
+    y: float = 0.0
+    width: float = 200.0     # wrap width in canvas units; height follows the text
+    font_size: float = 11.0
+    bold: bool = False
+    color: str = "#1a1a1a"   # hex; the palette default reads as body text
+    id: str = field(default_factory=new_id)
+
+    @property
+    def display_lines(self) -> list[str]:
+        """Text split into rendered lines, honoring explicit newlines.
+
+        Word wrapping is applied per paragraph so a long note wraps at
+        the box width, while blank lines the user typed are preserved.
+        """
+        # 0.55 em is a reasonable average glyph width for the sans faces
+        # used by all three renderers; bold runs wider, so allow for it or
+        # long bold lines overflow the box on the canvas.
+        em_ratio = 0.62 if self.bold else 0.55
+        chars_per_line = max(8, int(self.width / (self.font_size * em_ratio)))
+        lines: list[str] = []
+        for paragraph in self.text.split("\n"):
+            if not paragraph.strip():
+                lines.append("")
+                continue
+            current = ""
+            for word in paragraph.split():
+                candidate = f"{current} {word}".strip()
+                if len(candidate) > chars_per_line and current:
+                    lines.append(current)
+                    current = word
+                else:
+                    current = candidate
+            if current:
+                lines.append(current)
+        return lines or [""]
+
+    @property
+    def height(self) -> float:
+        """Rendered height, derived from the wrapped line count."""
+        return max(self.font_size * 1.6, len(self.display_lines) * self.font_size * 1.35 + 8)
+
+
+@dataclass
 class Site:
     """A physical or logical location grouping devices."""
 

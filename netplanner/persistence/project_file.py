@@ -16,7 +16,7 @@ from .repository import (
     _link_from_dict,
     _link_to_dict,
 )
-from netplanner.domain.entities import Site, Subnet, Vlan
+from netplanner.domain.entities import Site, Subnet, TextBox, Vlan
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,7 @@ def _save_project_impl(plan: NetworkPlan, path: Path) -> None:
         "subnets": [asdict(s) for s in plan.subnets.values()],
         "vlans": [asdict(v) for v in plan.vlans.values()],
         "sites": [asdict(s) for s in plan.sites.values()],
+        "textboxes": [asdict(t) for t in plan.textboxes.values()],
     }
     path.write_text(json.dumps(doc, indent=2))
 
@@ -91,6 +92,9 @@ def _load_project_impl(path: Path) -> NetworkPlan:
         plan.add_vlan(Vlan(**v))
     for s in doc.get("sites", []):
         plan.add_site(Site(**s))
+    # Files written before annotations existed simply have none.
+    for box in doc.get("textboxes", []):
+        plan.add_textbox(TextBox(**box))
     for d in doc.get("devices", []):
         plan.add_device(_device_from_dict(d))
     for link in doc.get("links", []):

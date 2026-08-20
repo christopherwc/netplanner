@@ -7,7 +7,7 @@ identical output.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from netplanner.domain.model import NetworkPlan
 
@@ -39,12 +39,25 @@ class EdgeShape:
 
 
 @dataclass
+class TextShape:
+    """A positioned text annotation ready for drawing."""
+
+    x: float  # top-left
+    y: float
+    lines: list[str]  # already wrapped by TextBox.display_lines
+    font_size: float
+    bold: bool
+    color: str
+
+
+@dataclass
 class Scene:
     width: float
     height: float
     nodes: list[NodeShape]
     edges: list[EdgeShape]
     title: str
+    texts: list[TextShape] = field(default_factory=list)
 
 
 def build_scene(plan: NetworkPlan) -> Scene:
@@ -55,8 +68,30 @@ def build_scene(plan: NetworkPlan) -> Scene:
     Parallel links receive the same fan-out offsets the GUI uses.
     """
     devices = plan.devices
+    boxes = list(plan.textboxes.values())
     if not devices:
-        return Scene(width=400, height=300, nodes=[], edges=[], title=plan.name)
+        # A plan can legitimately hold only annotations; normalize those
+        # on their own rather than returning a fixed empty canvas.
+        if not boxes:
+            return Scene(width=400, height=300, nodes=[], edges=[], title=plan.name)
+        min_left = min(b.x for b in boxes)
+        min_top = min(b.y for b in boxes)
+        texts = [
+            TextShape(
+                x=b.x - min_left + MARGIN,
+                y=b.y - min_top + MARGIN,
+                lines=b.display_lines,
+                font_size=b.font_size,
+                bold=b.bold,
+                color=b.color,
+            )
+            for b in boxes
+        ]
+        return Scene(
+            width=max(t.x + max(b.width for b in boxes) for t in texts) + MARGIN,
+            height=max(t.y + b.height for t, b in zip(texts, boxes)) + MARGIN,
+            nodes=[], edges=[], title=plan.name, texts=texts,
+        )
 
     # Build each device's card first so we know its actual footprint —
     # cards vary in height (interfaces, notes, etc.) and can be wider
@@ -70,6 +105,11 @@ def build_scene(plan: NetworkPlan) -> Scene:
     # center — lands exactly at MARGIN.
     min_left = min(d.x - cards[d.id].width / 2 for d in devices)
     min_top = min(d.y - cards[d.id].height / 2 for d in devices)
+    # Annotations use top-left coordinates and can sit outside the device
+    # cluster, so they take part in the bounds or they would be clipped.
+    if boxes:
+        min_left = min(min_left, min(b.x for b in boxes))
+        min_top = min(min_top, min(b.y for b in boxes))
     shift_x = MARGIN - min_left
     shift_y = MARGIN - min_top
 
@@ -97,9 +137,29 @@ def build_scene(plan: NetworkPlan) -> Scene:
             )
         )
 
+    texts = [
+        TextShape(
+            x=b.x + shift_x,
+            y=b.y + shift_y,
+            lines=b.display_lines,
+            font_size=b.font_size,
+            bold=b.bold,
+            color=b.color,
+        )
+        for b in boxes
+    ]
+
     width = max(n.x + n.card.width for n in nodes) + MARGIN
     height = max(n.y + n.card.height for n in nodes) + MARGIN
-    return Scene(width=width, height=height, nodes=nodes, edges=edges, title=plan.name)
+    # Grow the page if an annotation extends past the device cluster.
+    for text_shape, box in zip(texts, boxes):
+        width = max(width, text_shape.x + box.width + MARGIN)
+        height = max(height, text_shape.y + box.height + MARGIN)
+
+    return Scene(
+        width=width, height=height, nodes=nodes, edges=edges,
+        title=plan.name, texts=texts,
+    )
 
 
 def _port_name(plan: NetworkPlan, device_id: str, interface_id: str | None) -> str:

@@ -23,6 +23,10 @@ from netplanner.app.commands import (
     DeleteDeviceCommand,
     DeleteLinkCommand,
     EditConfigsCommand,
+    AddTextBoxCommand,
+    MoveTextBoxCommand,
+    EditTextBoxCommand,
+    DeleteTextBoxCommand,
 )
 from netplanner.app.validation import Issue, validate
 from netplanner.domain.entities import (
@@ -33,6 +37,7 @@ from netplanner.domain.entities import (
     Interface,
     Link,
     LinkType,
+    TextBox,
     detect_config_format,
 )
 from pathlib import Path as _Path
@@ -157,6 +162,37 @@ class AppController:
     def rename_device(self, device_id: str, new_name: str) -> None:
         """Rename a device (undoable)."""
         self.commands.push(RenameDeviceCommand(self.plan, device_id, new_name))
+
+    # ------------------------------------------------------------- textboxes
+    def add_textbox(self, text: str, x: float, y: float, **kwargs) -> TextBox:
+        """Place a text annotation at the given canvas position (undoable)."""
+        box = TextBox(text=text, x=x, y=y, **kwargs)
+        logger.info("Adding text box at (%.0f, %.0f): %r", x, y, text[:40])
+        self.commands.push(AddTextBoxCommand(self.plan, box))
+        return box
+
+    def move_textbox(self, textbox_id: str, x: float, y: float) -> None:
+        """Reposition a text annotation (undoable)."""
+        self.commands.push(MoveTextBoxCommand(self.plan, textbox_id, x, y))
+
+    def edit_textbox(
+        self,
+        textbox_id: str,
+        text: str,
+        font_size: float,
+        bold: bool,
+        color: str,
+        width: float,
+    ) -> None:
+        """Update a text annotation's content and formatting (one undo step)."""
+        self.commands.push(
+            EditTextBoxCommand(self.plan, textbox_id, text, font_size, bold, color, width)
+        )
+
+    def delete_textbox(self, textbox_id: str) -> None:
+        """Remove a text annotation (undoable)."""
+        logger.info("Deleting text box id=%s", textbox_id)
+        self.commands.push(DeleteTextBoxCommand(self.plan, textbox_id))
 
     # ----------------------------------------------------------- config files
     def edit_configs(self, device_id: str, new_configs: list[ConfigFile]) -> None:

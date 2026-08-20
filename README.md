@@ -37,6 +37,18 @@ equipment, cable it up port-by-port, and export the result.
 
   All of the above are undoable together as one edit and visible on the
   canvas by default.
+- **Text boxes** — click **🗨 Text box** under *Annotations* in the
+  palette, then click the canvas to place a free-floating label. Set the
+  text, font size, bold, color, and wrap width in the dialog; drag to
+  reposition, double-click (or right-click → *Edit text…*) to change it,
+  and Delete to remove it. Annotations render on the canvas and in both
+  PDF and PNG exports, and the exported page grows to include notes that
+  sit outside the device cluster.
+
+  Text boxes are **not** part of the topology: they have no ports, take
+  no links, never appear in validation, and deleting a device never
+  removes them. Use them to label regions ("DMZ", "Rack 3"), record
+  caveats, or mark planned changes.
 - **Status tags** — every device is tagged **Active**, **Planned**, or
   **Broken**, changing how its whole card is painted (the device-type
   color scheme is always kept; statuses differ only in the stripe

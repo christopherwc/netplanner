@@ -35,6 +35,11 @@ PALETTE_DEVICE_TYPES = [
     DeviceType.OTHER,
 ]
 
+# Sentinel for the annotation tool. Device and link tools are carried by
+# their own enums; a text box is neither, so the palette emits this
+# marker and the canvas compares against it by value.
+TEXT_TOOL = "text_box"
+
 PALETTE_LINK_TYPES = [
     LinkType.ETHERNET,
     LinkType.FIBER,
@@ -71,6 +76,13 @@ class EquipmentPalette(QDockWidget):
             btn.setStyleSheet(
                 f"text-align: left; padding: 6px; color: {lstyle.color}; font-weight: bold;"
             )
+
+        layout.addWidget(_section_label("Annotations"))
+        text_btn = self._make_button("🗨  Text box", TEXT_TOOL, layout)
+        text_btn.setToolTip(
+            "Click the canvas to place a text label. Annotations are not part "
+            "of the topology — they carry no ports and never affect validation."
+        )
 
         layout.addStretch()
         self.setWidget(body)
