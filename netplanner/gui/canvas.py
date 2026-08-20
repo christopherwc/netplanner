@@ -36,11 +36,16 @@ from PyQt6.QtWidgets import (
 
 from netplanner.app.controller import AppController
 from netplanner.domain.entities import Device, DeviceType, Link, LinkType, TextBox
-from netplanner.export.geometry import label_anchor, offset_endpoints, parallel_link_offsets
+from netplanner.export.geometry import (
+    label_anchor,
+    lift_above_line,
+    offset_endpoints,
+    parallel_link_offsets,
+)
 from netplanner.export import nodecard
 from netplanner.export import vlans
 from netplanner.export.styles import DIAGRAM_BG, link_style_for, style_for
-from netplanner.gui.dialogs import DevicePropertiesDialog, TextBoxDialog
+from netplanner.gui.dialogs import DevicePropertiesDialog, LinkPropertiesDialog, TextBoxDialog
 from netplanner.gui.palette import TEXT_TOOL
 
 # Compact node size used when View -> "Show device details" is off.
@@ -479,15 +484,50 @@ class LinkItem(QGraphicsLineItem):
             painter.drawLine(self.line())
 
     def contextMenuEvent(self, event) -> None:
-        """Right-click a cable: delete it."""
+        """Right-click a cable: edit its label/media, or delete it."""
         menu = QMenu()
+        edit_action = menu.addAction("Edit link…")
+        menu.addSeparator()
         delete_action = menu.addAction("Delete link")
-        if menu.exec(event.screenPos()) is delete_action:
+        chosen = menu.exec(event.screenPos())
+        if chosen is edit_action:
+            self._edit()
+        elif chosen is delete_action:
             self.controller.delete_link(self.link)
             scene = self.scene()
             if isinstance(scene, PlanScene):
                 scene.rebuild()
         event.accept()
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        """Double-click a cable to edit it, mirroring device behaviour."""
+        self._edit()
+        event.accept()
+
+    def _edit(self) -> None:
+        """Open the link dialog and commit changes as one undo step."""
+        dialog = LinkPropertiesDialog(self.link, self._endpoint_summary())
+        if dialog.exec():
+            self.controller.edit_link(
+                self.link.id,
+                dialog.result_label(),
+                dialog.result_link_type(),
+                dialog.result_bandwidth(),
+            )
+            scene = self.scene()
+            if isinstance(scene, PlanScene):
+                scene.update_links()  # colour/label change only; cards untouched
+
+    def _endpoint_summary(self) -> str:
+        """'sw1 Gig0/1  ↔  rtr1 Gig0/0' for the dialog header."""
+        plan = self.controller.plan
+        a_dev = plan.get_device(self.link.a_device_id)
+        b_dev = plan.get_device(self.link.b_device_id)
+        a_port = self.controller.interface_name(self.link.a_device_id, self.link.a_interface_id)
+        b_port = self.controller.interface_name(self.link.b_device_id, self.link.b_interface_id)
+        a = f"{a_dev.name if a_dev else '?'} {a_port}".strip()
+        b = f"{b_dev.name if b_dev else '?'} {b_port}".strip()
+        return f"{a}  ↔  {b}"
 
 
 class TextBoxItem(QGraphicsItem):
@@ -691,8 +731,14 @@ class PlanScene(QGraphicsScene):
             if link.label:
                 text = self.addSimpleText(link.label)
                 text.setBrush(QBrush(QColor(lstyle.color)))
-                text.setPos((x1 + x2) / 2, (y1 + y2) / 2)
-                text.setZValue(-0.5)
+                label_rect = text.boundingRect()
+                mx, my = lift_above_line(
+                    (x1 + x2) / 2, (y1 + y2) / 2, x1, y1, x2, y2,
+                    label_rect.height() / 2 + 3,
+                )
+                text.setPos(mx - label_rect.width() / 2, my - label_rect.height() / 2)
+                # Above cards, like port labels.
+                text.setZValue(5)
                 self._link_items.append(text)
             # Port labels, anchored just outside each card rather than at
             # a fixed fraction along the line: a centre-to-centre line
@@ -714,6 +760,7 @@ class PlanScene(QGraphicsScene):
                     cx, cy, tx, ty,
                     bounds.width() / 2, bounds.height() / 2,
                     text_rect.width(), text_rect.height(),
+                    lift=text_rect.height() / 2 + 2,
                 )
                 ptext.setPos(px - text_rect.width() / 2, py - text_rect.height() / 2)
                 # Above cards (z 0) but below annotations (z 10): a

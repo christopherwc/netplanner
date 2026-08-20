@@ -23,6 +23,7 @@ from netplanner.app.commands import (
     DeleteDeviceCommand,
     DeleteLinkCommand,
     EditConfigsCommand,
+    EditLinkCommand,
     AddTextBoxCommand,
     MoveTextBoxCommand,
     EditTextBoxCommand,
@@ -248,6 +249,19 @@ class AppController:
             len(self.links_for_device(device_id)),
         )
         self.commands.push(DeleteDeviceCommand(self.plan, device_id))
+
+    def edit_link(
+        self,
+        link_id: str,
+        label: str,
+        link_type: LinkType,
+        bandwidth_mbps: int | None,
+    ) -> None:
+        """Update a link's label, media type and bandwidth (one undo step)."""
+        logger.info("Editing link id=%s (label=%r, type=%s)", link_id, label, link_type.value)
+        self.commands.push(
+            EditLinkCommand(self.plan, link_id, label, link_type, bandwidth_mbps)
+        )
 
     def delete_link(self, link: Link) -> None:
         """Delete a single link, leaving both devices in place (undoable)."""

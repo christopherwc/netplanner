@@ -17,7 +17,7 @@ from PIL import Image, ImageChops, ImageDraw
 
 from netplanner.domain.model import NetworkPlan
 
-from .geometry import label_anchor
+from .geometry import label_anchor, lift_above_line
 from .nodecard import (
     FOOTER_H,
     HEADER_H,
@@ -101,7 +101,10 @@ def _export_png_impl(scene, path: Path) -> None:
         else:
             draw.line((*p1, *p2), fill=lstyle.color, width=width)
         if e.label:
-            mid = ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2 - 8 * SCALE)
+            mid = lift_above_line(
+                (p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2,
+                p1[0], p1[1], p2[0], p2[1], 8 * SCALE,
+            )
             draw.text(mid, e.label, fill=lstyle.color, anchor="mm")
 
     # Node cards
@@ -265,7 +268,7 @@ def _export_png_impl(scene, path: Path) -> None:
             text_w = draw.textlength(port)
             px, py = label_anchor(
                 cx, cy, tx, ty, half_w * SCALE, half_h * SCALE,
-                text_w, 7 * SCALE, gap=6 * SCALE,
+                text_w, 7 * SCALE, gap=6 * SCALE, lift=7 * SCALE,
             )
             draw.text((px, py), port, fill=MAC_COLOR, anchor="mm")
 

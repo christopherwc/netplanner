@@ -1377,3 +1377,109 @@ def test_edge_shape_carries_card_half_extents():
     edge = build_scene(plan).edges[0]
     assert edge.a_half[0] > 0 and edge.a_half[1] > 0
     assert edge.b_half[0] > 0 and edge.b_half[1] > 0
+
+
+def test_lift_above_line_moves_perpendicular_and_upward():
+    from netplanner.export.geometry import lift_above_line
+
+    # Horizontal cable: the label should rise, not shift along it.
+    x, y = lift_above_line(100, 50, 0, 50, 200, 50, 8)
+    assert (x, y) == (100, 42)
+
+
+def test_lift_above_line_is_direction_independent():
+    """A cable stored B->A must lift its labels the same way as A->B,
+    or labels would flip side depending on click order."""
+    from netplanner.export.geometry import lift_above_line
+
+    forward = lift_above_line(100, 50, 0, 50, 200, 50, 8)
+    reverse = lift_above_line(100, 50, 200, 50, 0, 50, 8)
+    assert forward == reverse
+
+
+def test_lift_above_line_handles_zero_length():
+    from netplanner.export.geometry import lift_above_line
+
+    assert lift_above_line(10, 10, 10, 10, 10, 10, 5) == (10, 5)
+
+
+def test_label_anchor_lift_clears_the_cable():
+    from netplanner.export.geometry import label_anchor
+
+    on_line = label_anchor(0, 0, 400, 0, 95, 150, 30, 7, lift=0)
+    lifted = label_anchor(0, 0, 400, 0, 95, 150, 30, 7, lift=8)
+    assert lifted[1] < on_line[1]     # moved up off the cable
+    assert lifted[0] == on_line[0]    # but not along it
+
+
+def test_get_link_finds_and_misses():
+    from netplanner.domain.entities import Device, Link
+    from netplanner.domain.model import NetworkPlan
+
+    plan = NetworkPlan("t")
+    a = plan.add_device(Device(name="a", device_type=DeviceType.ROUTER))
+    b = plan.add_device(Device(name="b", device_type=DeviceType.SWITCH))
+    link = plan.add_link(Link(a_device_id=a.id, b_device_id=b.id))
+    assert plan.get_link(link.id) is link
+    assert plan.get_link("nope") is None
+
+
+def test_edit_link_is_one_undo_step():
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+    from netplanner.domain.entities import LinkType
+
+    ctrl = AppController(repository=MagicMock())
+    a = ctrl.add_device("a", DeviceType.ROUTER, 0, 0)
+    b = ctrl.add_device("b", DeviceType.SWITCH, 300, 0)
+    link = ctrl.add_link(a.id, b.id, LinkType.ETHERNET)
+
+    ctrl.edit_link(link.id, "Core uplink", LinkType.FIBER, 10000)
+    assert (link.label, link.link_type, link.bandwidth_mbps) == (
+        "Core uplink", LinkType.FIBER, 10000
+    )
+    ctrl.undo()
+    assert (link.label, link.link_type, link.bandwidth_mbps) == (
+        "", LinkType.ETHERNET, None
+    )
+    ctrl.redo()
+    assert link.label == "Core uplink"
+
+
+def test_link_label_persists_through_sqlite(tmp_path):
+    from netplanner.domain.entities import Device, Link, LinkType
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.persistence.repository import PlanRepository
+
+    repo = PlanRepository(db_path=tmp_path / "l.db")
+    plan = NetworkPlan("labelled")
+    a = plan.add_device(Device(name="a", device_type=DeviceType.ROUTER))
+    b = plan.add_device(Device(name="b", device_type=DeviceType.SWITCH))
+    plan.add_link(Link(
+        a_device_id=a.id, b_device_id=b.id,
+        label="MPLS circuit 4471", link_type=LinkType.WAN, bandwidth_mbps=500,
+    ))
+    repo.save(plan)
+    loaded = repo.load(plan.id)
+    link = loaded.links[0]
+    assert link.label == "MPLS circuit 4471"
+    assert link.link_type is LinkType.WAN
+    assert link.bandwidth_mbps == 500
+
+
+def test_labelled_link_exports(tmp_path):
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+    from netplanner.domain.entities import LinkType
+
+    ctrl = AppController(repository=MagicMock())
+    a = ctrl.add_device("a", DeviceType.ROUTER, 0, 0)
+    b = ctrl.add_device("b", DeviceType.SWITCH, 400, 0)
+    link = ctrl.add_link(a.id, b.id, LinkType.FIBER)
+    ctrl.edit_link(link.id, "Core uplink", LinkType.FIBER, 10000)
+    ctrl.export_to_pdf(tmp_path / "l.pdf")
+    ctrl.export_to_png(tmp_path / "l.png")
+    assert (tmp_path / "l.pdf").stat().st_size > 0
+    assert (tmp_path / "l.png").stat().st_size > 0
