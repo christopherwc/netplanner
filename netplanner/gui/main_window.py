@@ -41,6 +41,10 @@ class MainWindow(QMainWindow):
 
         self.vlan_panel = VlanPanel(controller, self)
         self.vlan_panel.filter_changed.connect(self.canvas.set_vlan_filter)
+        # Canvas edits (placing a device, editing VLANs, deleting) never go
+        # through the menu handlers, so the legend subscribes to the scene
+        # instead of relying on _refresh_all alone.
+        self.canvas.plan_changed.connect(self.vlan_panel.refresh)
         self.addDockWidget(self.vlan_panel.preferred_area(), self.vlan_panel)
 
         self._build_menus()
