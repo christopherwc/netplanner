@@ -6,6 +6,8 @@ from dataclasses import asdict
 from pathlib import Path
 
 from netplanner.domain.entities import (
+    ConfigFile,
+    ConfigFormat,
     Device,
     DeviceStatus,
     DeviceType,
@@ -84,6 +86,8 @@ def _device_to_dict(d: Device) -> dict:
     data = asdict(d)
     data["device_type"] = d.device_type.value
     data["status"] = d.status.value
+    for cfg_data, cfg in zip(data.get("configs", []), d.configs):
+        cfg_data["config_format"] = cfg.config_format.value
     for iface_data, iface in zip(data["interfaces"], d.interfaces):
         iface_data["interface_type"] = iface.interface_type.value
         iface_data["vlan_mode"] = iface.vlan_mode.value
@@ -101,7 +105,16 @@ def _device_from_dict(data: dict) -> Device:
     data["device_type"] = DeviceType(data["device_type"])
     data["status"] = DeviceStatus(data.get("status", "active"))
     data["interfaces"] = [_interface_from_dict(i) for i in data.get("interfaces", [])]
+    # Plans saved before config attachments existed simply have none.
+    data["configs"] = [_config_from_dict(c) for c in data.get("configs", [])]
     return Device(**data)
+
+
+def _config_from_dict(data: dict) -> ConfigFile:
+    """Rebuild a ConfigFile, defaulting unknown/absent formats to plain text."""
+    data = dict(data)
+    data["config_format"] = ConfigFormat(data.get("config_format", "text"))
+    return ConfigFile(**data)
 
 
 def _interface_from_dict(data: dict) -> Interface:
