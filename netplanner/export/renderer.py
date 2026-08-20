@@ -48,6 +48,7 @@ class TextShape:
     font_size: float
     bold: bool
     color: str
+    width: float = 200.0  # wrap width, also the background panel width
 
 
 @dataclass
@@ -84,6 +85,7 @@ def build_scene(plan: NetworkPlan) -> Scene:
                 font_size=b.font_size,
                 bold=b.bold,
                 color=b.color,
+                width=b.width,
             )
             for b in boxes
         ]
@@ -145,6 +147,7 @@ def build_scene(plan: NetworkPlan) -> Scene:
             font_size=b.font_size,
             bold=b.bold,
             color=b.color,
+            width=b.width,
         )
         for b in boxes
     ]

@@ -36,13 +36,13 @@ from .nodecard import (
 from netplanner.errors import ExportError
 
 from .renderer import build_scene
-from .styles import CANVAS_BG, link_style_for_value
+from .styles import DIAGRAM_BG, link_style_for_value
 
 SCALE = 2  # supersample factor for crisper output
 TEXT_COLOR = "#111111"
 MAC_COLOR = "#777777"
-# Sourced from styles so the canvas and exports can't drift apart.
-BG_COLOR = CANVAS_BG
+# Sourced from styles so the page and annotation fills can't drift.
+BG_COLOR = DIAGRAM_BG
 TITLE_OFFSET = 40  # room reserved above the diagram for the plan title
 
 
@@ -235,6 +235,19 @@ def _export_png_impl(scene, path: Path) -> None:
 
     # Text annotations last so they sit above cards if they overlap.
     for text_shape in scene.texts:
+        # Light panel behind the text, matching the canvas.
+        line_h = text_shape.font_size * 1.35 * SCALE
+        panel_h = len(text_shape.lines) * line_h + 8 * SCALE
+        draw.rounded_rectangle(
+            (
+                text_shape.x * SCALE - 4 * SCALE,
+                text_shape.y * SCALE + off - 4 * SCALE,
+                text_shape.x * SCALE + text_shape.width * SCALE + 4 * SCALE,
+                text_shape.y * SCALE + off + panel_h,
+            ),
+            radius=3 * SCALE,
+            fill=DIAGRAM_BG,
+        )
         ty = text_shape.y * SCALE + off
         line_height = text_shape.font_size * 1.35 * SCALE
         for line in text_shape.lines:

@@ -13,12 +13,13 @@ from netplanner.domain.entities import DeviceType, LinkType
 
 
 # ------------------------------------------------------------------ devices
-# The diagram surface color. Shared by the canvas and both exporters so
-# the GUI never inherits a dark system theme that the exports don't have:
-# a plan drawn on a dark canvas but exported on white would show text in
-# the wrong contrast, and near-black annotation text would be invisible
-# on screen while looking fine in the PDF.
-CANVAS_BG = "#ffffff"
+# The exported page background, and the fill painted behind text box
+# annotations. The GUI canvas deliberately keeps the system theme's
+# background, so annotations carry their own light panel — exactly like
+# device cards do — rather than relying on the surface underneath them.
+# That keeps dark annotation text readable on any desktop theme while
+# looking identical in the exports.
+DIAGRAM_BG = "#ffffff"
 
 
 @dataclass(frozen=True)

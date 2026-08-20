@@ -1291,14 +1291,27 @@ def test_textboxes_export_to_pdf_and_png(tmp_path):
     assert (tmp_path / "a.png").stat().st_size > 0
 
 
-def test_canvas_background_matches_export_background():
-    """Regression: the canvas used to inherit the system palette, so under
-    a dark desktop theme the diagram surface was dark while every export
-    stayed white — making near-black annotation text and port labels
-    invisible on screen only. Both surfaces must name the same color."""
+def test_annotation_panel_matches_export_page_background():
+    """Regression: annotation text is dark, and the GUI canvas follows the
+    system theme, so on a dark desktop the text was invisible. Text boxes
+    now paint their own light panel; it must be the same color the
+    exporters use for the page, or annotations would look different on
+    screen than in the PDF/PNG."""
     from netplanner.export.png_exporter import BG_COLOR
-    from netplanner.export.styles import CANVAS_BG
+    from netplanner.export.styles import DIAGRAM_BG
 
-    assert BG_COLOR == CANVAS_BG
-    # A light surface is what the dark-on-light text in styles assumes.
-    assert CANVAS_BG.lower() in ("#ffffff", "#fff")
+    assert BG_COLOR == DIAGRAM_BG
+    # A light panel is what the dark annotation text assumes.
+    assert DIAGRAM_BG.lower() in ("#ffffff", "#fff")
+
+
+def test_textshape_carries_width_for_its_panel():
+    """The renderers size the annotation panel from this, so it must
+    survive the TextBox -> TextShape conversion."""
+    from netplanner.domain.entities import TextBox
+    from netplanner.domain.model import NetworkPlan
+    from netplanner.export.renderer import build_scene
+
+    plan = NetworkPlan("t")
+    plan.add_textbox(TextBox(text="note", width=340))
+    assert build_scene(plan).texts[0].width == 340
