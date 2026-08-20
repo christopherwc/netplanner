@@ -45,6 +45,10 @@ equipment, cable it up port-by-port, and export the result.
   PDF and PNG exports, and the exported page grows to include notes that
   sit outside the device cluster.
 
+  Annotations paint their own white panel, so they stay readable on any
+  desktop theme and where they overlap a device card. The canvas itself
+  keeps your system theme's background.
+
   Text boxes are **not** part of the topology: they have no ports, take
   no links, never appear in validation, and deleting a device never
   removes them. Use them to label regions ("DMZ", "Rack 3"), record

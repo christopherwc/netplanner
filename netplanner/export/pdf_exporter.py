@@ -34,7 +34,7 @@ from .nodecard import (
     TYPE_BAND_H,
 )
 from .renderer import Scene, build_scene
-from .styles import link_style_for_value
+from .styles import DIAGRAM_BG, link_style_for_value
 
 TEXT_COLOR = HexColor("#111111")
 MAC_COLOR = HexColor("#777777")
@@ -206,6 +206,16 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
 
     # Text annotations last so they sit above cards if they overlap.
     for text_shape in scene.texts:
+        # Light panel behind the text, matching the canvas: keeps an
+        # annotation readable where it overlaps a device card.
+        line_h = text_shape.font_size * 1.35
+        panel_h = len(text_shape.lines) * line_h + 8
+        c.setFillColor(HexColor(DIAGRAM_BG))
+        c.rect(
+            text_shape.x - 4, fy(text_shape.y) - panel_h + 4,
+            text_shape.width + 8, panel_h,
+            stroke=0, fill=1,
+        )
         c.setFillColor(HexColor(text_shape.color))
         font = "Helvetica-Bold" if text_shape.bold else "Helvetica"
         c.setFont(font, text_shape.font_size)
