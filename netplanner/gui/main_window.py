@@ -14,6 +14,7 @@ from netplanner.app.controller import AppController
 from .canvas import NetworkCanvas
 from .palette import EquipmentPalette
 from .panels import PropertiesPanel
+from .vlan_panel import VlanPanel
 
 
 logger = logging.getLogger(__name__)
