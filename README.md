@@ -70,12 +70,27 @@ equipment, cable it up port-by-port, and export the result.
   export. Exports honour the active filter, so a filtered PDF or PNG
   shows exactly what was on screen — useful for handing someone a
   "here's just VLAN 30" diagram.
-- **Link labels** — double-click a cable (or right-click → *Edit
-  link…*) to set a **label**, change its **media type**, and record its
-  **bandwidth**. The label is drawn on the cable on the canvas and in
-  exports — useful for circuit IDs, carrier references, or capacity
-  notes. Labels and port names sit just above the cable so the line
-  never strikes through the text.
+- **Link labels and speed** — double-click a cable (or right-click →
+  *Edit link…*) to set a **label**, change its **media type**, and
+  record its **bandwidth**. The label is drawn on the cable on the
+  canvas and in exports — useful for circuit IDs, carrier references,
+  or capacity notes. Labels and port names sit just above the cable so
+  the line never strikes through the text.
+
+  **Bandwidth entry accepts Mbps or Gbps**, switchable in the dialog;
+  the stored value is always Mbps, so switching units converts the
+  value rather than reinterpreting the number. Sub-gigabit links are
+  fine — 500 Mbps shows as 0.5 Gbps.
+
+  **New links auto-populate their speed from the ports they connect**,
+  taking the *slower* of the two interfaces: patch a 10 Gbps port into
+  a 1 Gbps port and the link records 1 Gbps, because that's what it
+  actually carries. Wireless interfaces have no fixed line rate, so
+  they're skipped in favour of the wired end; a link between two
+  wireless ports is left unset for you to fill in. The derived figure
+  is only a starting value — nothing recalculates it behind your back,
+  and the dialog offers a **Use interface speed** button if you change
+  a port's type later and want to re-apply it.
 - **Status tags** — every device is tagged **Active**, **Planned**, or
   **Broken**, changing how its whole card is painted (the device-type
   color scheme is always kept; statuses differ only in the stripe

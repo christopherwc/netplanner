@@ -78,6 +78,41 @@ class InterfaceType(Enum):
             InterfaceType.ETH_100G: "100 Gbps",
         }[self]
 
+    @property
+    def speed_mbps(self) -> int | None:
+        """Nominal line rate in Mbps, or None when it isn't fixed.
+
+        Wireless deliberately has no fixed rate: a PtP dish negotiates
+        by modulation, distance and channel width, so inventing a number
+        here would be worse than leaving it unset and letting the user
+        type the real figure.
+        """
+        return {
+            InterfaceType.WIRELESS: None,
+            InterfaceType.ETH_1G: 1_000,
+            InterfaceType.ETH_10G: 10_000,
+            InterfaceType.ETH_25G: 25_000,
+            InterfaceType.ETH_100G: 100_000,
+        }[self]
+
+
+def negotiated_speed_mbps(a: "Interface | None", b: "Interface | None") -> int | None:
+    """The usable rate of a link between two interfaces: the slower end.
+
+    A 10G port patched into a 1G port runs at 1G, so a link's throughput
+    is the minimum of its two ends. Interfaces with no fixed rate
+    (wireless) are ignored rather than treated as zero: a dish linked to
+    a 1G port is limited by the radio, but by an amount NetPlanner can't
+    know, so the wired end is the best available estimate. When neither
+    end has a fixed rate, the result is None ("not set").
+    """
+    speeds = [
+        iface.interface_type.speed_mbps
+        for iface in (a, b)
+        if iface is not None and iface.interface_type.speed_mbps is not None
+    ]
+    return min(speeds) if speeds else None
+
 
 class VlanMode(Enum):
     """How an interface handles VLAN tagging."""

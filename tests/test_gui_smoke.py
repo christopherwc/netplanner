@@ -215,3 +215,57 @@ def test_vlan_panel_refresh_keeps_ticks_across_plan_edits(app, populated):
     window.canvas._scene.rebuild()
 
     assert 10 in window.vlan_panel.selected_vlans()
+
+
+def test_bandwidth_units_round_trip(app, controller):
+    """Switching units must preserve the value, not the number.
+
+    Regression: the unit handler read the combo after it had already
+    changed, so converting back to Mbps divided the value by 1000.
+    """
+    from netplanner.domain.entities import InterfaceType, LinkType
+    from netplanner.gui.dialogs import LinkPropertiesDialog
+
+    sw = controller.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    rtr = controller.add_device("rtr1", DeviceType.ROUTER, 300, 0)
+    ten = next(i for i in sw.interfaces if i.interface_type is InterfaceType.ETH_10G)
+    link = controller.add_link(
+        sw.id, rtr.id, LinkType.FIBER,
+        a_interface_id=ten.id, b_interface_id=rtr.interfaces[0].id,
+    )
+
+    dialog = LinkPropertiesDialog(link, "", controller.link_derived_speed(link))
+    assert dialog.result_bandwidth() == 1_000
+
+    for index in (0, 1, 0, 1):  # Mbps <-> Gbps repeatedly
+        dialog.unit_combo.setCurrentIndex(index)
+        assert dialog.result_bandwidth() == 1_000
+
+
+def test_sub_gigabit_bandwidth_survives_gbps_display(app, controller):
+    """500 Mbps must render as 0.5 Gbps and come back as 500."""
+    from netplanner.domain.entities import LinkType
+    from netplanner.gui.dialogs import LinkPropertiesDialog
+
+    a = controller.add_device("a", DeviceType.ROUTER, 0, 0)
+    b = controller.add_device("b", DeviceType.SWITCH, 300, 0)
+    link = controller.add_link(a.id, b.id, LinkType.WAN)
+
+    dialog = LinkPropertiesDialog(link, "", None)
+    dialog._set_mbps(500)
+    assert dialog.result_bandwidth() == 500
+    dialog.unit_combo.setCurrentIndex(1)  # Gbps
+    assert dialog.bandwidth_spin.value() == 0.5
+    assert dialog.result_bandwidth() == 500
+
+
+def test_bandwidth_zero_means_not_set(app, controller):
+    from netplanner.domain.entities import LinkType
+    from netplanner.gui.dialogs import LinkPropertiesDialog
+
+    a = controller.add_device("a", DeviceType.ROUTER, 0, 0)
+    b = controller.add_device("b", DeviceType.SWITCH, 300, 0)
+    link = controller.add_link(a.id, b.id, LinkType.ETHERNET)
+    dialog = LinkPropertiesDialog(link, "", None)
+    dialog._set_mbps(0)
+    assert dialog.result_bandwidth() is None

@@ -1483,3 +1483,136 @@ def test_labelled_link_exports(tmp_path):
     ctrl.export_to_png(tmp_path / "l.png")
     assert (tmp_path / "l.pdf").stat().st_size > 0
     assert (tmp_path / "l.png").stat().st_size > 0
+
+
+# --------------------------------------------------------- link speed logic
+def test_interface_type_speeds():
+    from netplanner.domain.entities import InterfaceType
+
+    assert InterfaceType.ETH_1G.speed_mbps == 1_000
+    assert InterfaceType.ETH_10G.speed_mbps == 10_000
+    assert InterfaceType.ETH_25G.speed_mbps == 25_000
+    assert InterfaceType.ETH_100G.speed_mbps == 100_000
+    # Wireless has no fixed line rate; inventing one would be misleading.
+    assert InterfaceType.WIRELESS.speed_mbps is None
+
+
+def test_every_interface_type_has_a_speed_entry():
+    """Guards against a new interface type missing from the speed table."""
+    from netplanner.domain.entities import InterfaceType
+
+    for itype in InterfaceType:
+        itype.speed_mbps  # raises KeyError if unmapped
+
+
+def test_negotiated_speed_takes_the_slower_end():
+    from netplanner.domain.entities import Interface, InterfaceType, negotiated_speed_mbps
+
+    def iface(itype):
+        return Interface(name="x", interface_type=itype)
+
+    assert negotiated_speed_mbps(
+        iface(InterfaceType.ETH_10G), iface(InterfaceType.ETH_1G)
+    ) == 1_000
+    assert negotiated_speed_mbps(
+        iface(InterfaceType.ETH_100G), iface(InterfaceType.ETH_25G)
+    ) == 25_000
+    # Order must not matter.
+    assert negotiated_speed_mbps(
+        iface(InterfaceType.ETH_1G), iface(InterfaceType.ETH_100G)
+    ) == 1_000
+
+
+def test_negotiated_speed_ignores_rateless_wireless():
+    """A dish patched into a 1G port: the wired end is the best estimate
+    available, so it's used rather than discarding the link's speed."""
+    from netplanner.domain.entities import Interface, InterfaceType, negotiated_speed_mbps
+
+    def iface(itype):
+        return Interface(name="x", interface_type=itype)
+
+    assert negotiated_speed_mbps(
+        iface(InterfaceType.WIRELESS), iface(InterfaceType.ETH_1G)
+    ) == 1_000
+    # Both ends rateless: nothing can be inferred.
+    assert negotiated_speed_mbps(
+        iface(InterfaceType.WIRELESS), iface(InterfaceType.WIRELESS)
+    ) is None
+
+
+def test_negotiated_speed_with_missing_interfaces():
+    from netplanner.domain.entities import negotiated_speed_mbps
+
+    assert negotiated_speed_mbps(None, None) is None
+
+
+def test_new_link_auto_populates_the_slower_speed():
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+    from netplanner.domain.entities import InterfaceType, LinkType
+
+    ctrl = AppController(repository=MagicMock())
+    sw = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    rtr = ctrl.add_device("rtr1", DeviceType.ROUTER, 300, 0)
+    ten_gig = next(i for i in sw.interfaces if i.interface_type is InterfaceType.ETH_10G)
+    one_gig = rtr.interfaces[0]
+
+    link = ctrl.add_link(
+        sw.id, rtr.id, LinkType.FIBER,
+        a_interface_id=ten_gig.id, b_interface_id=one_gig.id,
+    )
+    assert link.bandwidth_mbps == 1_000  # limited by the 1G end
+
+
+def test_link_without_ports_has_no_auto_speed():
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+    from netplanner.domain.entities import LinkType
+
+    ctrl = AppController(repository=MagicMock())
+    a = ctrl.add_device("a", DeviceType.ROUTER, 0, 0)
+    b = ctrl.add_device("b", DeviceType.SWITCH, 300, 0)
+    assert ctrl.add_link(a.id, b.id, LinkType.ETHERNET).bandwidth_mbps is None
+
+
+def test_link_derived_speed_reflects_current_ports():
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+    from netplanner.domain.entities import InterfaceType, LinkType
+
+    ctrl = AppController(repository=MagicMock())
+    sw = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    rtr = ctrl.add_device("rtr1", DeviceType.ROUTER, 300, 0)
+    ten_gig = next(i for i in sw.interfaces if i.interface_type is InterfaceType.ETH_10G)
+    link = ctrl.add_link(
+        sw.id, rtr.id, LinkType.FIBER,
+        a_interface_id=ten_gig.id, b_interface_id=rtr.interfaces[0].id,
+    )
+    # Upgrading the slower end raises what the link could carry. The
+    # stored value is deliberately left alone; the dialog offers it.
+    rtr.interfaces[0].interface_type = InterfaceType.ETH_25G
+    assert ctrl.link_derived_speed(link) == 10_000
+    assert link.bandwidth_mbps == 1_000
+
+
+def test_auto_speed_survives_undo_of_link_creation():
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+    from netplanner.domain.entities import LinkType
+
+    ctrl = AppController(repository=MagicMock())
+    a = ctrl.add_device("a", DeviceType.ROUTER, 0, 0)
+    b = ctrl.add_device("b", DeviceType.SWITCH, 300, 0)
+    link = ctrl.add_link(
+        a.id, b.id, LinkType.ETHERNET,
+        a_interface_id=a.interfaces[0].id, b_interface_id=b.interfaces[0].id,
+    )
+    assert link.bandwidth_mbps == 1_000
+    ctrl.undo()
+    assert ctrl.plan.links == []
+    ctrl.redo()
+    assert ctrl.plan.links[0].bandwidth_mbps == 1_000

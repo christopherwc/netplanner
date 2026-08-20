@@ -40,6 +40,7 @@ from netplanner.domain.entities import (
     LinkType,
     TextBox,
     detect_config_format,
+    negotiated_speed_mbps,
 )
 from pathlib import Path as _Path
 from netplanner.domain.interfaces import default_interfaces
@@ -99,6 +100,11 @@ class AppController:
 
         Interface ids are optional: links can exist without port
         assignments, e.g. quick sketches or imported plans.
+
+        Bandwidth is derived from the two ports when both are known —
+        the slower end wins, since that is what the link actually
+        carries. It is only a starting value: the link dialog can
+        override it, and nothing recomputes it behind the user's back.
         """
         link = Link(
             a_device_id=a_device_id,
@@ -107,6 +113,9 @@ class AppController:
             label=label,
             a_interface_id=a_interface_id,
             b_interface_id=b_interface_id,
+            bandwidth_mbps=self.derived_link_speed(
+                a_device_id, a_interface_id, b_device_id, b_interface_id
+            ),
         )
         self.commands.push(AddLinkCommand(self.plan, link))
         return link
@@ -249,6 +258,35 @@ class AppController:
             len(self.links_for_device(device_id)),
         )
         self.commands.push(DeleteDeviceCommand(self.plan, device_id))
+
+    def derived_link_speed(
+        self,
+        a_device_id: str,
+        a_interface_id: str | None,
+        b_device_id: str,
+        b_interface_id: str | None,
+    ) -> int | None:
+        """Speed a link would run at, from its two interfaces' line rates."""
+        return negotiated_speed_mbps(
+            self._interface(a_device_id, a_interface_id),
+            self._interface(b_device_id, b_interface_id),
+        )
+
+    def link_derived_speed(self, link: Link) -> int | None:
+        """Speed an existing link would run at, given its current ports."""
+        return self.derived_link_speed(
+            link.a_device_id, link.a_interface_id,
+            link.b_device_id, link.b_interface_id,
+        )
+
+    def _interface(self, device_id: str, interface_id: str | None):
+        """Resolve a (device, interface) id pair to the Interface object."""
+        if not interface_id:
+            return None
+        device = self.plan.get_device(device_id)
+        if device is None:
+            return None
+        return next((i for i in device.interfaces if i.id == interface_id), None)
 
     def edit_link(
         self,
