@@ -6,7 +6,15 @@ build-backend = "setuptools.build_meta"
 name = "netplanner"
 version = "0.1.0"
 description = "Network planning tool with GUI, persistent storage, and PDF/PNG export"
+readme = "README.md"   # also what `twine check --strict` needs to pass
 requires-python = ">=3.10"
+classifiers = [
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: System Administrators",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Networking",
+]
 dependencies = [
     "PyQt6>=6.6",
     "networkx>=3.2",
@@ -18,8 +26,21 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.6"]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "coverage[toml]>=7.5",   # --format=markdown for CI job summaries
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "build>=1.2",
+    "twine>=5.1",
+    "pip-audit>=2.7",
+]
 layout = ["pygraphviz>=1.12"]
+
+[project.urls]
+Homepage = "https://github.com/christopherwc/netplanner"
+Issues = "https://github.com/christopherwc/netplanner/issues"
 
 [project.scripts]
 netplanner = "netplanner.main:main"
@@ -37,3 +58,28 @@ target-version = "py310"
 # outdated idioms (UP), likely bugs (B), and keep import order stable
 # across machines (I). Style-only opinions are left out.
 select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "PIE", "RUF"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "--strict-markers --strict-config"
+# Warnings are failures: a DeprecationWarning from PyQt6 or SQLAlchemy is
+# how the next breaking release announces itself, and the scheduled CI run
+# is where we want to hear it — not on launch day.
+filterwarnings = ["error"]
+# Coverage flags are deliberately NOT in addopts: `pytest -k something`
+# would then trip the 100% gate on a partial run. CI passes them.
+
+[tool.coverage.run]
+source = ["netplanner"]
+
+[tool.coverage.report]
+show_missing = true
+# The suite covers every line; anything less means new code arrived
+# without tests. Branch coverage is 99% and is not gated yet — the
+# remainder is mostly loop-exit arcs.
+fail_under = 100
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true

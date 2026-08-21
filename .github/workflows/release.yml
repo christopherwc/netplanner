@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build a release from (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Reuses ci.yml rather than repeating a trimmed-down version of it, so
+  # a tag can never be released under weaker checks than a pull request.
+  verify:
+    name: Full CI
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Publish GitHub release
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # required to create the release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # A tag that disagrees with the packaged version produces a
+      # release whose artifacts are named after a different release.
+      # Cheaper to fail here than to explain it later.
+      - name: Check the tag matches the packaged version
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          version="$(python -c 'import tomllib,pathlib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+          echo "tag=$tag packaged version=$version"
+          if [ "$tag" != "v$version" ]; then
+            echo "::error::Tag $tag does not match version $version in pyproject.toml"
+            exit 1
+          fi
+
+      - name: Build distributions
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+          twine check --strict dist/*
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum ./* > SHA256SUMS
+          cat SHA256SUMS
+
+      # Uses the GitHub CLI, already on the runner, rather than a
+      # third-party release action: one less unpinned dependency with
+      # write access to the repository.
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          gh release create "$tag" \
+            --title "NetPlanner $tag" \
+            --generate-notes \
+            --verify-tag \
+            dist/*
