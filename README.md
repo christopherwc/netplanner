@@ -1,5 +1,8 @@
 # NetPlanner
 
+[![CI](https://github.com/christopherwc/netplanner/actions/workflows/ci.yml/badge.svg)](https://github.com/christopherwc/netplanner/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
+
 A network planning tool for Linux with a PyQt6 GUI, SQLite persistence,
 and PDF/PNG export. Design network diagrams Packet Tracer-style: place
 equipment, cable it up port-by-port, and export the result.
@@ -264,6 +267,41 @@ Esc always returns to Select/Move mode.
 ```bash
 pytest
 ```
+
+The GUI tests need a Qt platform plugin; they set `QT_QPA_PLATFORM=offscreen`
+themselves, so no display server is required.
+
+To run what CI runs:
+
+```bash
+pip install -e ".[dev]"
+ruff check .                                    # lint
+pytest --cov=netplanner --cov-fail-under=100    # tests + coverage gate
+python .github/scripts/startup_smoke.py         # launches the app, quits itself
+```
+
+Coverage is at 100% of lines and the gate enforces it, so new code needs
+tests to merge. Warnings are errors (`filterwarnings = ["error"]`), which
+is how a deprecation in PyQt6 or SQLAlchemy announces itself on the weekly
+scheduled run rather than on launch day.
+
+## CI/CD
+
+`.github/workflows/ci.yml` runs on every push and pull request, weekly on
+a schedule, and is called by the release workflow:
+
+| Job | What it guards |
+| --- | --- |
+| Lint | ruff, reported as inline annotations on the diff |
+| Type check | mypy — advisory today, see the note in the workflow |
+| Tests | Python 3.10–3.13, gated at 100% line coverage |
+| Startup smoke | launches the real entry point; catches import errors a green suite misses |
+| Dependency audit | pip-audit against the declared dependencies |
+| Package | builds sdist and wheel, installs the wheel clean, checks the console script |
+
+Tagging `vX.Y.Z` runs the same pipeline, verifies the tag matches the
+version in `pyproject.toml`, and publishes a GitHub release with the
+distributions and their checksums.
 
 ## Project files
 

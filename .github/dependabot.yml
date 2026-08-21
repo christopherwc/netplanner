@@ -1,0 +1,29 @@
+version: 2
+updates:
+  # Python dependencies. Grouped so a quiet week produces one PR rather
+  # than six, each of which would otherwise run the full matrix.
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      python-dependencies:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: "deps"
+
+  # Workflow actions. These run with repository credentials, so a stale
+  # pinned action is a supply-chain problem, not just old code.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"

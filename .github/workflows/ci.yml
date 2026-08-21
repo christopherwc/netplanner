@@ -1,0 +1,212 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # A weekly run catches the things a commit-triggered pipeline never
+  # sees: a new PyQt6 or SQLAlchemy release that breaks us, or a CVE
+  # filed against a dependency we have not touched in months.
+  schedule:
+    - cron: "17 6 * * 1"
+  # Callable from release.yml so a tag runs the identical pipeline
+  # rather than a second, drifting copy of it.
+  workflow_call:
+  workflow_dispatch:
+
+# Superseded runs on the same branch are pointless; cancel them. Never
+# cancel on main or tags, where the run is a record of what shipped.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  # Qt has no display on a runner; the offscreen plugin renders for real
+  # into memory, which is what the canvas tests need.
+  QT_QPA_PLATFORM: offscreen
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  FORCE_COLOR: "1"
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install ruff
+        run: pip install "ruff>=0.6"
+      # --output-format=github turns findings into inline PR annotations
+      # on the offending line instead of a wall of log text.
+      - name: Check
+        run: ruff check --output-format=github .
+
+  typecheck:
+    name: Type check (mypy, advisory)
+    runs-on: ubuntu-latest
+    # Non-blocking on purpose: mypy currently reports 68 errors, ~36 of
+    # them Qt accessors typed as Optional (menuBar(), statusBar()) that
+    # are never None in practice. The job exists to stop the count
+    # growing and to make it visible; flip continue-on-error to false
+    # once it reaches zero.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Run mypy
+        run: |
+          mypy netplanner | tee mypy.txt || true
+          {
+            echo "### mypy (advisory)"
+            echo ""
+            echo '```'
+            tail -n 20 mypy.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # --cov-fail-under=100 is the gate: the suite covers every line
+      # today, so a drop means new code arrived without tests.
+      - name: Run tests
+        run: |
+          pytest \
+            --cov=netplanner \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --cov-fail-under=100 \
+            --junitxml=junit-${{ matrix.python-version }}.xml
+
+      - name: Coverage summary
+        if: ${{ always() && matrix.python-version == '3.12' }}
+        run: |
+          {
+            echo "### Coverage (Python ${{ matrix.python-version }})"
+            echo ""
+            python -m coverage report --format=markdown
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload test artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.python-version }}
+          path: |
+            junit-${{ matrix.python-version }}.xml
+            coverage.xml
+          retention-days: 14
+          if-no-files-found: warn
+
+  startup:
+    name: Startup smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Installs the built package, not an editable checkout: this job
+      # is about what a user gets from `pip install netplanner`.
+      - uses: ./.github/actions/setup
+        with:
+          install: "."
+      # The outer timeout is a hang guard only: the driver quits itself
+      # ~1.5s after the event loop starts, so a timeout here means the
+      # app wedged during startup, which is also a failure worth seeing.
+      - name: Launch the app and quit cleanly
+        env:
+          NETPLANNER_LOG_DIR: ${{ runner.temp }}/netplanner-logs
+          XDG_DATA_HOME: ${{ runner.temp }}/netplanner-data
+        run: timeout 90 python .github/scripts/startup_smoke.py
+      - name: Show the startup log
+        if: ${{ always() }}
+        run: cat ${{ runner.temp }}/netplanner-logs/*.log || echo "no log written"
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pip-audit
+        run: pip install "pip-audit>=2.7"
+      # Audits the declared dependency set rather than the whole runner
+      # environment, so unrelated preinstalled packages cannot fail an
+      # otherwise good PR.
+      - name: Audit declared dependencies
+        run: pip-audit --requirement requirements.txt --progress-spinner off
+
+  package:
+    name: Build and verify distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Qt libraries are needed even here: the verification step below
+      # imports netplanner.gui out of the installed wheel.
+      - uses: ./.github/actions/setup
+        with:
+          install: ""
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+      - name: Check metadata
+        run: twine check --strict dist/*
+      # Installing the built wheel into a clean venv catches packaging
+      # mistakes an editable install hides: a subpackage missing from
+      # the find directive, or a console script that does not resolve.
+      - name: Install the wheel in a clean environment
+        run: |
+          python -m venv /tmp/verify
+          /tmp/verify/bin/pip install --upgrade pip
+          /tmp/verify/bin/pip install dist/*.whl
+          /tmp/verify/bin/python -c "
+          import importlib
+          for module in ('app.controller', 'gui.main_window', 'export.pdf_exporter',
+                         'persistence.repository'):
+              importlib.import_module(f'netplanner.{module}')
+          print('import check ok')
+          "
+          test -x /tmp/verify/bin/netplanner
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 14
+
+  # One job to require in branch protection. Without it, adding a job to
+  # the matrix above silently makes it optional, because the required
+  # checks list still names the old ones.
+  ci-passed:
+    name: CI passed
+    runs-on: ubuntu-latest
+    needs: [lint, test, startup, audit, package]
+    if: ${{ always() }}
+    steps:
+      - name: Verify every required job succeeded
+        run: |
+          echo "lint:     ${{ needs.lint.result }}"
+          echo "test:     ${{ needs.test.result }}"
+          echo "startup:  ${{ needs.startup.result }}"
+          echo "audit:    ${{ needs.audit.result }}"
+          echo "package:  ${{ needs.package.result }}"
+          [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "false" ]
