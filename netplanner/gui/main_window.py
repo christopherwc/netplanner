@@ -16,7 +16,6 @@ from .palette import EquipmentPalette
 from .panels import PropertiesPanel
 from .vlan_panel import VlanPanel
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -102,7 +101,7 @@ class MainWindow(QMainWindow):
         def wrapper(*args, **kwargs):
             try:
                 return slot()
-            except Exception as exc:  # noqa: BLE001 - last-resort UI guard
+            except Exception as exc:
                 # logger.exception records the full traceback in the log
                 # file, so the dialog can stay short while the log holds
                 # everything needed to diagnose the failure.

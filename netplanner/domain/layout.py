@@ -11,7 +11,6 @@ keeps working rather than crashing the app.
 from __future__ import annotations
 
 import logging
-
 import math
 
 import networkx as nx

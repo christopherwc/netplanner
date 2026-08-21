@@ -26,33 +26,32 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PyQt6", reason="PyQt6 not installed")
 
-from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt  # noqa: E402
-from PyQt6.QtGui import QImage, QKeyEvent, QMouseEvent, QPainter  # noqa: E402
-from PyQt6.QtTest import QTest  # noqa: E402
-from PyQt6.QtWidgets import (  # noqa: E402
+from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
+from PyQt6.QtGui import QImage, QKeyEvent, QMouseEvent, QPainter
+from PyQt6.QtTest import QTest
+from PyQt6.QtWidgets import (
     QApplication,
     QMenu,
     QMessageBox,
 )
 
-from netplanner.app.controller import AppController  # noqa: E402
-from netplanner.domain.entities import (  # noqa: E402
+from netplanner.app.controller import AppController
+from netplanner.domain.entities import (
     ConfigFile,
     DeviceStatus,
     DeviceType,
     LinkType,
     VlanMode,
 )
-from netplanner.gui.canvas import (  # noqa: E402
+from netplanner.gui.canvas import (
     _CANCELLED,
     DeviceItem,
     LinkItem,
     NetworkCanvas,
     PlanScene,
     SiteItem,
-    TextBoxItem,
 )
-from netplanner.gui.palette import SITE_TOOL, TEXT_TOOL  # noqa: E402
+from netplanner.gui.palette import SITE_TOOL, TEXT_TOOL
 
 CANVAS_NS = "netplanner.gui.canvas"
 NO_MOD = Qt.KeyboardModifier.NoModifier
@@ -64,16 +63,16 @@ class FakeSceneEvent:
 
     def __init__(
         self,
-        scene_pos: QPointF = QPointF(),
-        item_pos: QPointF = QPointF(),
+        scene_pos: QPointF | None = None,
+        item_pos: QPointF | None = None,
         button=LEFT,
     ):
-        self._scene_pos = scene_pos
-        self._item_pos = item_pos
+        self._scene_pos = QPointF() if scene_pos is None else scene_pos
+        self._item_pos = QPointF() if item_pos is None else item_pos
         self._button = button
         self.accepted = False
 
-    def scenePos(self) -> QPointF:  # noqa: N802 - Qt API shape
+    def scenePos(self) -> QPointF:
         return self._scene_pos
 
     def pos(self) -> QPointF:
@@ -82,7 +81,7 @@ class FakeSceneEvent:
     def button(self):
         return self._button
 
-    def screenPos(self) -> QPoint:  # noqa: N802
+    def screenPos(self) -> QPoint:
         return QPoint(10, 10)
 
     def accept(self) -> None:

@@ -8,7 +8,6 @@ cards the GUI shows (header / type band / interface IP+MAC blocks).
 from __future__ import annotations
 
 import logging
-
 from pathlib import Path
 
 from reportlab.lib.colors import HexColor
@@ -19,12 +18,12 @@ from netplanner.errors import ExportError
 
 from .geometry import label_anchor, lift_above_line
 from .nodecard import (
+    CONFIG_H,
     FOOTER_H,
     HEADER_H,
     IFACE_BLOCK_H,
     LOOPBACK_H,
     MODEL_H,
-    CONFIG_H,
     NATIVE_VLAN_H,
     NOTES_LINE_H,
     PAD,
@@ -32,9 +31,11 @@ from .nodecard import (
     STRIPE_SPACING,
     STRIPE_WIDTH,
     TYPE_BAND_H,
+    VLAN_CHIP_GAP,
+    VLAN_CHIP_H,
+    VLAN_CHIP_W,
 )
 from .renderer import Scene, build_scene
-from .nodecard import VLAN_CHIP_GAP, VLAN_CHIP_H, VLAN_CHIP_W
 from .styles import DIAGRAM_BG, link_style_for_value
 from .vlans import MUTED_COLOR, MUTED_TEXT
 
@@ -153,7 +154,9 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
         c.drawPath(card_path, fill=1, stroke=1)
 
         if card.striped:
-            _draw_status_stripes(c, card_path, n.x, top, card.width, card.height, card.stripe_colors)
+            _draw_status_stripes(
+                c, card_path, n.x, top, card.width, card.height, card.stripe_colors
+            )
 
         # Header: glyph is skipped in PDF (Helvetica lacks many glyphs); bold name
         c.setFillColor(TEXT_COLOR)
@@ -174,7 +177,9 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
         c.rect(n.x, y - TYPE_BAND_H, card.width, TYPE_BAND_H, stroke=0, fill=1)
         c.setFillColor(HexColor("#ffffff"))
         c.setFont("Helvetica-Bold", 7)
-        c.drawCentredString(n.x + card.width / 2, y - TYPE_BAND_H / 2 - 2.5, card.type_label.upper())
+        c.drawCentredString(
+            n.x + card.width / 2, y - TYPE_BAND_H / 2 - 2.5, card.type_label.upper()
+        )
         y -= TYPE_BAND_H
 
         # Native VLAN: always shown (device-wide default is VLAN 1)

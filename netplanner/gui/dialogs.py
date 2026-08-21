@@ -2,26 +2,28 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
-    QDoubleSpinBox,
-    QFileDialog,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
-    QMessageBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -29,18 +31,16 @@ from PyQt6.QtWidgets import (
 
 from netplanner.domain.entities import (
     ConfigFile,
-    Link,
-    Site,
-    LinkType,
-    TextBox,
-    ConfigFormat,
     Device,
     DeviceStatus,
     Interface,
     InterfaceType,
+    Link,
+    LinkType,
+    Site,
+    TextBox,
     VlanMode,
     blank_mac,
-    detect_config_format,
 )
 from netplanner.export.styles import link_style_for
 from netplanner.gui.config_viewer import ConfigViewerDialog
@@ -258,7 +258,9 @@ class _InterfacesTab(QWidget):
         self.table.setCellWidget(row, 4, vlan_mode_combo)
 
         vlans_item = QTableWidgetItem(vlans_text)
-        vlans_item.setToolTip("Access: a single VLAN ID. Trunk: comma-separated VLAN IDs, e.g. 10,20,30")
+        vlans_item.setToolTip(
+            "Access: a single VLAN ID. Trunk: comma-separated VLAN IDs, e.g. 10,20,30"
+        )
         self.table.setItem(row, 5, vlans_item)
 
     def _remove_selected(self) -> None:
@@ -303,10 +305,15 @@ class _InterfacesTab(QWidget):
             access_vlan, trunk_vlans = _parse_vlans(vlan_mode, vlans_text)
             iface_id = name_item.data(Qt.ItemDataRole.UserRole)
 
-            kwargs = dict(
-                name=name, interface_type=itype, ip_address=ip, mac_address=mac,
-                vlan_mode=vlan_mode, access_vlan=access_vlan, trunk_vlans=trunk_vlans,
-            )
+            kwargs = {
+                "name": name,
+                "interface_type": itype,
+                "ip_address": ip,
+                "mac_address": mac,
+                "vlan_mode": vlan_mode,
+                "access_vlan": access_vlan,
+                "trunk_vlans": trunk_vlans,
+            }
             if iface_id:
                 kwargs["id"] = iface_id
             result.append(Interface(**kwargs))
@@ -340,7 +347,9 @@ def _parse_vlans(vlan_mode: VlanMode, text: str) -> tuple[int, list[int]]:
 
 
 def _hint_label() -> QLabel:
-    label = QLabel("VLAN(s): a single ID for Access, or comma-separated IDs for Trunk (e.g. 10,20,30)")
+    label = QLabel(
+        "VLAN(s): a single ID for Access, or comma-separated IDs for Trunk (e.g. 10,20,30)"
+    )
     label.setStyleSheet("color: #666; font-size: 11px;")
     return label
 
@@ -405,7 +414,9 @@ class _ConfigsTab(QWidget):
             self.table.insertRow(row)
             self.table.setItem(row, 0, QTableWidgetItem(cfg.filename))
             self.table.setItem(row, 1, QTableWidgetItem(cfg.config_format.label))
-            self.table.setItem(row, 2, QTableWidgetItem(f"{cfg.line_count} lines · {cfg.size_label}"))
+            self.table.setItem(
+                row, 2, QTableWidgetItem(f"{cfg.line_count} lines · {cfg.size_label}")
+            )
 
     def _selected_index(self) -> int:
         """Row index of the current selection, or -1 when nothing is picked."""
@@ -500,7 +511,7 @@ class TextBoxDialog(QDialog):
 
     # Named colors keep the picker simple and the palette consistent with
     # the rest of the diagram (same hues as the device/link styles).
-    COLOR_CHOICES = [
+    COLOR_CHOICES: ClassVar[list[tuple[str, str]]] = [
         ("Default", "#1a1a1a"),
         ("Muted gray", "#5f6368"),
         ("Blue", "#1a56db"),
@@ -584,7 +595,7 @@ class LinkPropertiesDialog(QDialog):
     """
 
     # Order shown in the media dropdown; matches the palette's order.
-    LINK_TYPE_CHOICES = [
+    LINK_TYPE_CHOICES: ClassVar[list[LinkType]] = [
         LinkType.ETHERNET,
         LinkType.FIBER,
         LinkType.WIRELESS,
@@ -712,12 +723,12 @@ class LinkPropertiesDialog(QDialog):
 
     def _on_unit_changed(self, index: int) -> None:
         """Switch units, preserving the value rather than the number."""
-        current = int(round(self.bandwidth_spin.value() * self._display_factor)) or None
+        current = round(self.bandwidth_spin.value() * self._display_factor) or None
         self._apply_unit(index, current)
 
     def _current_mbps(self) -> int | None:
         """The field's value in Mbps, whatever unit it's displayed in."""
-        return int(round(self.bandwidth_spin.value() * self._display_factor)) or None
+        return round(self.bandwidth_spin.value() * self._display_factor) or None
 
     def _set_mbps(self, mbps: int) -> None:
         """Set the field from a Mbps figure, picking a readable unit."""
@@ -752,7 +763,7 @@ class SiteDialog(QDialog):
 
     # Same hues as the text box palette, so annotations and sites read
     # as one visual family.
-    COLOR_CHOICES = [
+    COLOR_CHOICES: ClassVar[list[tuple[str, str]]] = [
         ("Blue", "#1a73e8"),
         ("Green", "#137333"),
         ("Purple", "#7627bb"),

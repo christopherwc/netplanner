@@ -120,9 +120,11 @@ def test_load_missing_plan_raises_verbose_persistence_error(tmp_path, caplog):
     from netplanner.persistence.repository import PlanRepository
 
     repo = PlanRepository(db_path=tmp_path / "log.db")
-    with caplog.at_level(logging.INFO, logger="netplanner"):
-        with pytest.raises(PersistenceError) as excinfo:
-            repo.load("no-such-id")
+    with (
+        caplog.at_level(logging.INFO, logger="netplanner"),
+        pytest.raises(PersistenceError) as excinfo,
+    ):
+        repo.load("no-such-id")
     # The message alone must identify the id and the database searched.
     assert "no-such-id" in str(excinfo.value)
     assert "log.db" in str(excinfo.value)
@@ -164,7 +166,6 @@ def test_unreadable_project_file_error_names_path(tmp_path):
 
 # ------------------------------------------------------------------ export
 def test_export_to_unwritable_path_raises_verbose_export_error(ctrl, tmp_path):
-    from pathlib import Path
 
     from netplanner.errors import ExportError
 
@@ -210,9 +211,8 @@ def test_unknown_layout_algorithm_logs_error(caplog):
 
     plan = NetworkPlan("x")
     plan.add_device(Device(name="d0"))
-    with caplog.at_level(logging.ERROR, logger="netplanner"):
-        with pytest.raises(ValueError):
-            auto_layout(plan, "bogus")
+    with caplog.at_level(logging.ERROR, logger="netplanner"), pytest.raises(ValueError):
+        auto_layout(plan, "bogus")
     assert any("bogus" in r.message for r in caplog.records)
 
 

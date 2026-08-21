@@ -16,11 +16,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PyQt6", reason="PyQt6 not installed")
 
-from PyQt6.QtCore import QRect  # noqa: E402
-from PyQt6.QtGui import QImage, QPainter, QPaintEvent  # noqa: E402
-from PyQt6.QtWidgets import QApplication, QMessageBox  # noqa: E402
+from PyQt6.QtCore import QRect
+from PyQt6.QtGui import QPaintEvent
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
-from netplanner.domain.entities import (  # noqa: E402
+from netplanner.domain.entities import (
     ConfigFile,
     ConfigFormat,
     Device,
@@ -34,11 +34,11 @@ from netplanner.domain.entities import (  # noqa: E402
     TextBox,
     VlanMode,
 )
-from netplanner.gui.config_viewer import (  # noqa: E402
+from netplanner.gui.config_viewer import (
     ConfigTextView,
     ConfigViewerDialog,
 )
-from netplanner.gui.dialogs import (  # noqa: E402
+from netplanner.gui.dialogs import (
     DevicePropertiesDialog,
     LinkPropertiesDialog,
     SiteDialog,

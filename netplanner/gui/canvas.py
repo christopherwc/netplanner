@@ -17,13 +17,13 @@ from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QBrush,
     QColor,
+    QCursor,
     QFont,
     QPainter,
     QPainterPath,
     QPainterPathStroker,
     QPen,
 )
-from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import (
     QGraphicsItem,
     QGraphicsLineItem,
@@ -36,15 +36,14 @@ from PyQt6.QtWidgets import (
 
 from netplanner.app.controller import AppController
 from netplanner.domain.entities import Device, DeviceType, Link, LinkType, Site, TextBox
+from netplanner.export import nodecard, vlans
 from netplanner.export.geometry import (
     label_anchor,
     lift_above_line,
     offset_endpoints,
     parallel_link_offsets,
 )
-from netplanner.export import nodecard
-from netplanner.export import vlans
-from netplanner.export.styles import DIAGRAM_BG, link_style_for, style_for
+from netplanner.export.styles import DIAGRAM_BG, link_style_for
 from netplanner.gui.dialogs import (
     DevicePropertiesDialog,
     LinkPropertiesDialog,
@@ -831,7 +830,7 @@ class TextBoxItem(QGraphicsItem):
         # canvas units, and Qt's point sizes are DPI-scaled (15pt renders
         # ~20px at 96dpi), which would make canvas text wider than the
         # wrap width computed by TextBox.display_lines.
-        font.setPixelSize(max(1, int(round(self.textbox.font_size))))
+        font.setPixelSize(max(1, round(self.textbox.font_size)))
         font.setBold(self.textbox.bold)
         painter.setFont(font)
         painter.setPen(QPen(QColor(self.textbox.color)))

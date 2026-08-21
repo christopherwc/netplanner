@@ -7,32 +7,31 @@ Qt out of the core layers.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import logging
+from pathlib import Path
+from pathlib import Path as _Path
 
-from netplanner.errors import ConfigImportError
 from netplanner.app.commands import (
     AddDeviceCommand,
     AddLinkCommand,
+    AddSiteCommand,
+    AddTextBoxCommand,
     CommandStack,
-    MoveDeviceCommand,
-    RenameDeviceCommand,
-    EditInterfacesCommand,
-    EditDevicePropertiesCommand,
     DeleteDeviceCommand,
     DeleteLinkCommand,
-    EditConfigsCommand,
-    EditLinkCommand,
-    RenamePlanCommand,
-    AddSiteCommand,
-    SetSiteGeometryCommand,
-    EditSiteCommand,
     DeleteSiteCommand,
-    AddTextBoxCommand,
-    MoveTextBoxCommand,
-    EditTextBoxCommand,
     DeleteTextBoxCommand,
+    EditConfigsCommand,
+    EditDevicePropertiesCommand,
+    EditInterfacesCommand,
+    EditLinkCommand,
+    EditSiteCommand,
+    EditTextBoxCommand,
+    MoveDeviceCommand,
+    MoveTextBoxCommand,
+    RenameDeviceCommand,
+    RenamePlanCommand,
+    SetSiteGeometryCommand,
 )
 from netplanner.app.validation import Issue, validate
 from netplanner.domain.entities import (
@@ -48,14 +47,13 @@ from netplanner.domain.entities import (
     detect_config_format,
     negotiated_speed_mbps,
 )
-from pathlib import Path as _Path
 from netplanner.domain.interfaces import default_interfaces
 from netplanner.domain.layout import auto_layout
 from netplanner.domain.model import NetworkPlan
+from netplanner.errors import ConfigImportError
 from netplanner.export.pdf_exporter import export_pdf
 from netplanner.export.png_exporter import export_png
 from netplanner.persistence.repository import PlanRepository
-
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +157,8 @@ class AppController:
         status: DeviceStatus,
         new_interfaces: list[Interface],
     ) -> None:
-        """Update model, loopback IP, notes, native VLAN, status, and interfaces as one undo step."""
+        """Update model, loopback IP, notes, native VLAN, status, and
+        interfaces as one undo step."""
         self.commands.push(
             EditDevicePropertiesCommand(
                 self.plan, device_id, device_model, loopback_ip, notes,

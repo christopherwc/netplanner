@@ -96,7 +96,7 @@ class InterfaceType(Enum):
         }[self]
 
 
-def negotiated_speed_mbps(a: "Interface | None", b: "Interface | None") -> int | None:
+def negotiated_speed_mbps(a: Interface | None, b: Interface | None) -> int | None:
     """The usable rate of a link between two interfaces: the slower end.
 
     A 10G port patched into a 1G port runs at 1G, so a link's throughput

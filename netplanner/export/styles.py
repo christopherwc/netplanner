@@ -11,7 +11,6 @@ from dataclasses import dataclass
 
 from netplanner.domain.entities import DeviceType, LinkType
 
-
 # ------------------------------------------------------------------ devices
 # The exported page background, and the fill painted behind text box
 # annotations. The GUI canvas deliberately keeps the system theme's

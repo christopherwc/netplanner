@@ -111,7 +111,7 @@ def build_scene(plan: NetworkPlan, vlan_filter: set[int] | None = None) -> Scene
         ]
         return Scene(
             width=max(t.x + max(b.width for b in boxes) for t in texts) + MARGIN,
-            height=max(t.y + b.height for t, b in zip(texts, boxes)) + MARGIN,
+            height=max(t.y + b.height for t, b in zip(texts, boxes, strict=True)) + MARGIN,
             nodes=[], edges=[], title=plan.name, texts=texts,
         )
 
@@ -193,7 +193,7 @@ def build_scene(plan: NetworkPlan, vlan_filter: set[int] | None = None) -> Scene
         width = max(width, shape.x + shape.width + MARGIN)
         height = max(height, shape.y + shape.height + MARGIN)
     # Grow the page if an annotation extends past the device cluster.
-    for text_shape, box in zip(texts, boxes):
+    for text_shape, box in zip(texts, boxes, strict=True):
         width = max(width, text_shape.x + box.width + MARGIN)
         height = max(height, text_shape.y + box.height + MARGIN)
 

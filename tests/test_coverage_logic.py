@@ -7,20 +7,17 @@ layers to full line coverage.
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 from netplanner.app.commands import (
-    CommandStack,
     DeleteDeviceCommand,
     MoveDeviceCommand,
 )
 from netplanner.app.controller import AppController
 from netplanner.app.validation import Severity, validate
-from netplanner.domain import layout
 from netplanner.domain.entities import (
     ConfigFormat,
     Device,
@@ -234,7 +231,7 @@ def test_offset_endpoints_zero_and_nonzero():
     assert offset_endpoints(0, 0, 10, 0, 0) == (0, 0, 10, 0)
     # Degenerate zero-length segment: returned unchanged.
     assert offset_endpoints(3, 3, 3, 3, 5) == (3, 3, 3, 3)
-    x1, y1, x2, y2 = offset_endpoints(0, 0, 10, 0, 5)
+    _, y1, _, y2 = offset_endpoints(0, 0, 10, 0, 5)
     assert (y1, y2) == (5, 5)  # perpendicular shift for a horizontal line
 
 
