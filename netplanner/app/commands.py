@@ -8,7 +8,6 @@ the stack.
 from __future__ import annotations
 
 import logging
-
 from abc import ABC, abstractmethod
 
 from netplanner.domain.entities import (
@@ -22,7 +21,6 @@ from netplanner.domain.entities import (
     TextBox,
 )
 from netplanner.domain.model import NetworkPlan
-
 
 logger = logging.getLogger(__name__)
 

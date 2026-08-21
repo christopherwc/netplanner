@@ -9,22 +9,22 @@ segment-by-segment.
 from __future__ import annotations
 
 import logging
-
 import math
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw
 
 from netplanner.domain.model import NetworkPlan
+from netplanner.errors import ExportError
 
 from .geometry import label_anchor, lift_above_line
 from .nodecard import (
+    CONFIG_H,
     FOOTER_H,
     HEADER_H,
     IFACE_BLOCK_H,
     LOOPBACK_H,
     MODEL_H,
-    CONFIG_H,
     NATIVE_VLAN_H,
     NOTES_LINE_H,
     PAD,
@@ -32,11 +32,11 @@ from .nodecard import (
     STRIPE_SPACING,
     STRIPE_WIDTH,
     TYPE_BAND_H,
+    VLAN_CHIP_GAP,
+    VLAN_CHIP_H,
+    VLAN_CHIP_W,
 )
-from netplanner.errors import ExportError
-
 from .renderer import build_scene
-from .nodecard import VLAN_CHIP_GAP, VLAN_CHIP_H, VLAN_CHIP_W
 from .styles import DIAGRAM_BG, link_style_for_value
 from .vlans import MUTED_COLOR, MUTED_TEXT
 
@@ -156,7 +156,9 @@ def _export_png_impl(scene, path: Path) -> None:
         )
 
         if card.striped:
-            _draw_status_stripes(img, left, top, card.width * SCALE, card.height * SCALE, card.stripe_colors)
+            _draw_status_stripes(
+                img, left, top, card.width * SCALE, card.height * SCALE, card.stripe_colors
+            )
 
         # Header: bold-ish name (default font; Pillow has no true bold here)
         draw.text(

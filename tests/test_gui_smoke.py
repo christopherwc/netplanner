@@ -25,10 +25,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PyQt6", reason="PyQt6 not installed")
 
-from PyQt6.QtWidgets import QApplication  # noqa: E402
+from PyQt6.QtWidgets import QApplication
 
-from netplanner.app.controller import AppController  # noqa: E402
-from netplanner.domain.entities import DeviceType, LinkType, VlanMode  # noqa: E402
+from netplanner.app.controller import AppController
+from netplanner.domain.entities import DeviceType, LinkType, VlanMode
 
 
 @pytest.fixture(scope="module")

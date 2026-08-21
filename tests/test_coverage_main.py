@@ -9,7 +9,6 @@ patched, so every menu path runs headlessly without blocking.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -18,14 +17,16 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PyQt6", reason="PyQt6 not installed")
 
-from PyQt6.QtCore import Qt  # noqa: E402
-from PyQt6.QtGui import QKeyEvent  # noqa: E402
-from PyQt6.QtCore import QEvent  # noqa: E402
-from PyQt6.QtWidgets import QApplication, QMessageBox  # noqa: E402
+from PyQt6.QtCore import (
+    QEvent,
+    Qt,
+)
+from PyQt6.QtGui import QKeyEvent
+from PyQt6.QtWidgets import QApplication
 
-from netplanner.app.controller import AppController  # noqa: E402
-from netplanner.domain.entities import DeviceType, LinkType  # noqa: E402
-from netplanner.gui.main_window import MainWindow  # noqa: E402
+from netplanner.app.controller import AppController
+from netplanner.domain.entities import DeviceType, LinkType
+from netplanner.gui.main_window import MainWindow
 
 
 @pytest.fixture(scope="module")

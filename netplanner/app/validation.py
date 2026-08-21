@@ -122,7 +122,8 @@ def _check_empty_trunks(plan: NetworkPlan) -> list[Issue]:
                 issues.append(
                     Issue(
                         Severity.WARNING,
-                        f"Interface '{iface.name}' on '{device.name}' is a trunk with no VLANs assigned",
+                        f"Interface '{iface.name}' on '{device.name}' is a trunk "
+                        "with no VLANs assigned",
                         device_id=device.id,
                     )
                 )

@@ -126,7 +126,7 @@ class ConfigHighlighter(QSyntaxHighlighter):
 class _LineNumberGutter(QWidget):
     """Narrow strip painted to the left of the editor with line numbers."""
 
-    def __init__(self, editor: "ConfigTextView"):
+    def __init__(self, editor: ConfigTextView):
         super().__init__(editor)
         self.editor = editor
 

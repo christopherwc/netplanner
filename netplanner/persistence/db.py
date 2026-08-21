@@ -32,10 +32,10 @@ class PlanRow(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     name: Mapped[str] = mapped_column(String(255))
 
-    devices: Mapped[list["DeviceRow"]] = relationship(
+    devices: Mapped[list[DeviceRow]] = relationship(
         back_populates="plan", cascade="all, delete-orphan"
     )
-    links: Mapped[list["LinkRow"]] = relationship(
+    links: Mapped[list[LinkRow]] = relationship(
         back_populates="plan", cascade="all, delete-orphan"
     )
     meta: Mapped[dict] = mapped_column(JSON, default=dict)  # subnets, vlans, sites

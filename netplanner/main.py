@@ -7,14 +7,13 @@ import sys
 
 def main() -> int:
     """Start the GUI, with logging configured before anything else runs."""
+    import logging
+    import platform
+
     from PyQt6.QtWidgets import QApplication
 
     from netplanner.app.controller import AppController
     from netplanner.gui.main_window import MainWindow
-
-    import logging
-    import platform
-
     from netplanner.log import log_file_path, setup_logging
 
     setup_logging()

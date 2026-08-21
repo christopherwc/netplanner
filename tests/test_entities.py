@@ -37,8 +37,9 @@ def test_isolated_device_warns():
 
 
 def test_auto_naming():
-    from netplanner.app.controller import AppController
     from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
 
     ctrl = AppController(repository=MagicMock())
     assert ctrl.next_device_name(DeviceType.ROUTER) == "rtr1"
@@ -54,8 +55,9 @@ def test_styles_cover_all_types():
 
 
 def test_rename_undo_redo():
-    from netplanner.app.controller import AppController
     from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
 
     ctrl = AppController(repository=MagicMock())
     d = ctrl.add_device("rtr1", DeviceType.ROUTER, 0, 0)
@@ -68,9 +70,10 @@ def test_rename_undo_redo():
 
 
 def test_typed_links_and_new_devices():
+    from unittest.mock import MagicMock
+
     from netplanner.app.controller import AppController
     from netplanner.domain.entities import LinkType
-    from unittest.mock import MagicMock
 
     ctrl = AppController(repository=MagicMock())
     dish_a = ctrl.add_device("dish1", DeviceType.DISH_RADIO, 0, 0)
@@ -91,8 +94,9 @@ def test_link_styles_cover_all_types():
 
 
 def test_default_interfaces_created():
-    from netplanner.app.controller import AppController
     from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
 
     ctrl = AppController(repository=MagicMock())
     rtr = ctrl.add_device("rtr1", DeviceType.ROUTER, 0, 0)
@@ -102,9 +106,10 @@ def test_default_interfaces_created():
 
 
 def test_free_interfaces_shrink_as_links_use_them():
+    from unittest.mock import MagicMock
+
     from netplanner.app.controller import AppController
     from netplanner.domain.entities import LinkType
-    from unittest.mock import MagicMock
 
     ctrl = AppController(repository=MagicMock())
     a = ctrl.add_device("rtr1", DeviceType.ROUTER, 0, 0)
@@ -130,15 +135,16 @@ def test_parallel_links_never_overlap():
         Link(a_device_id="A", b_device_id="C"),  # different pair
     ]
     offsets = parallel_link_offsets(links)
-    ab_offsets = [offsets[l.id] for l in links[:3]]
+    ab_offsets = [offsets[link.id] for link in links[:3]]
     assert len(set(ab_offsets)) == 3  # all distinct -> no overlap
     assert offsets[links[3].id] == 0  # lone link stays centered
 
 
 def test_edit_interfaces_undoable():
+    from unittest.mock import MagicMock
+
     from netplanner.app.controller import AppController
     from netplanner.domain.entities import Interface
-    from unittest.mock import MagicMock
 
     ctrl = AppController(repository=MagicMock())
     d = ctrl.add_device("srv1", DeviceType.SERVER, 0, 0)
@@ -149,9 +155,10 @@ def test_edit_interfaces_undoable():
 
 
 def test_typed_default_interfaces():
+    from unittest.mock import MagicMock
+
     from netplanner.app.controller import AppController
     from netplanner.domain.entities import InterfaceType
-    from unittest.mock import MagicMock
 
     ctrl = AppController(repository=MagicMock())
     sw = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
@@ -164,6 +171,7 @@ def test_typed_default_interfaces():
 
 def test_interface_types_persist():
     from pathlib import Path
+
     from netplanner.domain.entities import Device, Interface, InterfaceType
     from netplanner.domain.model import NetworkPlan
     from netplanner.persistence.repository import PlanRepository
@@ -186,8 +194,9 @@ def test_interface_types_persist():
 
 
 def test_macs_default_to_all_zeros():
-    from netplanner.app.controller import AppController
     from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
 
     ctrl = AppController(repository=MagicMock())
     sw = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
@@ -197,6 +206,7 @@ def test_macs_default_to_all_zeros():
 
 def test_macs_persist_and_legacy_payloads_get_placeholder():
     from pathlib import Path
+
     from netplanner.domain.entities import Device, Interface
     from netplanner.domain.model import NetworkPlan
     from netplanner.persistence.repository import (
@@ -222,9 +232,10 @@ def test_macs_persist_and_legacy_payloads_get_placeholder():
 
 
 def test_device_properties_editable_and_undoable():
+    from unittest.mock import MagicMock
+
     from netplanner.app.controller import AppController
     from netplanner.domain.entities import DeviceStatus
-    from unittest.mock import MagicMock
 
     ctrl = AppController(repository=MagicMock())
     d = ctrl.add_device("rtr1", DeviceType.ROUTER, 0, 0)
@@ -256,6 +267,7 @@ def test_device_properties_editable_and_undoable():
 
 def test_device_properties_persist():
     from pathlib import Path
+
     from netplanner.domain.entities import Device
     from netplanner.domain.model import NetworkPlan
     from netplanner.persistence.repository import PlanRepository
@@ -304,18 +316,18 @@ def test_scene_never_clips_a_card_edge():
     the margin around its center would stick out past x=0/y=0.
     """
     from netplanner.domain.entities import Device
-    from netplanner.export.renderer import build_scene
     from netplanner.domain.model import NetworkPlan
+    from netplanner.export.renderer import build_scene
 
     plan = NetworkPlan("clip test")
     # Devices placed at (0, 0) and negative-ish relative offsets, with
     # enough interfaces/notes to make their cards wider than MARGIN.
-    a = plan.add_device(Device(name="sw2", device_type=DeviceType.SWITCH, x=0, y=0))
-    b = plan.add_device(Device(
+    plan.add_device(Device(name="sw2", device_type=DeviceType.SWITCH, x=0, y=0))
+    plan.add_device(Device(
         name="rtr1", device_type=DeviceType.ROUTER, x=0, y=300,
         loopback_ip="192.168.7.12/16",
     ))
-    c = plan.add_device(Device(
+    plan.add_device(Device(
         name="sw1", device_type=DeviceType.SWITCH, x=500, y=200,
         loopback_ip="192.168.8.1/16", notes="Hello world",
     ))
@@ -339,8 +351,9 @@ def test_interface_vlan_defaults_to_access_vlan_1():
 
 
 def test_device_native_vlan_defaults_to_1():
-    from netplanner.app.controller import AppController
     from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
 
     ctrl = AppController(repository=MagicMock())
     d = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
@@ -357,9 +370,10 @@ def test_interface_can_be_configured_as_trunk_with_multiple_vlans():
 
 
 def test_empty_trunk_flagged_by_validation():
+    from unittest.mock import MagicMock
+
     from netplanner.app.controller import AppController
     from netplanner.domain.entities import VlanMode
-    from unittest.mock import MagicMock
 
     ctrl = AppController(repository=MagicMock())
     sw = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
@@ -370,6 +384,7 @@ def test_empty_trunk_flagged_by_validation():
 
 def test_vlan_fields_persist_through_sqlite():
     from pathlib import Path
+
     from netplanner.domain.entities import Device, Interface, VlanMode
     from netplanner.domain.model import NetworkPlan
     from netplanner.persistence.repository import PlanRepository
@@ -398,6 +413,7 @@ def test_vlan_fields_persist_through_sqlite():
 
 def test_vlan_fields_persist_through_netplan_json():
     from pathlib import Path
+
     from netplanner.domain.entities import Device, Interface, VlanMode
     from netplanner.domain.model import NetworkPlan
     from netplanner.persistence.project_file import load_project, save_project
@@ -453,8 +469,9 @@ def test_placeholder_mac_not_flagged_as_duplicate():
     a real address, so multiple un-configured interfaces sharing it
     should never trigger duplicate-MAC warnings.
     """
-    from netplanner.app.controller import AppController
     from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
 
     ctrl = AppController(repository=MagicMock())
     ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)   # 10 blank-MAC ports
@@ -464,9 +481,10 @@ def test_placeholder_mac_not_flagged_as_duplicate():
 
 
 def test_device_status_defaults_to_active():
+    from unittest.mock import MagicMock
+
     from netplanner.app.controller import AppController
     from netplanner.domain.entities import DeviceStatus
-    from unittest.mock import MagicMock
 
     ctrl = AppController(repository=MagicMock())
     d = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
@@ -499,7 +517,9 @@ def test_planned_card_keeps_type_color_and_is_striped():
     from netplanner.export.styles import style_for
 
     style = style_for(DeviceType.ROUTER)
-    card = build_card(Device(name="rtr1", device_type=DeviceType.ROUTER, status=DeviceStatus.PLANNED))
+    card = build_card(
+        Device(name="rtr1", device_type=DeviceType.ROUTER, status=DeviceStatus.PLANNED)
+    )
     assert card.fill == style.fill  # type colors preserved
     assert card.stroke == style.stroke
     assert card.striped is True
@@ -508,6 +528,7 @@ def test_planned_card_keeps_type_color_and_is_striped():
 
 def test_status_persists_through_sqlite():
     from pathlib import Path
+
     from netplanner.domain.entities import Device, DeviceStatus
     from netplanner.domain.model import NetworkPlan
     from netplanner.persistence.repository import PlanRepository
@@ -525,6 +546,7 @@ def test_status_persists_through_sqlite():
 
 def test_status_persists_through_netplan_json():
     from pathlib import Path
+
     from netplanner.domain.entities import Device, DeviceStatus
     from netplanner.domain.model import NetworkPlan
     from netplanner.persistence.project_file import load_project, save_project
@@ -597,9 +619,10 @@ def test_device_status_labels():
 def test_status_change_is_single_undo_step():
     """Editing status together with other properties must undo as ONE step,
     not leave the device in a half-reverted state."""
+    from unittest.mock import MagicMock
+
     from netplanner.app.controller import AppController
     from netplanner.domain.entities import DeviceStatus
-    from unittest.mock import MagicMock
 
     ctrl = AppController(repository=MagicMock())
     d = ctrl.add_device("fw1", DeviceType.FIREWALL, 0, 0)
@@ -616,6 +639,7 @@ def test_status_change_is_single_undo_step():
 
 def test_status_survives_full_controller_save_load_cycle():
     from pathlib import Path
+
     from netplanner.app.controller import AppController
     from netplanner.domain.entities import DeviceStatus
     from netplanner.persistence.repository import PlanRepository
@@ -638,6 +662,7 @@ def test_all_statuses_export_without_error(tmp_path):
     """Every status must render through both exporters without raising —
     catches renderer/stripe regressions across the full status matrix."""
     from unittest.mock import MagicMock
+
     from netplanner.app.controller import AppController
     from netplanner.domain.entities import DeviceStatus
 
@@ -663,7 +688,9 @@ def test_broken_png_contains_red_and_black_stripe_pixels(tmp_path):
     the device type's fill color, not the raw stripe colors.
     """
     from unittest.mock import MagicMock
+
     from PIL import Image
+
     from netplanner.app.controller import AppController
     from netplanner.domain.entities import DeviceStatus
     from netplanner.export.nodecard import STRIPE_ALPHA, STRIPE_BROKEN
@@ -721,9 +748,10 @@ def test_auto_layout_assigns_distinct_scaled_positions():
 
 def test_auto_layout_unknown_algorithm_raises():
     import pytest
+
+    from netplanner.domain.entities import Device
     from netplanner.domain.layout import auto_layout
     from netplanner.domain.model import NetworkPlan
-    from netplanner.domain.entities import Device
 
     plan = NetworkPlan("layout")
     plan.add_device(Device(name="d0"))
@@ -744,6 +772,7 @@ def test_auto_layout_survives_missing_numpy(monkeypatch):
     (it was missing from the project dependencies). auto_layout must
     degrade to the fallback circle layout instead of propagating."""
     import networkx as nx
+
     from netplanner.domain.entities import Device
     from netplanner.domain.layout import auto_layout
     from netplanner.domain.model import NetworkPlan
@@ -762,6 +791,7 @@ def test_auto_layout_survives_missing_numpy(monkeypatch):
 
 def test_auto_layout_single_device_centers_in_fallback(monkeypatch):
     import networkx as nx
+
     from netplanner.domain.entities import Device
     from netplanner.domain.layout import auto_layout
     from netplanner.domain.model import NetworkPlan
@@ -778,9 +808,10 @@ def test_auto_layout_single_device_centers_in_fallback(monkeypatch):
 
 def _linked_pair():
     """Two devices joined by one cable, plus the controller driving them."""
+    from unittest.mock import MagicMock
+
     from netplanner.app.controller import AppController
     from netplanner.domain.entities import LinkType
-    from unittest.mock import MagicMock
 
     ctrl = AppController(repository=MagicMock())
     a = ctrl.add_device("rtr1", DeviceType.ROUTER, 0, 0)
@@ -794,14 +825,14 @@ def _linked_pair():
 
 
 def test_delete_link_keeps_devices():
-    ctrl, a, b, link = _linked_pair()
+    ctrl, _, _, link = _linked_pair()
     ctrl.delete_link(link)
     assert len(ctrl.plan.links) == 0
     assert len(ctrl.plan.devices) == 2  # devices survive
 
 
 def test_delete_link_undo_restores_it():
-    ctrl, a, b, link = _linked_pair()
+    ctrl, _, _, link = _linked_pair()
     ctrl.delete_link(link)
     ctrl.undo()
     assert len(ctrl.plan.links) == 1
@@ -810,14 +841,14 @@ def test_delete_link_undo_restores_it():
 
 
 def test_deleting_link_frees_its_interfaces():
-    ctrl, a, b, link = _linked_pair()
+    ctrl, a, _, link = _linked_pair()
     before = len(ctrl.free_interfaces(a.id))
     ctrl.delete_link(link)
     assert len(ctrl.free_interfaces(a.id)) == before + 1
 
 
 def test_delete_device_cascades_to_its_links():
-    ctrl, a, b, link = _linked_pair()
+    ctrl, a, b, _ = _linked_pair()
     ctrl.delete_device(a.id)
     assert ctrl.plan.get_device(a.id) is None
     assert len(ctrl.plan.links) == 0  # incident cable went with it
@@ -827,7 +858,7 @@ def test_delete_device_cascades_to_its_links():
 def test_delete_device_undo_restores_device_and_its_links():
     """The subtle one: networkx drops incident edges with the node, so
     undo must put the cables back too, not just the device."""
-    ctrl, a, b, link = _linked_pair()
+    ctrl, a, _, link = _linked_pair()
     ctrl.delete_device(a.id)
     ctrl.undo()
     assert ctrl.plan.get_device(a.id) is not None
@@ -839,9 +870,10 @@ def test_delete_device_undo_restores_device_and_its_links():
 
 
 def test_delete_device_with_many_links_restores_all_of_them():
-    from netplanner.domain.entities import LinkType
-    from netplanner.app.controller import AppController
     from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+    from netplanner.domain.entities import LinkType
 
     ctrl = AppController(repository=MagicMock())
     hub = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
@@ -862,7 +894,7 @@ def test_delete_device_with_many_links_restores_all_of_them():
 
 
 def test_links_for_device_reports_both_directions():
-    ctrl, a, b, link = _linked_pair()
+    ctrl, a, b, _ = _linked_pair()
     assert len(ctrl.links_for_device(a.id)) == 1  # stored as the 'a' end
     assert len(ctrl.links_for_device(b.id)) == 1  # and found from the 'b' end
 
@@ -870,8 +902,9 @@ def test_links_for_device_reports_both_directions():
 def test_delete_device_then_save_load_round_trip():
     """Deletions must actually persist, not reappear after a reload."""
     from pathlib import Path
-    from netplanner.domain.entities import LinkType
+
     from netplanner.app.controller import AppController
+    from netplanner.domain.entities import LinkType
     from netplanner.persistence.repository import PlanRepository
 
     repo = PlanRepository(db_path=Path("/tmp/delete_test.db"))
@@ -926,17 +959,19 @@ def test_config_file_metadata():
 
 
 def test_devices_start_with_no_configs():
-    from netplanner.app.controller import AppController
     from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
 
     ctrl = AppController(repository=MagicMock())
     assert ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0).configs == []
 
 
 def test_edit_configs_is_undoable():
+    from unittest.mock import MagicMock
+
     from netplanner.app.controller import AppController
     from netplanner.domain.entities import ConfigFile
-    from unittest.mock import MagicMock
 
     ctrl = AppController(repository=MagicMock())
     d = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
@@ -1502,7 +1537,7 @@ def test_every_interface_type_has_a_speed_entry():
     from netplanner.domain.entities import InterfaceType
 
     for itype in InterfaceType:
-        itype.speed_mbps  # raises KeyError if unmapped
+        _ = itype.speed_mbps  # raises KeyError if unmapped
 
 
 def test_negotiated_speed_takes_the_slower_end():
@@ -1753,7 +1788,7 @@ def test_auto_flag_persists_through_sqlite(tmp_path):
 def test_legacy_link_with_a_recorded_speed_does_not_start_tracking():
     """Plans saved before this feature: a stored figure was entered by
     hand, so it must not suddenly become overwritable."""
-    from netplanner.domain.entities import Device, Link
+    from netplanner.domain.entities import Link
     from netplanner.persistence.repository import _link_from_dict, _link_to_dict
 
     payload = _link_to_dict(Link(a_device_id="a", b_device_id="b", bandwidth_mbps=500))
@@ -1919,7 +1954,7 @@ def test_legacy_site_without_geometry_gets_defaults():
     must still load, taking the default geometry."""
     from netplanner.domain.entities import Site
 
-    revived = Site(**{"name": "IDF 1", "notes": "old plan", "id": "abc"})
+    revived = Site(name="IDF 1", notes="old plan", id="abc")
     assert revived.width > 0 and revived.height > 0
     assert revived.x == 0 and revived.y == 0
 

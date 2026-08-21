@@ -9,7 +9,7 @@ out and never overlap; offset_endpoints applies it to a segment.
 from __future__ import annotations
 
 import math
-from typing import Iterable
+from collections.abc import Iterable
 
 from netplanner.domain.entities import Link
 

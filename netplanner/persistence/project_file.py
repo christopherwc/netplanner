@@ -7,6 +7,7 @@ import logging
 from dataclasses import asdict
 from pathlib import Path
 
+from netplanner.domain.entities import Site, Subnet, TextBox, Vlan
 from netplanner.domain.model import NetworkPlan
 from netplanner.errors import PersistenceError
 
@@ -16,7 +17,6 @@ from .repository import (
     _link_from_dict,
     _link_to_dict,
 )
-from netplanner.domain.entities import Site, Subnet, TextBox, Vlan
 
 logger = logging.getLogger(__name__)
 

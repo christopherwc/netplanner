@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict
 from pathlib import Path
 
-import logging
-
 from sqlalchemy.exc import SQLAlchemyError
 
-from netplanner.errors import PersistenceError
 from netplanner.domain.entities import (
     ConfigFile,
     ConfigFormat,
@@ -27,9 +25,9 @@ from netplanner.domain.entities import (
     VlanMode,
 )
 from netplanner.domain.model import NetworkPlan
+from netplanner.errors import PersistenceError
 
 from .db import DeviceRow, LinkRow, PlanRow, default_db_path, make_session_factory
-
 
 logger = logging.getLogger(__name__)
 
@@ -153,9 +151,9 @@ def _device_to_dict(d: Device) -> dict:
     data = asdict(d)
     data["device_type"] = d.device_type.value
     data["status"] = d.status.value
-    for cfg_data, cfg in zip(data.get("configs", []), d.configs):
+    for cfg_data, cfg in zip(data.get("configs", []), d.configs, strict=True):
         cfg_data["config_format"] = cfg.config_format.value
-    for iface_data, iface in zip(data["interfaces"], d.interfaces):
+    for iface_data, iface in zip(data["interfaces"], d.interfaces, strict=True):
         iface_data["interface_type"] = iface.interface_type.value
         iface_data["vlan_mode"] = iface.vlan_mode.value
     return data
