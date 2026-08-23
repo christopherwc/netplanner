@@ -155,10 +155,10 @@ def test_configs_tab_import_view_rename_export_remove(app, device, tmp_path):
         tab._import_configs()
     assert any(c.filename == "router.rsc" for c in tab._configs)
 
-    # Failed read: the tab's warning branch expects an OSError. (The
-    # controller helper actually raises ConfigImportError, which this
-    # handler would miss — see the suite notes — so the branch is
-    # exercised by faking the OSError it was written for.)
+    # Failed read via a raw OSError. The controller helper wraps those
+    # as ConfigImportError (covered in test_error_handling.py); OSError
+    # stays in the handler's except tuple for any caller that reads a
+    # file directly, and this keeps that half of the tuple honest.
     with patch(
         "netplanner.gui.dialogs.QFileDialog.getOpenFileNames",
         return_value=([str(tmp_path / "missing.cfg")], ""),

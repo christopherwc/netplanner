@@ -38,13 +38,31 @@ def validate(plan: NetworkPlan) -> list[Issue]:
 
 
 def _check_duplicate_ips(plan: NetworkPlan) -> list[Issue]:
+    """Flag repeated addresses, and addresses that are not addresses.
+
+    The IP field is free text, so a typo like 10.0.0.256/24 reaches here
+    intact. Parsing it raised ValueError out of the whole validation
+    run, which meant the one tool built to report bad data instead
+    failed on it. A malformed address is now simply an issue.
+    """
     seen: dict[str, str] = {}  # ip -> device name
     issues = []
     for device in plan.devices:
         for iface in device.interfaces:
             if not iface.ip_address:
                 continue
-            ip = str(ip_interface(iface.ip_address).ip)
+            try:
+                ip = str(ip_interface(iface.ip_address).ip)
+            except ValueError:
+                issues.append(
+                    Issue(
+                        Severity.ERROR,
+                        f"Interface '{iface.name}' on '{device.name}' has an "
+                        f"unreadable IP address: {iface.ip_address!r}",
+                        device_id=device.id,
+                    )
+                )
+                continue
             if ip in seen:
                 issues.append(
                     Issue(
@@ -66,11 +84,24 @@ def _check_isolated_devices(plan: NetworkPlan) -> list[Issue]:
 
 
 def _check_overlapping_subnets(plan: NetworkPlan) -> list[Issue]:
+    """Flag overlapping subnets, and CIDRs that will not parse.
+
+    Same reasoning as the IP rule: a subnet is stored as typed, so the
+    parse has to happen inside the check and a failure has to become an
+    issue rather than an exception.
+    """
     issues = []
-    subnets = list(plan.subnets.values())
-    for i, a in enumerate(subnets):
-        for b in subnets[i + 1 :]:
-            if a.network.overlaps(b.network):
+    parsed = []
+    for subnet in plan.subnets.values():
+        try:
+            parsed.append((subnet, subnet.network))
+        except ValueError as exc:
+            issues.append(
+                Issue(Severity.ERROR, f"Subnet {subnet.cidr!r} is not a valid network: {exc}")
+            )
+    for i, (a, a_net) in enumerate(parsed):
+        for b, b_net in parsed[i + 1 :]:
+            if a_net.overlaps(b_net):
                 issues.append(
                     Issue(Severity.ERROR, f"Subnets {a.cidr} and {b.cidr} overlap")
                 )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import ClassVar
 
 from PyQt6.QtCore import Qt
@@ -42,8 +43,11 @@ from netplanner.domain.entities import (
     VlanMode,
     blank_mac,
 )
+from netplanner.errors import ConfigImportError
 from netplanner.export.styles import link_style_for
 from netplanner.gui.config_viewer import ConfigViewerDialog
+
+logger = logging.getLogger(__name__)
 
 # Row order for the Type dropdown in the interfaces table.
 _TYPE_CHOICES = [
@@ -440,7 +444,12 @@ class _ConfigsTab(QWidget):
                 from netplanner.app.controller import AppController
 
                 self._configs.append(AppController.read_config_file(Path(path_str)))
-            except OSError as exc:
+            except (ConfigImportError, OSError) as exc:
+                # read_config_file already wraps OSError as
+                # ConfigImportError and logs the traceback; OSError stays
+                # in the tuple so this keeps working if a future caller
+                # path reads the file directly.
+                logger.warning("Config import skipped for %s: %s", path_str, exc)
                 QMessageBox.warning(self, "Import failed", f"Could not read {path_str}:\n\n{exc}")
         self._refresh_table()
 
@@ -474,6 +483,7 @@ class _ConfigsTab(QWidget):
                 with open(path, "w", encoding="utf-8") as fh:
                     fh.write(cfg.content)
             except OSError as exc:
+                logger.exception("Config export failed writing %s", path)
                 QMessageBox.warning(self, "Save failed", f"Could not write {path}:\n\n{exc}")
 
     def _remove_selected(self) -> None:
