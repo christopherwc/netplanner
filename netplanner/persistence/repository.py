@@ -105,6 +105,18 @@ class PlanRepository:
                 f"Could not load plan id={plan_id} from {self.db_path}: "
                 f"{type(exc).__name__}: {exc}"
             ) from exc
+        except (KeyError, TypeError, ValueError, AttributeError) as exc:
+            # The row was read but could not be turned back into a plan:
+            # a payload written by a newer build, an enum value this one
+            # does not know, or a hand-edited database. Distinguished
+            # from the failures above because the fix is different — the
+            # database is reachable, the data in it is not usable.
+            logger.exception("Stored plan id=%s is malformed", plan_id)
+            raise PersistenceError(
+                f"Plan id={plan_id} in {self.db_path} is stored in a form this "
+                f"version cannot read (malformed or unknown field: "
+                f"{type(exc).__name__}: {exc})"
+            ) from exc
         logger.debug("Loaded %s", self._describe(plan))
         return plan
 
@@ -117,14 +129,16 @@ class PlanRepository:
                     f"No plan with id {plan_id} exists in {self.db_path}"
                 )
             plan = NetworkPlan(name=row.name, plan_id=row.id)
-            for meta_subnet in row.meta.get("subnets", []):
+            # Rows written before the meta column existed store NULL.
+            meta = row.meta or {}
+            for meta_subnet in meta.get("subnets", []):
                 plan.add_subnet(Subnet(**meta_subnet))
-            for meta_vlan in row.meta.get("vlans", []):
+            for meta_vlan in meta.get("vlans", []):
                 plan.add_vlan(Vlan(**meta_vlan))
-            for meta_site in row.meta.get("sites", []):
+            for meta_site in meta.get("sites", []):
                 plan.add_site(Site(**meta_site))
             # Plans saved before annotations existed simply have none.
-            for meta_box in row.meta.get("textboxes", []):
+            for meta_box in meta.get("textboxes", []):
                 plan.add_textbox(TextBox(**meta_box))
             for d_row in row.devices:
                 plan.add_device(_device_from_dict(d_row.payload))
@@ -133,16 +147,37 @@ class PlanRepository:
             return plan
 
     def list_plans(self) -> list[tuple[str, str]]:
-        """Return (id, name) for every stored plan."""
-        with self._session_factory() as session:
-            return [(r.id, r.name) for r in session.query(PlanRow).all()]
+        """Return (id, name) for every stored plan.
+
+        Guarded like save/load: this feeds the open-plan dialog, and a
+        locked or missing database should reach the user as a message
+        rather than as a raw SQLAlchemy error.
+        """
+        try:
+            with self._session_factory() as session:
+                return [(r.id, r.name) for r in session.query(PlanRow).all()]
+        except (SQLAlchemyError, OSError) as exc:
+            logger.exception("Could not list plans in %s", self.db_path)
+            raise PersistenceError(
+                f"Could not list stored plans in {self.db_path}: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
 
     def delete(self, plan_id: str) -> None:
-        with self._session_factory() as session:
-            row = session.get(PlanRow, plan_id)
-            if row:
-                session.delete(row)
-                session.commit()
+        """Delete a stored plan; deleting a missing id is a no-op."""
+        logger.info("Deleting plan id=%s from %s", plan_id, self.db_path)
+        try:
+            with self._session_factory() as session:
+                row = session.get(PlanRow, plan_id)
+                if row:
+                    session.delete(row)
+                    session.commit()
+        except (SQLAlchemyError, OSError) as exc:
+            logger.exception("Delete failed for plan id=%s", plan_id)
+            raise PersistenceError(
+                f"Could not delete plan id={plan_id} from {self.db_path}: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
 
 
 # ------------------------------------------------------------- serialization

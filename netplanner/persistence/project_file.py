@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import os
+import tempfile
 from dataclasses import asdict
 from pathlib import Path
 
@@ -49,7 +52,32 @@ def _save_project_impl(plan: NetworkPlan, path: Path) -> None:
         "sites": [asdict(s) for s in plan.sites.values()],
         "textboxes": [asdict(t) for t in plan.textboxes.values()],
     }
-    path.write_text(json.dumps(doc, indent=2))
+    _write_atomic(path, json.dumps(doc, indent=2))
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    """Write a file so a failure cannot destroy the previous version.
+
+    Overwriting in place truncates the existing file before the new
+    content is written, so a full disk halfway through leaves the user
+    with neither their old plan nor their new one. Writing a temporary
+    file alongside the target and renaming it over the top makes the
+    replacement atomic: it either happened or it did not.
+    """
+    directory = path.parent
+    handle, tmp_name = tempfile.mkstemp(dir=directory, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())  # the rename is only safe once the data is down
+        os.replace(tmp_name, path)
+    except OSError:
+        # Leaving a stray temp file behind would be its own small bug;
+        # failing to remove it is not worth masking the real error.
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_name)
+        raise
 
 
 def load_project(path: Path) -> NetworkPlan:
@@ -67,6 +95,15 @@ def load_project(path: Path) -> NetworkPlan:
         raise PersistenceError(
             f"Could not read project file {path}: {type(exc).__name__}: {exc}"
         ) from exc
+    except UnicodeDecodeError as exc:
+        # A JSONDecodeError would be misleading here: the bytes never
+        # got as far as the JSON parser. Usually a binary file picked by
+        # mistake, or a plan written by a build that did not pin UTF-8.
+        logger.exception("Project file is not UTF-8 text: %s", path)
+        raise PersistenceError(
+            f"Project file {path} is not UTF-8 text (byte {exc.start:#x} at "
+            f"offset {exc.start}); it may not be a NetPlanner plan"
+        ) from exc
     except json.JSONDecodeError as exc:
         logger.exception("Project file is not valid JSON: %s", path)
         raise PersistenceError(
@@ -82,7 +119,11 @@ def load_project(path: Path) -> NetworkPlan:
 
 
 def _load_project_impl(path: Path) -> NetworkPlan:
-    doc = json.loads(path.read_text())
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    # Valid JSON that is not an object at all (a list, a bare string)
+    # would otherwise fail later with an AttributeError from .get().
+    if not isinstance(doc, dict):
+        raise TypeError(f"{path} contains a JSON {type(doc).__name__}, not a plan object")
     if doc.get("format") != "netplan":
         raise ValueError(f"{path} is not a .netplan project file")
     plan = NetworkPlan(name=doc["name"], plan_id=doc.get("id"))
