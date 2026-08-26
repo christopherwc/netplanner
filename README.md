@@ -294,7 +294,7 @@ a schedule, and is called by the release workflow:
 | --- | --- |
 | Lint | ruff, reported as inline annotations on the diff |
 | Type check | mypy — advisory today, see the note in the workflow |
-| Tests | Python 3.10–3.13, gated at 100% line coverage |
+| Tests | Python 3.10–3.14, gated at 100% line coverage |
 | Startup smoke | launches the real entry point; catches import errors a green suite misses |
 | Dependency audit | pip-audit against the declared dependencies |
 | Package | builds sdist and wheel, installs the wheel clean, checks the console script |

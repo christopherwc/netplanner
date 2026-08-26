@@ -324,3 +324,59 @@ def test_validation_reports_a_malformed_subnet_and_still_compares_the_rest():
     assert any("is not a valid network" in m for m in messages)
     # The bad entry does not stop the good ones being compared.
     assert any("overlap" in m for m in messages)
+
+
+# ---------------------------------------------------------- resource cleanup
+def test_closing_a_repository_releases_its_pooled_connections(tmp_path):
+    """The pool keeps SQLite files open until the engine is disposed.
+
+    Left undisposed, those connections are eventually finalized by the
+    garbage collector, which on Python 3.13+ reports each one as an
+    unclosed database.
+    """
+    repo = PlanRepository(db_path=tmp_path / "plans.db")
+    plan, _ = _plan_with_device()
+    repo.save(plan)
+    assert repo._engine.pool.checkedin() == 1  # idle, still open
+
+    repo.close()
+    assert repo._engine.pool.checkedin() == 0
+
+
+def test_repository_works_as_a_context_manager(tmp_path):
+    plan, _ = _plan_with_device()
+    with PlanRepository(db_path=tmp_path / "plans.db") as repo:
+        repo.save(plan)
+        assert repo.load(plan.id).name == plan.name
+    assert repo._engine.pool.checkedin() == 0
+
+
+def test_controller_close_releases_the_repository():
+    repository = MagicMock()
+    from netplanner.app.controller import AppController
+
+    AppController(repository=repository).close()
+    repository.close.assert_called_once()
+
+
+def test_a_failed_open_does_not_leak_the_engine(tmp_path):
+    """The engine exists before create_all runs, so the error path has
+    to dispose it on the way out."""
+    from netplanner.persistence import db as db_module
+
+    created = []
+    real_create_engine = db_module.create_engine
+
+    def tracking_create_engine(*args, **kwargs):
+        engine = real_create_engine(*args, **kwargs)
+        created.append(engine)
+        return engine
+
+    with (
+        patch.object(db_module, "create_engine", tracking_create_engine),
+        pytest.raises(PersistenceError),
+    ):
+        db_module.make_engine(tmp_path / "missing-dir" / "plans.db")
+
+    assert len(created) == 1
+    assert created[0].pool.checkedin() == 0

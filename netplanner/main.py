@@ -77,7 +77,13 @@ def main() -> int:
         return 1
 
     window.show()
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        # The repository pools SQLite connections and holds the database
+        # file open; closing it here means shutdown releases the handles
+        # deterministically instead of leaving them to the collector.
+        controller.close()
 
 
 if __name__ == "__main__":
