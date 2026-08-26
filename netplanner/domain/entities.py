@@ -398,6 +398,11 @@ class Interface:
     # 2.5G access port, a 200 Mbps licensed radio, a rate-limited
     # handoff. None means "use whatever interface_type says".
     speed_mbps_override: int | None = None
+    # Manual type name for media the presets do not cover: "SFP28 DAC",
+    # "T1 serial", "DOCSIS 3.1", "10GBASE-LR". None means the name comes
+    # from interface_type. The enum is still carried underneath as the
+    # fallback for speed, so a custom name never loses its rate.
+    type_label_override: str | None = None
     id: str = field(default_factory=new_id)
 
     @property
@@ -406,6 +411,24 @@ class Interface:
         if self.speed_mbps_override is not None:
             return self.speed_mbps_override
         return self.interface_type.speed_mbps
+
+    @property
+    def type_label(self) -> str:
+        """How this port's media reads: the manual name, or the type's."""
+        return self.type_label_override or self.interface_type.label
+
+    @property
+    def port_summary(self) -> str:
+        """Type and rate for menus, collapsed when they would repeat.
+
+        A preset port's name is already its rate ("1 Gbps"), so printing
+        both would read "1 Gbps, 1 Gbps". A custom port has something to
+        say in each half: "SFP28 DAC, 25 Gbps". A port with no rate at
+        all — a radio nobody has measured — just gives its name.
+        """
+        if self.speed_mbps is None or self.type_label == self.speed_label:
+            return self.type_label
+        return f"{self.type_label}, {self.speed_label}"
 
     @property
     def speed_label(self) -> str:

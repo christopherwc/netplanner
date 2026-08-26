@@ -19,6 +19,14 @@ equipment, cable it up port-by-port, and export the result.
   *Edit properties…* → **Interfaces** tab to add/remove any number of
   ports of any type: **Wireless, 1 Gbps, 10 Gbps, 25 Gbps, or 100 Gbps**,
   with optional IP addresses in CIDR notation.
+- **Custom interface types** — the Type column is a dropdown you can also
+  type into. Pick one of the five built-in classes, or enter your own
+  name for media they don't cover: `SFP28 DAC`, `T1 serial`,
+  `DOCSIS 3.1`, `10GBASE-LR`. A custom name is a label — the preset you
+  had selected stays underneath as the port's default speed, so a
+  renamed port never loses its rate. Typing a preset's name verbatim
+  (any casing) selects that preset rather than storing a lookalike
+  label, and clearing the field returns the port to its preset.
 - **Per-port speed override** — the Type column covers the common cases;
   the **Speed** column next to it covers everything else. Leave it on
   *Default* to follow the type, or pick a preset, or just type the real
