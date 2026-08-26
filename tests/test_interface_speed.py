@@ -448,3 +448,88 @@ def test_interfaces_tab_round_trips_a_custom_type(app):
     assert result.interface_type is InterfaceType.ETH_1G
     assert result.id == device.interfaces[0].id
     dialog.deleteLater()
+
+
+# ------------------------------------- regression: typed types must still count
+def test_a_typed_preset_name_is_that_preset_not_a_custom_label(app):
+    """Regression. Making the Type column editable meant a preset name
+    could arrive without the dropdown being used — typed, completed
+    inline by Qt, or pasted — and reading the type from the selected
+    index left the port on its old media class while the cell displayed
+    the new one."""
+    from netplanner.gui.dialogs import _TypeCombo
+
+    combo = _TypeCombo(InterfaceType.ETH_1G, None)
+    combo.setEditText("10 Gbps")
+    assert combo.base_type() is InterfaceType.ETH_10G
+    assert combo.label_override() is None
+
+    combo.setEditText("10 GBPS")  # casing is not the user's problem
+    assert combo.base_type() is InterfaceType.ETH_10G
+
+    combo.setEditText("SFP28 DAC")  # a real custom name still is one
+    assert combo.base_type() is InterfaceType.ETH_1G
+    assert combo.label_override() == "SFP28 DAC"
+    combo.deleteLater()
+
+
+def test_typing_a_preset_updates_the_speed_columns_default(app):
+    from netplanner.gui.dialogs import DevicePropertiesDialog
+
+    device = Device(name="sw1", device_type=DeviceType.SWITCH)
+    device.interfaces.append(Interface(name="Gig0/1", interface_type=InterfaceType.ETH_1G))
+    dialog = DevicePropertiesDialog(device)
+    type_combo = dialog._interfaces.table.cellWidget(0, 1)
+    speed_combo = dialog._interfaces.table.cellWidget(0, 2)
+
+    type_combo.setEditText("10 Gbps")
+    type_combo._normalize()  # what leaving the field does
+    assert speed_combo.itemText(0) == "Default (10 Gbps)"
+    assert dialog._interfaces.result_interfaces()[0].speed_mbps == 10_000
+    dialog.deleteLater()
+
+
+def test_a_typed_type_change_still_moves_attached_link_speeds(app):
+    """The symptom this regression actually produced: retype both ends
+    to 10 Gbps and the link stayed at 1 Gbps."""
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+    from netplanner.gui.dialogs import DevicePropertiesDialog
+
+    controller = AppController(repository=MagicMock())
+    sw = controller.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    rtr = controller.add_device("rtr1", DeviceType.ROUTER, 400, 0)
+    link = controller.add_link(
+        sw.id, rtr.id, LinkType.FIBER,
+        a_interface_id=sw.interfaces[0].id, b_interface_id=rtr.interfaces[0].id,
+    )
+    controller.plan.recompute_auto_link_speeds()
+    assert link.bandwidth_mbps == 1_000
+
+    for device in (sw, rtr):
+        dialog = DevicePropertiesDialog(device)
+        dialog._interfaces.table.cellWidget(0, 1).setEditText("10 Gbps")
+        controller.edit_device_properties(
+            device.id, device.device_model, device.loopback_ip, device.notes,
+            device.native_vlan, device.status, dialog._interfaces.result_interfaces(),
+        )
+        dialog.deleteLater()
+
+    assert controller.plan.get_link(link.id).bandwidth_mbps == 10_000
+    controller.undo()
+    controller.undo()
+    assert controller.plan.get_link(link.id).bandwidth_mbps == 1_000
+    assert controller.plan.get_device(sw.id).interfaces[0].interface_type is InterfaceType.ETH_1G
+
+
+def test_clearing_a_typed_type_returns_to_the_last_selected_preset(app):
+    from netplanner.gui.dialogs import _TypeCombo
+
+    combo = _TypeCombo(InterfaceType.ETH_25G, None)
+    combo.setEditText("some scratch text")
+    combo.setEditText("")
+    combo._normalize()
+    assert combo.currentText() == "25 Gbps"
+    assert combo.base_type() is InterfaceType.ETH_25G
+    combo.deleteLater()

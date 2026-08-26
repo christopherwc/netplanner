@@ -91,9 +91,15 @@ class _TypeCombo(QComboBox):
     The presets carry a nominal rate, which is what the Speed column
     defers to. A typed name — "SFP28 DAC", "T1 serial", "DOCSIS 3.1" —
     is a label only, so the port keeps whichever preset was selected
-    underneath it as the source of that default rate. Typing the exact
-    name of a preset selects the preset rather than storing a custom
-    label that happens to read the same.
+    underneath it as the source of that default rate.
+
+    Text that names a preset *is* that preset, however it got into the
+    field. Making the box editable meant a name could arrive without the
+    dropdown ever being used — typed by hand, completed inline by Qt, or
+    pasted — and reading the preset from the selected index alone left
+    the port on its old type while the cell displayed the new one. That
+    silently discarded type changes and, with them, the link speeds
+    derived from those types.
     """
 
     def __init__(self, itype: InterfaceType, label_override: str | None, parent=None):
@@ -114,24 +120,42 @@ class _TypeCombo(QComboBox):
         if isinstance(data, InterfaceType):
             self._base = data
 
+    def _named_preset(self) -> InterfaceType | None:
+        """The preset the current text names, if it names one."""
+        text = self.currentText().strip()
+        for choice in _TYPE_CHOICES:
+            if text.casefold() == choice.label.casefold():
+                return choice
+        return None
+
     def base_type(self) -> InterfaceType:
-        """The preset underneath: what an unset speed falls back to."""
-        return self._base
+        """The port's media class: what an unset speed falls back to.
+
+        Reads the text first so a preset typed rather than picked still
+        counts, then falls back to the last preset actually selected.
+        """
+        return self._named_preset() or self._base
 
     def label_override(self) -> str | None:
         """The typed name, or None when the text is just a preset."""
         text = self.currentText().strip()
-        if not text:
+        if not text or self._named_preset() is not None:
             return None
-        for choice in _TYPE_CHOICES:
-            if text.casefold() == choice.label.casefold():
-                return None
         return text
 
     def _normalize(self) -> None:
-        """Blank means 'no custom name', so show the preset again."""
+        """Turn typed text into a real selection where one applies.
+
+        Selecting the item (rather than leaving matching text in the
+        line edit) is what tells the Speed column which preset its
+        Default entry now defers to.
+        """
         if not self.currentText().strip():
             self.setCurrentIndex(_TYPE_CHOICES.index(self._base))
+            return
+        preset = self._named_preset()
+        if preset is not None:
+            self.setCurrentIndex(_TYPE_CHOICES.index(preset))
 
 
 class _SpeedCombo(QComboBox):
