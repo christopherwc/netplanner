@@ -36,8 +36,8 @@ jobs:
     name: Lint (ruff)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -59,7 +59,7 @@ jobs:
     # once it reaches zero.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - name: Run mypy
         run: |
@@ -80,7 +80,7 @@ jobs:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: ./.github/actions/setup
         with:
@@ -108,7 +108,7 @@ jobs:
 
       - name: Upload test artifacts
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-${{ matrix.python-version }}
           path: |
@@ -121,7 +121,7 @@ jobs:
     name: Startup smoke
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Installs the built package, not an editable checkout: this job
       # is about what a user gets from `pip install netplanner`.
       - uses: ./.github/actions/setup
@@ -143,8 +143,8 @@ jobs:
     name: Dependency audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install pip-audit
@@ -159,7 +159,7 @@ jobs:
     name: Build and verify distributions
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Qt libraries are needed even here: the verification step below
       # imports netplanner.gui out of the installed wheel.
       - uses: ./.github/actions/setup
@@ -187,7 +187,7 @@ jobs:
           print('import check ok')
           "
           test -x /tmp/verify/bin/netplanner
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
