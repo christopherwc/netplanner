@@ -19,6 +19,14 @@ equipment, cable it up port-by-port, and export the result.
   *Edit properties…* → **Interfaces** tab to add/remove any number of
   ports of any type: **Wireless, 1 Gbps, 10 Gbps, 25 Gbps, or 100 Gbps**,
   with optional IP addresses in CIDR notation.
+- **Per-port speed override** — the Type column covers the common cases;
+  the **Speed** column next to it covers everything else. Leave it on
+  *Default* to follow the type, or pick a preset, or just type the real
+  figure: `2.5G`, `850`, `200 Mbps`, `40 Gb/s`. A bare number is read as
+  Mbps. This is how you record a 2.5 GbE access port, a licensed radio
+  that negotiates 450 Mbps, or a handoff rate-limited below its port
+  speed. Wireless ports have no nominal rate, so a manual figure is the
+  only way to give one a speed — and link derivation then uses it.
 - **MAC addresses** — every interface starts with an all-zeros placeholder
   MAC (`00:00:00:00:00:00`), editable per-port in the Interfaces tab when
   documenting real hardware. Plans saved before this feature load fine;
@@ -109,11 +117,12 @@ equipment, cable it up port-by-port, and export the result.
   skipped in favour of the wired end; a link between two wireless ports
   is left unset for you to fill in.
 
-  **The speed keeps tracking the interfaces**: change a port's type in
-  the device properties dialog and every attached link recomputes
-  automatically — upgrade that 1 Gbps port to 25 Gbps and the link
-  becomes 10 Gbps, now capped by the other end. It reverts with the
-  same single Ctrl+Z that undoes the interface edit.
+  **The speed keeps tracking the interfaces**: change a port's type *or
+  its manual speed* in the device properties dialog and every attached
+  link recomputes automatically — upgrade that 1 Gbps port to 25 Gbps
+  and the link becomes 10 Gbps, now capped by the other end; throttle a
+  10 Gbps port to `2.5G` and both it and the link follow. It reverts
+  with the same single Ctrl+Z that undoes the interface edit.
 
   Tracking is shown as a **Track interface speeds** checkbox in the link
   dialog. Typing a bandwidth by hand unticks it, and from then on that

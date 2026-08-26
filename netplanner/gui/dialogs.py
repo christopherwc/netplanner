@@ -42,6 +42,8 @@ from netplanner.domain.entities import (
     TextBox,
     VlanMode,
     blank_mac,
+    format_speed_mbps,
+    parse_speed_mbps,
 )
 from netplanner.errors import ConfigImportError
 from netplanner.export.styles import link_style_for
@@ -74,11 +76,69 @@ BANDWIDTH_UNITS = (("Mbps", 1), ("Gbps", 1000))
 
 def _format_mbps(mbps: int) -> str:
     """Render a Mbps figure in whichever unit reads better."""
-    if mbps >= 1000 and mbps % 1000 == 0:
-        return f"{mbps // 1000} Gbps"
-    if mbps >= 1000:
-        return f"{mbps / 1000:g} Gbps"
-    return f"{mbps} Mbps"
+    return format_speed_mbps(mbps)
+
+
+# Offered in the Speed column's dropdown. The list is a convenience, not
+# a constraint: the field is editable, so anything parse_speed_mbps
+# understands can be typed instead.
+_SPEED_PRESETS = [100, 1_000, 2_500, 5_000, 10_000, 25_000, 40_000, 100_000]
+
+
+class _SpeedCombo(QComboBox):
+    """Line-rate picker: common speeds, or type your own.
+
+    The first entry defers to the interface type, and its label follows
+    the row's Type dropdown so the user can see what deferring means.
+    Anything typed is normalized when focus leaves the field —
+    "2.5g" becomes "2.5 Gbps" — and unparsable text reverts to the last
+    good value rather than being quietly discarded at OK time.
+    """
+
+    def __init__(self, mbps: int | None, itype: InterfaceType, parent=None):
+        super().__init__(parent)
+        self.setEditable(True)
+        self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.addItem("", None)  # filled in by set_default_type below
+        for preset in _SPEED_PRESETS:
+            self.addItem(format_speed_mbps(preset), preset)
+        self.set_default_type(itype)
+        self._last_valid: int | None = mbps
+        self.set_mbps(mbps)
+        self.lineEdit().editingFinished.connect(self._normalize)
+
+    def set_default_type(self, itype: InterfaceType) -> None:
+        """Relabel the defer-to-type entry when the row's Type changes."""
+        deferred = self.currentIndex() == 0
+        rate = itype.speed_mbps
+        self.setItemText(0, f"Default ({itype.label})" if rate else "Default (no fixed rate)")
+        if deferred:
+            self.setCurrentIndex(0)
+
+    def set_mbps(self, mbps: int | None) -> None:
+        if mbps is None:
+            self.setCurrentIndex(0)
+            return
+        index = self.findData(mbps)
+        if index >= 0:
+            self.setCurrentIndex(index)
+        else:
+            self.setEditText(format_speed_mbps(mbps))
+
+    def current_mbps(self) -> int | None:
+        """The row's manual override, or None to defer to the type."""
+        text = self.currentText().strip()
+        if not text or text == self.itemText(0):
+            self._last_valid = None
+            return None
+        try:
+            self._last_valid = parse_speed_mbps(text)
+        except ValueError:
+            logger.info("Ignoring unparsable interface speed %r", text)
+        return self._last_valid
+
+    def _normalize(self) -> None:
+        self.set_mbps(self.current_mbps())
 
 
 class DevicePropertiesDialog(QDialog):
@@ -180,36 +240,41 @@ class _GeneralTab(QWidget):
 
 
 class _InterfacesTab(QWidget):
-    """Editable table of the device's ports: name, type, IP, MAC, VLAN.
+    """Editable table of the device's ports: name, type, speed, IP, MAC, VLAN.
 
     The VLAN Mode column picks Access or Trunk; the VLAN(s) column's
     meaning depends on the mode — a single VLAN ID for Access, or a
     comma-separated list of VLAN IDs for Trunk (e.g. "10,20,30").
+
+    Speed defaults to whatever the Type implies, and can be overridden
+    per port for the rates the presets do not cover.
     """
 
     def __init__(self, device: Device, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
 
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(
-            ["Name", "Type", "IP address (CIDR)", "MAC address", "VLAN mode", "VLAN(s)"]
+            ["Name", "Type", "Speed", "IP address (CIDR)", "MAC address",
+             "VLAN mode", "VLAN(s)"]
         )
         self.table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.table)
 
         for iface in device.interfaces:
             self._append_row(
-                iface.name, iface.interface_type, iface.ip_address or "",
-                iface.mac_address, iface.vlan_mode, _vlans_to_text(iface),
-                iface.id,
+                iface.name, iface.interface_type, iface.speed_mbps_override,
+                iface.ip_address or "", iface.mac_address, iface.vlan_mode,
+                _vlans_to_text(iface), iface.id,
             )
 
         buttons_row = QHBoxLayout()
         add_btn = QPushButton("Add interface")
         add_btn.clicked.connect(
             lambda: self._append_row(
-                "", InterfaceType.ETH_1G, "", blank_mac(), VlanMode.ACCESS, "1", None
+                "", InterfaceType.ETH_1G, None, "", blank_mac(),
+                VlanMode.ACCESS, "1", None,
             )
         )
         remove_btn = QPushButton("Remove selected")
@@ -226,6 +291,7 @@ class _InterfacesTab(QWidget):
         self,
         name: str,
         itype: InterfaceType,
+        speed_override: int | None,
         ip: str,
         mac: str,
         vlan_mode: VlanMode,
@@ -252,20 +318,33 @@ class _InterfacesTab(QWidget):
         type_combo.setCurrentIndex(_TYPE_CHOICES.index(itype))
         self.table.setCellWidget(row, 1, type_combo)
 
-        self.table.setItem(row, 2, QTableWidgetItem(ip))
-        self.table.setItem(row, 3, QTableWidgetItem(mac))
+        speed_combo = _SpeedCombo(speed_override, itype)
+        speed_combo.setToolTip(
+            "Line rate for this port. Leave on Default to follow the Type "
+            "column, or type a figure such as 2.5G, 850, or 200 Mbps."
+        )
+        # Keep the Default entry honest when the port's type changes.
+        type_combo.currentIndexChanged.connect(
+            lambda _index, combo=speed_combo, types=type_combo: combo.set_default_type(
+                types.currentData()
+            )
+        )
+        self.table.setCellWidget(row, 2, speed_combo)
+
+        self.table.setItem(row, 3, QTableWidgetItem(ip))
+        self.table.setItem(row, 4, QTableWidgetItem(mac))
 
         vlan_mode_combo = QComboBox()
         for choice in _VLAN_MODE_CHOICES:
             vlan_mode_combo.addItem(choice.label, choice)
         vlan_mode_combo.setCurrentIndex(_VLAN_MODE_CHOICES.index(vlan_mode))
-        self.table.setCellWidget(row, 4, vlan_mode_combo)
+        self.table.setCellWidget(row, 5, vlan_mode_combo)
 
         vlans_item = QTableWidgetItem(vlans_text)
         vlans_item.setToolTip(
             "Access: a single VLAN ID. Trunk: comma-separated VLAN IDs, e.g. 10,20,30"
         )
-        self.table.setItem(row, 5, vlans_item)
+        self.table.setItem(row, 6, vlans_item)
 
     def _remove_selected(self) -> None:
         rows = sorted({i.row() for i in self.table.selectedIndexes()}, reverse=True)
@@ -284,11 +363,12 @@ class _InterfacesTab(QWidget):
         result: list[Interface] = []
         for row in range(self.table.rowCount()):
             name_item = self.table.item(row, 0)
-            ip_item = self.table.item(row, 2)
-            mac_item = self.table.item(row, 3)
-            vlans_item = self.table.item(row, 5)
+            ip_item = self.table.item(row, 3)
+            mac_item = self.table.item(row, 4)
+            vlans_item = self.table.item(row, 6)
             type_combo = self.table.cellWidget(row, 1)
-            vlan_mode_combo = self.table.cellWidget(row, 4)
+            speed_combo = self.table.cellWidget(row, 2)
+            vlan_mode_combo = self.table.cellWidget(row, 5)
 
             name = (name_item.text() if name_item else "").strip()
             if not name:
@@ -309,9 +389,14 @@ class _InterfacesTab(QWidget):
             access_vlan, trunk_vlans = _parse_vlans(vlan_mode, vlans_text)
             iface_id = name_item.data(Qt.ItemDataRole.UserRole)
 
+            speed_override = (
+                speed_combo.current_mbps() if isinstance(speed_combo, _SpeedCombo) else None
+            )
+
             kwargs = {
                 "name": name,
                 "interface_type": itype,
+                "speed_mbps_override": speed_override,
                 "ip_address": ip,
                 "mac_address": mac,
                 "vlan_mode": vlan_mode,
