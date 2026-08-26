@@ -20,7 +20,7 @@ dependencies = [
     "networkx>=3.2",
     "numpy>=1.26",   # required by networkx layout algorithms (spring/circular)
     "scipy>=1.11",   # required by networkx kamada_kawai layout
-    "SQLAlchemy>=2.0",
+    "SQLAlchemy>=2.0.52",
     "reportlab>=4.0",
     "Pillow>=10.0",
 ]
