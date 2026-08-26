@@ -66,6 +66,10 @@ class AppController:
         # Active VLAN highlight; exports mirror what the canvas shows.
         self.vlan_filter: set[int] = set()
 
+    def close(self) -> None:
+        """Release the repository's database handles on shutdown."""
+        self.repository.close()
+
     # ------------------------------------------------------------ plan edits
     def add_device(self, name: str, device_type: DeviceType, x: float, y: float) -> Device:
         """Create a device at (x, y) with its type's default interfaces (undoable)."""

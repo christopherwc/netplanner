@@ -7,6 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import sessionmaker
 
 from netplanner.domain.entities import (
     ConfigFile,
@@ -27,18 +28,38 @@ from netplanner.domain.entities import (
 from netplanner.domain.model import NetworkPlan
 from netplanner.errors import PersistenceError
 
-from .db import DeviceRow, LinkRow, PlanRow, default_db_path, make_session_factory
+from .db import DeviceRow, LinkRow, PlanRow, default_db_path, make_engine
 
 logger = logging.getLogger(__name__)
 
 
 class PlanRepository:
+    """Owns one SQLite engine for the lifetime of a plan session.
+
+    The engine pools its connections, which means it holds SQLite files
+    open until dispose() is called. Use close(), or the context manager,
+    so the handles are released deterministically rather than whenever
+    the garbage collector gets around to it.
+    """
+
     def __init__(self, db_path: Path | None = None):
         # Kept for log/error messages: every PersistenceError names the
         # database it was talking to.
         self.db_path = db_path or default_db_path()
-        self._session_factory = make_session_factory(db_path)
+        self._engine = make_engine(db_path)
+        self._session_factory = sessionmaker(bind=self._engine, expire_on_commit=False)
         logger.debug("Repository opened at %s", self.db_path)
+
+    def close(self) -> None:
+        """Release the pooled SQLite connections. Safe to call twice."""
+        logger.debug("Closing repository at %s", self.db_path)
+        self._engine.dispose()
+
+    def __enter__(self) -> PlanRepository:
+        return self
+
+    def __exit__(self, *_exc_info: object) -> None:
+        self.close()
 
     # ------------------------------------------------------------------- save
     def _describe(self, plan: NetworkPlan) -> str:

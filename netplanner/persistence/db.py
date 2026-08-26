@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 
 from sqlalchemy import JSON, ForeignKey, String, create_engine
+from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
@@ -79,22 +80,38 @@ class LinkRow(Base):
     plan: Mapped[PlanRow] = relationship(back_populates="links")
 
 
-def make_session_factory(db_path: Path | None = None) -> sessionmaker:
+def make_engine(db_path: Path | None = None) -> Engine:
     """Open the database and ensure the schema exists.
 
     create_all() is where an unwritable directory, a file that is not a
     database, or a schema from an incompatible build actually surfaces.
     All three are the same thing to the caller — the database could not
     be opened — so they are reported as one PersistenceError naming it.
+
+    The caller owns the returned engine and must dispose() it; the pool
+    holds open SQLite connections until it does.
     """
     path = db_path or default_db_path()
     logger.debug("Opening SQLite engine at %s", path)
+    engine = create_engine(f"sqlite:///{path}")
     try:
-        engine = create_engine(f"sqlite:///{path}")
         Base.metadata.create_all(engine)
     except (SQLAlchemyError, OSError) as exc:
+        # The engine exists even though the schema step failed, and it
+        # may already hold a connection. Dispose it before unwinding or
+        # it leaks an open file handle on the way out.
+        engine.dispose()
         logger.exception("Could not open the database at %s", path)
         raise PersistenceError(
             f"Could not open the database {path}: {type(exc).__name__}: {exc}"
         ) from exc
-    return sessionmaker(bind=engine, expire_on_commit=False)
+    return engine
+
+
+def make_session_factory(db_path: Path | None = None) -> sessionmaker:
+    """Session factory over a fresh engine.
+
+    Convenience for callers that do not need the engine handle; anything
+    long-lived should use make_engine and dispose it (see PlanRepository).
+    """
+    return sessionmaker(bind=make_engine(db_path), expire_on_commit=False)
