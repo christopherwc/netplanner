@@ -120,7 +120,7 @@ def test_interfaces_tab_add_remove_and_results(app, device):
     # Add a fresh row via the same helper the button uses, name it, and
     # confirm it comes back as a brand-new interface.
     tab._append_row(
-        "", InterfaceType.ETH_10G, None, "", "00:00:00:00:00:00",
+        "", InterfaceType.ETH_10G, None, None, "", "00:00:00:00:00:00",
         VlanMode.ACCESS, "30", None,
     )
     row = tab.table.rowCount() - 1

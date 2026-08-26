@@ -85,6 +85,55 @@ def _format_mbps(mbps: int) -> str:
 _SPEED_PRESETS = [100, 1_000, 2_500, 5_000, 10_000, 25_000, 40_000, 100_000]
 
 
+class _TypeCombo(QComboBox):
+    """Media picker: the built-in classes, or a name you type.
+
+    The presets carry a nominal rate, which is what the Speed column
+    defers to. A typed name — "SFP28 DAC", "T1 serial", "DOCSIS 3.1" —
+    is a label only, so the port keeps whichever preset was selected
+    underneath it as the source of that default rate. Typing the exact
+    name of a preset selects the preset rather than storing a custom
+    label that happens to read the same.
+    """
+
+    def __init__(self, itype: InterfaceType, label_override: str | None, parent=None):
+        super().__init__(parent)
+        self.setEditable(True)
+        self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        for choice in _TYPE_CHOICES:
+            self.addItem(choice.label, choice)
+        self._base = itype
+        self.setCurrentIndex(_TYPE_CHOICES.index(itype))
+        if label_override:
+            self.setEditText(label_override)
+        self.currentIndexChanged.connect(self._on_preset_chosen)
+        self.lineEdit().editingFinished.connect(self._normalize)
+
+    def _on_preset_chosen(self, index: int) -> None:
+        data = self.itemData(index)
+        if isinstance(data, InterfaceType):
+            self._base = data
+
+    def base_type(self) -> InterfaceType:
+        """The preset underneath: what an unset speed falls back to."""
+        return self._base
+
+    def label_override(self) -> str | None:
+        """The typed name, or None when the text is just a preset."""
+        text = self.currentText().strip()
+        if not text:
+            return None
+        for choice in _TYPE_CHOICES:
+            if text.casefold() == choice.label.casefold():
+                return None
+        return text
+
+    def _normalize(self) -> None:
+        """Blank means 'no custom name', so show the preset again."""
+        if not self.currentText().strip():
+            self.setCurrentIndex(_TYPE_CHOICES.index(self._base))
+
+
 class _SpeedCombo(QComboBox):
     """Line-rate picker: common speeds, or type your own.
 
@@ -264,16 +313,17 @@ class _InterfacesTab(QWidget):
 
         for iface in device.interfaces:
             self._append_row(
-                iface.name, iface.interface_type, iface.speed_mbps_override,
-                iface.ip_address or "", iface.mac_address, iface.vlan_mode,
-                _vlans_to_text(iface), iface.id,
+                iface.name, iface.interface_type, iface.type_label_override,
+                iface.speed_mbps_override, iface.ip_address or "",
+                iface.mac_address, iface.vlan_mode, _vlans_to_text(iface),
+                iface.id,
             )
 
         buttons_row = QHBoxLayout()
         add_btn = QPushButton("Add interface")
         add_btn.clicked.connect(
             lambda: self._append_row(
-                "", InterfaceType.ETH_1G, None, "", blank_mac(),
+                "", InterfaceType.ETH_1G, None, None, "", blank_mac(),
                 VlanMode.ACCESS, "1", None,
             )
         )
@@ -291,6 +341,7 @@ class _InterfacesTab(QWidget):
         self,
         name: str,
         itype: InterfaceType,
+        type_label: str | None,
         speed_override: int | None,
         ip: str,
         mac: str,
@@ -312,13 +363,15 @@ class _InterfacesTab(QWidget):
         name_item.setData(Qt.ItemDataRole.UserRole, iface_id)
         self.table.setItem(row, 0, name_item)
 
-        type_combo = QComboBox()
-        for choice in _TYPE_CHOICES:
-            type_combo.addItem(choice.label, choice)
-        type_combo.setCurrentIndex(_TYPE_CHOICES.index(itype))
+        type_combo = _TypeCombo(itype, type_label)
+        type_combo.setToolTip(
+            "Media class for this port. Pick a preset, or type your own "
+            "name — SFP28 DAC, T1 serial, DOCSIS 3.1. A custom name keeps "
+            "the selected preset underneath as its default speed."
+        )
         self.table.setCellWidget(row, 1, type_combo)
 
-        speed_combo = _SpeedCombo(speed_override, itype)
+        speed_combo = _SpeedCombo(speed_override, itype)  # itype: the fallback rate
         speed_combo.setToolTip(
             "Line rate for this port. Leave on Default to follow the Type "
             "column, or type a figure such as 2.5G, 850, or 200 Mbps."
@@ -326,7 +379,7 @@ class _InterfacesTab(QWidget):
         # Keep the Default entry honest when the port's type changes.
         type_combo.currentIndexChanged.connect(
             lambda _index, combo=speed_combo, types=type_combo: combo.set_default_type(
-                types.currentData()
+                types.base_type()
             )
         )
         self.table.setCellWidget(row, 2, speed_combo)
@@ -374,9 +427,12 @@ class _InterfacesTab(QWidget):
             if not name:
                 continue
             itype = (
-                type_combo.currentData()
-                if isinstance(type_combo, QComboBox)
+                type_combo.base_type()
+                if isinstance(type_combo, _TypeCombo)
                 else InterfaceType.ETH_1G
+            )
+            type_label = (
+                type_combo.label_override() if isinstance(type_combo, _TypeCombo) else None
             )
             ip = (ip_item.text() if ip_item else "").strip() or None
             mac = (mac_item.text() if mac_item else "").strip() or blank_mac()
@@ -396,6 +452,7 @@ class _InterfacesTab(QWidget):
             kwargs = {
                 "name": name,
                 "interface_type": itype,
+                "type_label_override": type_label,
                 "speed_mbps_override": speed_override,
                 "ip_address": ip,
                 "mac_address": mac,

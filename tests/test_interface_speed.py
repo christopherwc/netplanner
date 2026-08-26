@@ -319,3 +319,132 @@ def test_editing_a_speed_updates_attached_links_and_undoes_cleanly(app):
     assert controller.plan.get_link(link.id).bandwidth_mbps == 10_000
     assert controller.plan.get_device(sw.id).interfaces[0].speed_mbps_override is None
     dialog.deleteLater()
+
+
+# ------------------------------------------------------------- custom types
+def test_a_custom_type_name_replaces_the_preset_name_only():
+    """The enum stays underneath: a name is a name, and the port keeps
+    a rate to fall back on."""
+    iface = Interface(name="eth0", interface_type=InterfaceType.ETH_25G)
+    iface.type_label_override = "SFP28 DAC"
+    assert iface.type_label == "SFP28 DAC"
+    assert iface.interface_type is InterfaceType.ETH_25G
+    assert iface.speed_mbps == 25_000  # still the preset's rate
+
+
+def test_port_summary_says_only_what_is_worth_saying():
+    preset = Interface(name="Gig0/1", interface_type=InterfaceType.ETH_1G)
+    assert preset.port_summary == "1 Gbps"  # not "1 Gbps, 1 Gbps"
+
+    custom = Interface(name="eth0", interface_type=InterfaceType.ETH_25G)
+    custom.type_label_override = "SFP28 DAC"
+    assert custom.port_summary == "SFP28 DAC, 25 Gbps"
+
+    radio = Interface(name="wlan0", interface_type=InterfaceType.WIRELESS)
+    radio.type_label_override = "60 GHz PtP"
+    assert radio.port_summary == "60 GHz PtP"  # nothing known about the rate
+    radio.speed_mbps_override = 1_800
+    assert radio.port_summary == "60 GHz PtP, 1.8 Gbps"
+
+
+def test_custom_type_survives_the_database(tmp_path):
+    repo = PlanRepository(db_path=tmp_path / "types.db")
+    plan = NetworkPlan("types")
+    device = Device(name="rtr1", device_type=DeviceType.ROUTER)
+    device.interfaces.append(
+        Interface(
+            name="Serial0/0",
+            interface_type=InterfaceType.ETH_1G,
+            type_label_override="T1 serial",
+            speed_mbps_override=2,
+        )
+    )
+    plan.add_device(device)
+    repo.save(plan)
+
+    restored = repo.load(plan.id).devices[0].interfaces[0]
+    assert restored.type_label == "T1 serial"
+    assert restored.speed_mbps == 2
+    assert restored.interface_type is InterfaceType.ETH_1G
+
+
+def test_older_payloads_have_no_custom_type():
+    iface = _interface_from_dict({"name": "Gig0/0", "interface_type": "1g"})
+    assert iface.type_label_override is None
+    assert iface.type_label == "1 Gbps"
+
+
+def test_type_combo_accepts_a_typed_name_and_keeps_its_preset(app):
+    from netplanner.gui.dialogs import _TypeCombo
+
+    combo = _TypeCombo(InterfaceType.ETH_10G, None)
+    assert combo.label_override() is None
+    assert combo.base_type() is InterfaceType.ETH_10G
+
+    combo.setEditText("SFP28 DAC")
+    assert combo.label_override() == "SFP28 DAC"
+    assert combo.base_type() is InterfaceType.ETH_10G  # unchanged underneath
+    combo.deleteLater()
+
+
+def test_typing_a_preset_name_is_not_a_custom_type(app):
+    """Otherwise "10 Gbps" would be stored as a label that merely looks
+    like the preset, and stop following it."""
+    from netplanner.gui.dialogs import _TypeCombo
+
+    combo = _TypeCombo(InterfaceType.ETH_1G, None)
+    combo.setEditText("10 gbps")  # casing should not matter
+    assert combo.label_override() is None
+    combo.deleteLater()
+
+
+def test_clearing_a_custom_type_returns_to_the_preset(app):
+    from netplanner.gui.dialogs import _TypeCombo
+
+    combo = _TypeCombo(InterfaceType.ETH_25G, "SFP28 DAC")
+    assert combo.currentText() == "SFP28 DAC"
+
+    combo.setEditText("   ")
+    assert combo.label_override() is None
+    combo._normalize()
+    assert combo.currentText() == "25 Gbps"
+    combo.deleteLater()
+
+
+def test_choosing_a_preset_moves_the_speed_default_with_it(app):
+    """The Speed column's Default entry has to name the preset the row
+    actually falls back to, custom label or not."""
+    from netplanner.gui.dialogs import DevicePropertiesDialog
+
+    device = Device(name="sw1", device_type=DeviceType.SWITCH)
+    device.interfaces.append(Interface(name="Gig0/1", interface_type=InterfaceType.ETH_1G))
+    dialog = DevicePropertiesDialog(device)
+    type_combo = dialog._interfaces.table.cellWidget(0, 1)
+    speed_combo = dialog._interfaces.table.cellWidget(0, 2)
+    assert speed_combo.itemText(0) == "Default (1 Gbps)"
+
+    type_combo.setCurrentIndex(1)  # 10 Gbps
+    assert speed_combo.itemText(0) == "Default (10 Gbps)"
+
+    type_combo.setEditText("SFP28 DAC")  # a name, not a new preset
+    assert speed_combo.itemText(0) == "Default (10 Gbps)"
+    dialog.deleteLater()
+
+
+def test_interfaces_tab_round_trips_a_custom_type(app):
+    from netplanner.gui.dialogs import DevicePropertiesDialog
+
+    device = Device(name="rtr1", device_type=DeviceType.ROUTER)
+    device.interfaces.append(Interface(name="Se0/0", interface_type=InterfaceType.ETH_1G))
+    dialog = DevicePropertiesDialog(device)
+    tab = dialog._interfaces
+
+    tab.table.cellWidget(0, 1).setEditText("T1 serial")
+    tab.table.cellWidget(0, 2).setEditText("1.5M")
+
+    result = tab.result_interfaces()[0]
+    assert result.type_label_override == "T1 serial"
+    assert result.speed_mbps_override == 2  # 1.5 Mbps rounds to the nearest Mbps
+    assert result.interface_type is InterfaceType.ETH_1G
+    assert result.id == device.interfaces[0].id
+    dialog.deleteLater()
