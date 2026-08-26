@@ -2,6 +2,6 @@ PyQt6>=6.6
 networkx>=3.2
 numpy>=1.26
 scipy>=1.11
-SQLAlchemy>=2.0
+SQLAlchemy>=2.0.52
 reportlab>=4.0
 Pillow>=10.0
