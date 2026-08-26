@@ -96,6 +96,54 @@ class InterfaceType(Enum):
         }[self]
 
 
+def format_speed_mbps(mbps: int) -> str:
+    """Render a Mbps figure in whichever unit reads better."""
+    if mbps >= 1000 and mbps % 1000 == 0:
+        return f"{mbps // 1000} Gbps"
+    if mbps >= 1000:
+        return f"{mbps / 1000:g} Gbps"
+    return f"{mbps} Mbps"
+
+
+def parse_speed_mbps(text: str) -> int | None:
+    """Parse a typed line rate into Mbps.
+
+    Accepts what someone would actually type for a port that is not one
+    of the presets: a bare number in Mbps ("850"), or a number with a
+    unit in any of the usual spellings ("2.5G", "2.5 Gbps", "40 Gb/s",
+    "100M"). Blank means "no manual figure — use the interface type".
+
+    Raises ValueError on anything else, so a typo is rejected rather
+    than silently becoming a speed the user did not intend.
+    """
+    cleaned = text.strip().lower().replace(" ", "")
+    if not cleaned:
+        return None
+
+    multiplier = 1
+    for suffix, factor in (("gbps", 1000), ("gb/s", 1000), ("gbit", 1000),
+                           ("gb", 1000), ("g", 1000),
+                           ("mbps", 1), ("mb/s", 1), ("mbit", 1),
+                           ("mb", 1), ("m", 1)):
+        if cleaned.endswith(suffix):
+            cleaned = cleaned[: -len(suffix)]
+            multiplier = factor
+            break
+
+    try:
+        value = float(cleaned)
+    except ValueError as exc:
+        raise ValueError(f"{text!r} is not a line rate") from exc
+    if value <= 0:
+        raise ValueError(f"{text!r} is not a positive line rate")
+
+    mbps = round(value * multiplier)
+    if mbps < 1:
+        # e.g. "0.4M": rounds to zero, which would read as "unset".
+        raise ValueError(f"{text!r} is below 1 Mbps")
+    return mbps
+
+
 def negotiated_speed_mbps(a: Interface | None, b: Interface | None) -> int | None:
     """The usable rate of a link between two interfaces: the slower end.
 
@@ -107,9 +155,9 @@ def negotiated_speed_mbps(a: Interface | None, b: Interface | None) -> int | Non
     end has a fixed rate, the result is None ("not set").
     """
     speeds = [
-        iface.interface_type.speed_mbps
+        iface.speed_mbps
         for iface in (a, b)
-        if iface is not None and iface.interface_type.speed_mbps is not None
+        if iface is not None and iface.speed_mbps is not None
     ]
     return min(speeds) if speeds else None
 
@@ -346,7 +394,29 @@ class Interface:
     vlan_mode: VlanMode = VlanMode.ACCESS
     access_vlan: int = 1  # VLAN carried untagged when vlan_mode is ACCESS
     trunk_vlans: list[int] = field(default_factory=list)  # tagged VLANs when TRUNK
+    # Manual line rate in Mbps for ports the presets do not cover: a
+    # 2.5G access port, a 200 Mbps licensed radio, a rate-limited
+    # handoff. None means "use whatever interface_type says".
+    speed_mbps_override: int | None = None
     id: str = field(default_factory=new_id)
+
+    @property
+    def speed_mbps(self) -> int | None:
+        """Effective line rate: the manual figure if set, else the type's."""
+        if self.speed_mbps_override is not None:
+            return self.speed_mbps_override
+        return self.interface_type.speed_mbps
+
+    @property
+    def speed_label(self) -> str:
+        """How this port's rate reads in menus and pickers.
+
+        A manual figure is shown as itself; otherwise the interface type
+        speaks for the port, including Wireless, which has no fixed rate.
+        """
+        if self.speed_mbps_override is not None:
+            return format_speed_mbps(self.speed_mbps_override)
+        return self.interface_type.label
 
     def vlan_summary(self) -> str:
         """Short human-readable VLAN description for cards and menus."""

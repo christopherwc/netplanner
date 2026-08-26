@@ -1136,7 +1136,9 @@ class PlanScene(QGraphicsScene):
             return _CANCELLED
         menu = QMenu()
         actions = {
-            menu.addAction(f"{i.name}  ({i.interface_type.label})"): i.id for i in free
+            # speed_label shows a manual rate when one is set, so the
+            # picker reflects what the port actually runs at.
+            menu.addAction(f"{i.name}  ({i.speed_label})"): i.id for i in free
         }
         chosen = menu.exec(QCursor.pos())
         if chosen is None:

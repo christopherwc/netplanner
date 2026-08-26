@@ -119,10 +119,13 @@ def test_interfaces_tab_add_remove_and_results(app, device):
 
     # Add a fresh row via the same helper the button uses, name it, and
     # confirm it comes back as a brand-new interface.
-    tab._append_row("", InterfaceType.ETH_10G, "", "00:00:00:00:00:00", VlanMode.ACCESS, "30", None)
+    tab._append_row(
+        "", InterfaceType.ETH_10G, None, "", "00:00:00:00:00:00",
+        VlanMode.ACCESS, "30", None,
+    )
     row = tab.table.rowCount() - 1
     tab.table.item(row, 0).setText("Fib0/1")
-    tab.table.item(row, 2).setText("172.16.0.1/30")
+    tab.table.item(row, 3).setText("172.16.0.1/30")
 
     # Blank a name so that row is dropped from the results.
     tab.table.item(1, 0).setText("   ")
