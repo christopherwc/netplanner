@@ -405,7 +405,11 @@ class DeviceItem(QGraphicsItem):
         elif chosen is rename_action:
             self._rename()
         elif chosen is props_action:
-            dialog = DevicePropertiesDialog(self.device)
+            # The far-end rates make the Negotiated column real: it
+            # shows what each port will run at, not just what it offers.
+            dialog = DevicePropertiesDialog(
+                self.device, self.controller.plan.peer_speeds_for(self.device)
+            )
             if dialog.exec():
                 self.controller.edit_device_properties(
                     self.device.id,

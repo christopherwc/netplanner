@@ -14,9 +14,9 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtCore import Qt
+
 from netplanner.domain.entities import (
-    GBPS,
-    MBPS,
     Device,
     DeviceType,
     Interface,
@@ -194,143 +194,6 @@ def app():
     yield existing or QApplication([])
 
 
-def test_speed_combo_offers_presets_and_accepts_typing(app):
-    from netplanner.gui.dialogs import _SpeedCombo, _UnitCombo
-
-    units = _UnitCombo()
-    combo = _SpeedCombo(None, InterfaceType.ETH_1G, units)
-    assert combo.current_mbps() is None  # defaults to the type
-    assert combo.itemText(0) == "Default (1 Gbps)"
-
-    combo.setCurrentIndex(combo.findData(10_000))  # a preset
-    assert combo.current_mbps() == 10_000
-
-    combo.setEditText("2.5g")  # a written unit always wins
-    assert combo.current_mbps() == 2_500
-    combo._normalize()
-    assert combo.currentText() == "2.5"
-    assert units.currentText() == "Gbps"
-    combo.deleteLater()
-    units.deleteLater()
-
-
-def test_speed_combo_keeps_the_last_good_value_on_a_typo(app):
-    """Reverting is better than silently storing None: the user asked
-    for a speed, and a typo should not read as 'use the default'."""
-    from netplanner.gui.dialogs import _SpeedCombo, _UnitCombo
-
-    units = _UnitCombo()
-    combo = _SpeedCombo(850, InterfaceType.ETH_1G, units)
-    assert combo.current_mbps() == 850
-    assert units.currentText() == "Mbps"  # sub-gigabit reads better here
-
-    combo.setEditText("fat-fingered")
-    assert combo.current_mbps() == 850
-    combo._normalize()
-    assert combo.currentText() == "850"
-    combo.deleteLater()
-    units.deleteLater()
-
-
-def test_speed_combo_default_entry_follows_the_type(app):
-    from netplanner.gui.dialogs import _SpeedCombo, _UnitCombo
-
-    combo = _SpeedCombo(None, InterfaceType.ETH_1G, _UnitCombo())
-    combo.set_default_type(InterfaceType.ETH_100G)
-    assert combo.itemText(0) == "Default (100 Gbps)"
-    assert combo.current_mbps() is None  # still deferring
-
-    combo.set_default_type(InterfaceType.WIRELESS)
-    assert combo.itemText(0) == "Default (no fixed rate)"
-
-    # A row already carrying a manual figure keeps it when the type moves.
-    custom = _SpeedCombo(2_500, InterfaceType.ETH_1G, _UnitCombo())
-    custom.set_default_type(InterfaceType.ETH_10G)
-    assert custom.current_mbps() == 2_500
-    combo.deleteLater()
-    custom.deleteLater()
-
-
-def test_interfaces_tab_round_trips_a_manual_speed(app):
-    from netplanner.gui.dialogs import DevicePropertiesDialog, _SpeedCombo
-
-    device = Device(name="sw1", device_type=DeviceType.SWITCH)
-    device.interfaces.append(Interface(name="Gig0/1", interface_type=InterfaceType.ETH_1G))
-    device.interfaces.append(
-        Interface(name="Gig0/2", interface_type=InterfaceType.ETH_1G, speed_mbps_override=2_500)
-    )
-    dialog = DevicePropertiesDialog(device)
-    tab = dialog._interfaces
-
-    # The existing override is shown as a number, with its unit beside it.
-    assert tab.table.cellWidget(1, 2).currentText() == "2.5"
-    assert tab.table.cellWidget(1, 3).currentText() == "Gbps"
-
-    # Give the first port a figure the presets do not have.
-    speed_combo = tab.table.cellWidget(0, 2)
-    assert isinstance(speed_combo, _SpeedCombo)
-    speed_combo.setEditText("200M")  # written unit beats the Gbps selector
-
-    result = tab.result_interfaces()
-    assert result[0].speed_mbps_override == 200
-    assert result[0].speed_mbps == 200
-    assert result[1].speed_mbps_override == 2_500
-    assert result[0].id == device.interfaces[0].id  # ids survive the edit
-    dialog.deleteLater()
-
-
-def test_clearing_the_speed_returns_the_port_to_its_type(app):
-    from netplanner.gui.dialogs import DevicePropertiesDialog
-
-    device = Device(name="sw1", device_type=DeviceType.SWITCH)
-    device.interfaces.append(
-        Interface(name="Gig0/1", interface_type=InterfaceType.ETH_10G, speed_mbps_override=2_500)
-    )
-    dialog = DevicePropertiesDialog(device)
-    tab = dialog._interfaces
-
-    tab.table.cellWidget(0, 2).setEditText("")
-    result = tab.result_interfaces()
-    assert result[0].speed_mbps_override is None
-    assert result[0].speed_mbps == 10_000
-    dialog.deleteLater()
-
-
-def test_editing_a_speed_updates_attached_links_and_undoes_cleanly(app):
-    """The end-to-end path: type a rate, OK the dialog, and the links
-    hanging off that port follow — then undo puts everything back."""
-    from unittest.mock import MagicMock
-
-    from netplanner.app.controller import AppController
-    from netplanner.gui.dialogs import DevicePropertiesDialog
-
-    controller = AppController(repository=MagicMock())
-    sw = controller.add_device("sw1", DeviceType.SWITCH, 0, 0)
-    rtr = controller.add_device("rtr1", DeviceType.ROUTER, 400, 0)
-    for device in (sw, rtr):
-        device.interfaces[0].interface_type = InterfaceType.ETH_10G
-    link = controller.add_link(
-        sw.id, rtr.id, LinkType.FIBER,
-        a_interface_id=sw.interfaces[0].id, b_interface_id=rtr.interfaces[0].id,
-    )
-    controller.plan.recompute_auto_link_speeds()
-    assert link.bandwidth_mbps == 10_000
-
-    dialog = DevicePropertiesDialog(sw)
-    dialog._interfaces.table.cellWidget(0, 2).setEditText("2.5 G")
-    controller.edit_device_properties(
-        sw.id, sw.device_model, sw.loopback_ip, sw.notes, sw.native_vlan, sw.status,
-        dialog._interfaces.result_interfaces(),
-    )
-    assert controller.plan.get_link(link.id).bandwidth_mbps == 2_500
-
-    controller.undo()
-    assert controller.plan.get_link(link.id).bandwidth_mbps == 10_000
-    assert controller.plan.get_device(sw.id).interfaces[0].speed_mbps_override is None
-    dialog.deleteLater()
-
-
-# ------------------------------------------------------------- custom types
 def test_a_custom_type_name_replaces_the_preset_name_only():
     """The enum stays underneath: a name is a name, and the port keeps
     a rate to fall back on."""
@@ -420,46 +283,6 @@ def test_clearing_a_custom_type_returns_to_the_preset(app):
     combo.deleteLater()
 
 
-def test_choosing_a_preset_moves_the_speed_default_with_it(app):
-    """The Speed column's Default entry has to name the preset the row
-    actually falls back to, custom label or not."""
-    from netplanner.gui.dialogs import DevicePropertiesDialog
-
-    device = Device(name="sw1", device_type=DeviceType.SWITCH)
-    device.interfaces.append(Interface(name="Gig0/1", interface_type=InterfaceType.ETH_1G))
-    dialog = DevicePropertiesDialog(device)
-    type_combo = dialog._interfaces.table.cellWidget(0, 1)
-    speed_combo = dialog._interfaces.table.cellWidget(0, 2)
-    assert speed_combo.itemText(0) == "Default (1 Gbps)"
-
-    type_combo.setCurrentIndex(1)  # 10 Gbps
-    assert speed_combo.itemText(0) == "Default (10 Gbps)"
-
-    type_combo.setEditText("SFP28 DAC")  # a name, not a new preset
-    assert speed_combo.itemText(0) == "Default (10 Gbps)"
-    dialog.deleteLater()
-
-
-def test_interfaces_tab_round_trips_a_custom_type(app):
-    from netplanner.gui.dialogs import DevicePropertiesDialog
-
-    device = Device(name="rtr1", device_type=DeviceType.ROUTER)
-    device.interfaces.append(Interface(name="Se0/0", interface_type=InterfaceType.ETH_1G))
-    dialog = DevicePropertiesDialog(device)
-    tab = dialog._interfaces
-
-    tab.table.cellWidget(0, 1).setEditText("T1 serial")
-    tab.table.cellWidget(0, 2).setEditText("1.5M")
-
-    result = tab.result_interfaces()[0]
-    assert result.type_label_override == "T1 serial"
-    assert result.speed_mbps_override == 2  # 1.5 Mbps rounds to the nearest Mbps
-    assert result.interface_type is InterfaceType.ETH_1G
-    assert result.id == device.interfaces[0].id
-    dialog.deleteLater()
-
-
-# ------------------------------------- regression: typed types must still count
 def test_a_typed_preset_name_is_that_preset_not_a_custom_label(app):
     """Regression. Making the Type column editable meant a preset name
     could arrive without the dropdown being used — typed, completed
@@ -480,22 +303,6 @@ def test_a_typed_preset_name_is_that_preset_not_a_custom_label(app):
     assert combo.base_type() is InterfaceType.ETH_1G
     assert combo.label_override() == "SFP28 DAC"
     combo.deleteLater()
-
-
-def test_typing_a_preset_updates_the_speed_columns_default(app):
-    from netplanner.gui.dialogs import DevicePropertiesDialog
-
-    device = Device(name="sw1", device_type=DeviceType.SWITCH)
-    device.interfaces.append(Interface(name="Gig0/1", interface_type=InterfaceType.ETH_1G))
-    dialog = DevicePropertiesDialog(device)
-    type_combo = dialog._interfaces.table.cellWidget(0, 1)
-    speed_combo = dialog._interfaces.table.cellWidget(0, 2)
-
-    type_combo.setEditText("10 Gbps")
-    type_combo._normalize()  # what leaving the field does
-    assert speed_combo.itemText(0) == "Default (10 Gbps)"
-    assert dialog._interfaces.result_interfaces()[0].speed_mbps == 10_000
-    dialog.deleteLater()
 
 
 def test_a_typed_type_change_still_moves_attached_link_speeds(app):
@@ -545,115 +352,6 @@ def test_clearing_a_typed_type_returns_to_the_last_selected_preset(app):
 
 
 # ------------------------------------------------------------ units of measure
-def test_a_new_port_reads_numbers_as_gbps(app):
-    """The default unit. A bare 2.5 beside a 10 Gbps type means
-    2.5 Gbps to everyone except a parser that assumes megabits."""
-    from netplanner.gui.dialogs import _SpeedCombo, _UnitCombo
-
-    units = _UnitCombo()
-    assert units.currentText() == "Gbps"
-    assert units.unit() == GBPS
-
-    combo = _SpeedCombo(None, InterfaceType.ETH_10G, units)
-    combo.setEditText("2.5")
-    assert combo.current_mbps() == 2_500
-    combo.deleteLater()
-    units.deleteLater()
-
-
-def test_megabits_become_gigabits_once_they_reach_the_threshold(app):
-    """Enter 2500 in Mbps and it comes back as 2.5 Gbps."""
-    from netplanner.gui.dialogs import _SpeedCombo, _UnitCombo
-
-    units = _UnitCombo()
-    units.set_unit(MBPS)
-    combo = _SpeedCombo(None, InterfaceType.ETH_10G, units)
-
-    combo.setEditText("2500")
-    combo._normalize()  # what leaving the field does
-    assert units.currentText() == "Gbps"
-    assert combo.currentText() == "2.5"
-    assert combo.current_mbps() == 2_500  # the figure itself never moved
-
-    # And the other way: a sub-gigabit figure is clearer in megabits.
-    combo.setEditText("0.85")
-    combo._normalize()
-    assert units.currentText() == "Mbps"
-    assert combo.currentText() == "850"
-    assert combo.current_mbps() == 850
-    combo.deleteLater()
-    units.deleteLater()
-
-
-def test_switching_the_unit_re_expresses_but_does_not_rescale(app):
-    """Switching to Mbps must show 2500, not turn 2.5 into 2.5 Mbps."""
-    from netplanner.gui.dialogs import _SpeedCombo, _UnitCombo
-
-    units = _UnitCombo()
-    combo = _SpeedCombo(2_500, InterfaceType.ETH_10G, units)
-    assert units.currentText() == "Gbps"
-    assert combo.currentText() == "2.5"
-
-    units.set_unit(MBPS)
-    assert combo.currentText() == "2500"
-    assert combo.current_mbps() == 2_500
-
-    units.set_unit(GBPS)
-    assert combo.currentText() == "2.5"
-    assert combo.current_mbps() == 2_500
-    combo.deleteLater()
-    units.deleteLater()
-
-
-def test_a_written_unit_beats_the_selector(app):
-    from netplanner.gui.dialogs import _SpeedCombo, _UnitCombo
-
-    units = _UnitCombo()  # Gbps
-    combo = _SpeedCombo(None, InterfaceType.ETH_1G, units)
-    combo.setEditText("850M")
-    assert combo.current_mbps() == 850
-    combo.deleteLater()
-    units.deleteLater()
-
-
-def test_the_preset_list_follows_the_unit(app):
-    """100 Mbps listed as "0.1" under Gbps would be a worse menu than
-    no menu, so each unit gets its own shortlist."""
-    from netplanner.gui.dialogs import _SpeedCombo, _UnitCombo
-
-    units = _UnitCombo()
-    combo = _SpeedCombo(None, InterfaceType.ETH_1G, units)
-    gbps_items = [combo.itemText(i) for i in range(1, combo.count())]
-    assert "2.5" in gbps_items and "100" in gbps_items  # 2.5G and 100G
-
-    units.set_unit(MBPS)
-    mbps_items = [combo.itemText(i) for i in range(1, combo.count())]
-    assert "200" in mbps_items and "500" in mbps_items
-    assert combo.current_mbps() is None  # still deferring to the type
-    combo.deleteLater()
-    units.deleteLater()
-
-
-def test_interfaces_tab_round_trips_a_speed_entered_in_megabits(app):
-    from netplanner.gui.dialogs import DevicePropertiesDialog
-
-    device = Device(name="sw1", device_type=DeviceType.SWITCH)
-    device.interfaces.append(Interface(name="Gig0/1", interface_type=InterfaceType.ETH_10G))
-    dialog = DevicePropertiesDialog(device)
-    tab = dialog._interfaces
-
-    tab.table.cellWidget(0, 3).set_unit(MBPS)
-    tab.table.cellWidget(0, 2).setEditText("2500")
-    tab.table.cellWidget(0, 2)._normalize()
-
-    assert tab.table.cellWidget(0, 3).currentText() == "Gbps"
-    result = tab.result_interfaces()[0]
-    assert result.speed_mbps_override == 2_500
-    assert result.speed_label == "2.5 Gbps"
-    dialog.deleteLater()
-
-
-# ------------------------------- a type written as a rate is a rate
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
@@ -672,45 +370,6 @@ def test_speed_read_out_of_a_typed_interface_type(text, expected):
     from netplanner.domain.entities import speed_from_type_label
 
     assert speed_from_type_label(text) == expected
-
-
-def test_typing_a_rate_as_the_type_sets_the_ports_speed(app):
-    """The reported symptom: type 2.5G as the interface type and the
-    port stayed at 1 Gbps, so every link off it kept negotiating 1 Gbps."""
-    from netplanner.gui.dialogs import DevicePropertiesDialog
-
-    device = Device(name="sw1", device_type=DeviceType.SWITCH)
-    device.interfaces.append(Interface(name="Gig0/1", interface_type=InterfaceType.ETH_1G))
-    dialog = DevicePropertiesDialog(device)
-    tab = dialog._interfaces
-
-    tab.table.cellWidget(0, 1).setEditText("2.5G")
-
-    # Visible in the table before OK is pressed, not just in the result.
-    assert tab.table.cellWidget(0, 2).currentText() == "2.5"
-    assert tab.table.cellWidget(0, 3).currentText() == "Gbps"
-
-    result = tab.result_interfaces()[0]
-    assert result.speed_mbps == 2_500
-    assert result.type_label_override == "2.5G"
-    dialog.deleteLater()
-
-
-def test_a_type_name_without_a_rate_leaves_the_speed_alone(app):
-    from netplanner.gui.dialogs import DevicePropertiesDialog
-
-    device = Device(name="sw1", device_type=DeviceType.SWITCH)
-    device.interfaces.append(
-        Interface(name="Gig0/1", interface_type=InterfaceType.ETH_25G, speed_mbps_override=2_500)
-    )
-    dialog = DevicePropertiesDialog(device)
-    tab = dialog._interfaces
-
-    tab.table.cellWidget(0, 1).setEditText("SFP28 DAC")
-    result = tab.result_interfaces()[0]
-    assert result.speed_mbps_override == 2_500  # untouched
-    assert result.type_label_override == "SFP28 DAC"
-    dialog.deleteLater()
 
 
 def test_two_typed_rates_negotiate_to_the_slower_end(app):
@@ -763,3 +422,154 @@ def test_a_preset_type_does_not_become_a_manual_speed(app):
     assert result.speed_mbps_override is None
     assert result.speed_mbps == 10_000
     dialog.deleteLater()
+
+
+# ------------------------------------------- the derived Negotiated column
+def _dialog_for(controller, device):
+    from netplanner.gui.dialogs import DevicePropertiesDialog
+
+    return DevicePropertiesDialog(device, controller.plan.peer_speeds_for(device))
+
+
+def _linked_pair(a_type=InterfaceType.ETH_1G, b_type=InterfaceType.ETH_1G):
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+
+    controller = AppController(repository=MagicMock())
+    sw = controller.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    rtr = controller.add_device("rtr1", DeviceType.ROUTER, 400, 0)
+    sw.interfaces[0].interface_type = a_type
+    rtr.interfaces[0].interface_type = b_type
+    link = controller.add_link(
+        sw.id, rtr.id, LinkType.FIBER,
+        a_interface_id=sw.interfaces[0].id, b_interface_id=rtr.interfaces[0].id,
+    )
+    controller.plan.recompute_auto_link_speeds()
+    return controller, sw, rtr, link
+
+
+def test_negotiated_column_is_capped_by_the_far_end(app):
+    """The column's whole point: 40G into a 10G port is 10G."""
+    controller, sw, _, _ = _linked_pair(b_type=InterfaceType.ETH_10G)
+    dialog = _dialog_for(controller, sw)
+    table = dialog._interfaces.table
+
+    assert table.item(0, 2).text() == "1"  # 1G port, 10G peer
+    assert table.cellWidget(0, 3).currentText() == "Gbps"
+
+    table.cellWidget(0, 1).setEditText("40G")
+    assert table.item(0, 2).text() == "10"  # the peer is the limit
+    assert table.cellWidget(0, 3).currentText() == "Gbps"
+    dialog.deleteLater()
+
+
+def test_negotiated_column_is_not_editable(app):
+    controller, sw, _, _ = _linked_pair()
+    dialog = _dialog_for(controller, sw)
+    item = dialog._interfaces.table.item(0, 2)
+    assert not (item.flags() & Qt.ItemFlag.ItemIsEditable)
+    dialog.deleteLater()
+
+
+def test_an_unpatched_port_shows_its_own_rate(app):
+    """With nothing on the far end there is nothing to negotiate down to."""
+    controller, sw, _, _ = _linked_pair()
+    dialog = _dialog_for(controller, sw)
+    table = dialog._interfaces.table
+
+    table.cellWidget(1, 1).setEditText("2.5G")  # row 1 has no link
+    assert table.item(1, 2).text() == "2.5"
+    dialog.deleteLater()
+
+
+def test_a_port_with_no_rate_at_either_end_shows_nothing(app):
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+
+    controller = AppController(repository=MagicMock())
+    ap = controller.add_device("ap1", DeviceType.ACCESS_POINT, 0, 0)
+    dialog = _dialog_for(controller, ap)
+    table = dialog._interfaces.table
+    wireless_rows = [
+        row for row in range(table.rowCount())
+        if table.cellWidget(row, 1).currentText() == "Wireless"
+    ]
+    assert table.item(wireless_rows[0], 2).text() == "—"
+    dialog.deleteLater()
+
+
+def test_the_negotiated_figure_follows_the_unit_that_reads_better(app):
+    controller, sw, _, _ = _linked_pair(b_type=InterfaceType.ETH_10G)
+    dialog = _dialog_for(controller, sw)
+    table = dialog._interfaces.table
+
+    table.cellWidget(0, 1).setEditText("500M")
+    assert table.item(0, 2).text() == "500"
+    assert table.cellWidget(0, 3).currentText() == "Mbps"
+
+    table.cellWidget(0, 1).setEditText("2.5G")
+    assert table.item(0, 2).text() == "2.5"
+    assert table.cellWidget(0, 3).currentText() == "Gbps"
+    dialog.deleteLater()
+
+
+def test_the_rate_typed_as_a_type_reaches_the_link(app):
+    """End to end through the GUI: both ports retyped, link negotiates."""
+    controller, sw, rtr, link = _linked_pair()
+    assert link.bandwidth_mbps == 1_000
+
+    for device, typed in ((sw, "2.5G"), (rtr, "40G")):
+        dialog = _dialog_for(controller, device)
+        dialog._interfaces.table.cellWidget(0, 1).setEditText(typed)
+        controller.edit_device_properties(
+            device.id, device.device_model, device.loopback_ip, device.notes,
+            device.native_vlan, device.status, dialog._interfaces.result_interfaces(),
+        )
+        dialog.deleteLater()
+
+    assert controller.plan.get_link(link.id).bandwidth_mbps == 2_500
+    controller.undo()
+    controller.undo()
+    assert controller.plan.get_link(link.id).bandwidth_mbps == 1_000
+
+
+def test_peer_speeds_for_maps_each_port_to_its_far_end():
+    controller, sw, _, _ = _linked_pair(b_type=InterfaceType.ETH_10G)
+    peers = controller.plan.peer_speeds_for(sw)
+    assert peers[sw.interfaces[0].id] == 10_000  # patched into the router
+    assert peers[sw.interfaces[1].id] is None    # nothing on this one
+
+
+def test_peer_lookup_ignores_links_to_ports_that_are_gone():
+    """A link may name an interface id no device carries any more."""
+    controller, sw, _, link = _linked_pair()
+    link.b_interface_id = "vanished-port"
+    peers = controller.plan.peer_speeds_for(sw)
+    assert peers[sw.interfaces[0].id] is None
+
+
+def test_normalizing_a_blank_type_restores_the_preset(app):
+    from netplanner.gui.dialogs import _TypeCombo
+
+    combo = _TypeCombo(InterfaceType.ETH_10G, "SFP28 DAC")
+    combo.setEditText("")
+    combo._normalize()
+    assert combo.currentText() == "10 Gbps"
+    assert combo.base_type() is InterfaceType.ETH_10G
+    combo.deleteLater()
+
+
+def test_normalizing_a_typed_preset_name_selects_that_preset(app):
+    """Turning matching text into a real selection is what keeps
+    base_type() and the dropdown showing the same thing."""
+    from netplanner.gui.dialogs import _TYPE_CHOICES, _TypeCombo
+
+    combo = _TypeCombo(InterfaceType.ETH_1G, None)
+    combo.setEditText("25 gbps")
+    combo._normalize()
+    assert combo.currentIndex() == _TYPE_CHOICES.index(InterfaceType.ETH_25G)
+    assert combo.base_type() is InterfaceType.ETH_25G
+    assert combo.label_override() is None
+    combo.deleteLater()
