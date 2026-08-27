@@ -1,9 +1,9 @@
 """Per-interface line rates.
 
 A port states its own maximum outright, in the Maximum Interface Speed
-column, read in whatever the Unit column says. Media is a separate
-label describing what the port is, and has no bearing on the rate.
-Negotiated is derived from the two ends and is never typed.
+column, read in whatever the Unit column says. Negotiated is derived
+from the two ends and is never typed. A port has no other physical
+specification: the rate is the whole of it.
 """
 
 from __future__ import annotations
@@ -23,42 +23,18 @@ from netplanner.domain.entities import (
     Device,
     DeviceType,
     Interface,
-    InterfaceType,
     Link,
     LinkType,
     VlanMode,
     format_speed_mbps,
     negotiated_speed_mbps,
-    parse_speed_mbps,
 )
 from netplanner.domain.model import NetworkPlan
 from netplanner.persistence.project_file import load_project, save_project
 from netplanner.persistence.repository import PlanRepository, _interface_from_dict
 
 
-# --------------------------------------------------------------------- parsing
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        ("850", 850),
-        ("2.5G", 2_500),
-        ("2.5 Gbps", 2_500),
-        ("40 Gb/s", 40_000),
-        ("100M", 100),
-        ("  10 Mbit  ", 10),
-        ("", None),
-    ],
-)
-def test_speeds_people_actually_type(text, expected):
-    assert parse_speed_mbps(text) == expected
-
-
-@pytest.mark.parametrize("text", ["fast", "1..5G", "-10", "0", "0.4M"])
-def test_typos_are_rejected_rather_than_guessed(text):
-    with pytest.raises(ValueError):
-        parse_speed_mbps(text)
-
-
+# ------------------------------------------------------------------ formatting
 def test_formatting_picks_the_readable_unit():
     assert format_speed_mbps(850) == "850 Mbps"
     assert format_speed_mbps(1_000) == "1 Gbps"
@@ -80,56 +56,13 @@ def test_a_port_states_its_own_maximum():
 def test_a_blank_rate_means_unknown_not_zero():
     """A radio nobody has measured is carried as unmeasured, rather than
     filled in with whatever its media name suggests."""
-    radio = Interface(
-        name="wlan0", interface_type=InterfaceType.WIRELESS, max_speed_mbps=None
-    )
+    radio = Interface(name="wlan0", max_speed_mbps=None)
     assert radio.speed_mbps is None
     assert radio.speed_label == "rate unknown"
 
     radio.max_speed_mbps = 200
     assert radio.speed_mbps == 200
     assert radio.speed_label == "200 Mbps"
-
-
-def test_the_media_label_does_not_set_the_rate():
-    """The invariant the Media column exists under. A name that looks
-    like a rate is still only a name: "10GBASE-LR" on a 1 Gbps port
-    describes the optic, and does not make the port run at ten gigabits.
-    """
-    iface = Interface(name="eth0", max_speed_mbps=1_000)
-    for label in ("10GBASE-LR", "SFP28 25G", "2.5G", "1000"):
-        iface.type_label_override = label
-        assert iface.type_label == label
-        assert iface.max_speed_mbps == 1_000
-
-
-def test_a_media_label_replaces_the_preset_name_only():
-    iface = Interface(
-        name="eth0", interface_type=InterfaceType.ETH_25G, max_speed_mbps=25_000
-    )
-    iface.type_label_override = "SFP28 DAC"
-    assert iface.type_label == "SFP28 DAC"
-    assert iface.interface_type is InterfaceType.ETH_25G
-    assert iface.speed_mbps == 25_000
-
-
-def test_port_summary_says_only_what_is_worth_saying():
-    preset = Interface(name="Gig0/1", max_speed_mbps=1_000)
-    assert preset.port_summary == "1 Gbps"  # not "1 Gbps, 1 Gbps"
-
-    custom = Interface(
-        name="eth0", interface_type=InterfaceType.ETH_25G, max_speed_mbps=25_000
-    )
-    custom.type_label_override = "SFP28 DAC"
-    assert custom.port_summary == "SFP28 DAC, 25 Gbps"
-
-    radio = Interface(
-        name="wlan0", interface_type=InterfaceType.WIRELESS, max_speed_mbps=None
-    )
-    radio.type_label_override = "60 GHz PtP"
-    assert radio.port_summary == "60 GHz PtP"  # nothing known about the rate
-    radio.max_speed_mbps = 1_800
-    assert radio.port_summary == "60 GHz PtP, 1.8 Gbps"
 
 
 def test_a_link_runs_at_the_slower_end():
@@ -202,11 +135,7 @@ def test_an_unknown_rate_survives_as_unknown(tmp_path):
     repo = PlanRepository(db_path=tmp_path / "unknown.db")
     plan = NetworkPlan("unknown")
     device = Device(name="ptp1", device_type=DeviceType.DISH_RADIO)
-    device.interfaces.append(
-        Interface(
-            name="wlan0", interface_type=InterfaceType.WIRELESS, max_speed_mbps=None
-        )
-    )
+    device.interfaces.append(Interface(name="wlan0", max_speed_mbps=None))
     plan.add_device(device)
     repo.save(plan)
 
@@ -216,11 +145,7 @@ def test_an_unknown_rate_survives_as_unknown(tmp_path):
 def test_a_rate_survives_a_project_file(tmp_path):
     plan = NetworkPlan("speeds")
     device = Device(name="ptp1", device_type=DeviceType.DISH_RADIO)
-    device.interfaces.append(
-        Interface(
-            name="wlan0", interface_type=InterfaceType.WIRELESS, max_speed_mbps=450
-        )
-    )
+    device.interfaces.append(Interface(name="wlan0", max_speed_mbps=450))
     plan.add_device(device)
     path = tmp_path / "speeds.netplan"
     save_project(plan, path)
@@ -228,25 +153,20 @@ def test_a_rate_survives_a_project_file(tmp_path):
     assert load_project(path).devices[0].interfaces[0].max_speed_mbps == 450
 
 
-def test_a_media_label_survives_the_database(tmp_path):
-    repo = PlanRepository(db_path=tmp_path / "types.db")
-    plan = NetworkPlan("types")
-    device = Device(name="rtr1", device_type=DeviceType.ROUTER)
-    device.interfaces.append(
-        Interface(
-            name="Serial0/0",
-            interface_type=InterfaceType.ETH_1G,
-            type_label_override="T1 serial",
-            max_speed_mbps=2,
-        )
+def test_a_stored_media_name_is_dropped_rather_than_refused(tmp_path):
+    """Ports used to carry a media label beside the rate. Loading a plan
+    that still has one must not raise: the label is read past, and the
+    rate it sat next to is what survives."""
+    iface = _interface_from_dict(
+        {
+            "name": "Serial0/0",
+            "interface_type": "1g",
+            "type_label_override": "T1 serial",
+            "speed_mbps_override": 2,
+        }
     )
-    plan.add_device(device)
-    repo.save(plan)
-
-    restored = repo.load(plan.id).devices[0].interfaces[0]
-    assert restored.type_label == "T1 serial"
-    assert restored.speed_mbps == 2
-    assert restored.interface_type is InterfaceType.ETH_1G
+    assert iface.max_speed_mbps == 2
+    assert not hasattr(iface, "type_label_override")
 
 
 @pytest.mark.parametrize(
@@ -271,12 +191,6 @@ def test_plans_written_before_the_rate_was_a_field_keep_their_speeds(payload, ex
     assert _interface_from_dict(payload).max_speed_mbps == expected
 
 
-def test_older_payloads_have_no_media_label():
-    iface = _interface_from_dict({"name": "Gig0/0", "interface_type": "1g"})
-    assert iface.type_label_override is None
-    assert iface.type_label == "1 Gbps"
-
-
 # ------------------------------------------------------------------ the widget
 @pytest.fixture(scope="module")
 def app():
@@ -285,101 +199,6 @@ def app():
 
     existing = QApplication.instance()
     yield existing or QApplication([])
-
-
-def test_the_media_combo_keeps_a_typed_name_and_its_preset(app):
-    from netplanner.gui.dialogs import _TypeCombo
-
-    combo = _TypeCombo(InterfaceType.ETH_10G, None)
-    assert combo.label_override() is None
-    assert combo.base_type() is InterfaceType.ETH_10G
-
-    combo.setEditText("SFP28 DAC")
-    assert combo.label_override() == "SFP28 DAC"
-    assert combo.base_type() is InterfaceType.ETH_10G  # unchanged underneath
-    combo.deleteLater()
-
-
-def test_typing_a_preset_name_is_not_a_custom_label(app):
-    """Otherwise "10 Gbps" would be stored as a label that merely looks
-    like the preset."""
-    from netplanner.gui.dialogs import _TypeCombo
-
-    combo = _TypeCombo(InterfaceType.ETH_1G, None)
-    combo.setEditText("10 gbps")  # casing should not matter
-    assert combo.label_override() is None
-    combo.deleteLater()
-
-
-def test_clearing_a_custom_label_returns_to_the_preset(app):
-    from netplanner.gui.dialogs import _TypeCombo
-
-    combo = _TypeCombo(InterfaceType.ETH_25G, "SFP28 DAC")
-    assert combo.currentText() == "SFP28 DAC"
-
-    combo.setEditText("   ")
-    assert combo.label_override() is None
-    combo._normalize()
-    assert combo.currentText() == "25 Gbps"
-    combo.deleteLater()
-
-
-def test_a_typed_preset_name_is_that_preset_not_a_custom_label(app):
-    """Regression. Making the column editable meant a preset name could
-    arrive without the dropdown being used — typed, completed inline by
-    Qt, or pasted — and reading the class from the selected index left
-    the port on its old one while the cell displayed the new one."""
-    from netplanner.gui.dialogs import _TypeCombo
-
-    combo = _TypeCombo(InterfaceType.ETH_1G, None)
-    combo.setEditText("10 Gbps")
-    assert combo.base_type() is InterfaceType.ETH_10G
-    assert combo.label_override() is None
-
-    combo.setEditText("10 GBPS")  # casing is not the user's problem
-    assert combo.base_type() is InterfaceType.ETH_10G
-
-    combo.setEditText("SFP28 DAC")  # a real custom name still is one
-    assert combo.base_type() is InterfaceType.ETH_1G
-    assert combo.label_override() == "SFP28 DAC"
-    combo.deleteLater()
-
-
-def test_clearing_a_typed_label_returns_to_the_last_selected_preset(app):
-    from netplanner.gui.dialogs import _TypeCombo
-
-    combo = _TypeCombo(InterfaceType.ETH_25G, None)
-    combo.setEditText("some scratch text")
-    combo.setEditText("")
-    combo._normalize()
-    assert combo.currentText() == "25 Gbps"
-    assert combo.base_type() is InterfaceType.ETH_25G
-    combo.deleteLater()
-
-
-def test_normalizing_a_blank_label_restores_the_preset(app):
-    from netplanner.gui.dialogs import _TypeCombo
-
-    combo = _TypeCombo(InterfaceType.ETH_10G, "SFP28 DAC")
-    combo.setEditText("")
-    combo._normalize()
-    assert combo.currentText() == "10 Gbps"
-    assert combo.base_type() is InterfaceType.ETH_10G
-    combo.deleteLater()
-
-
-def test_normalizing_a_typed_preset_name_selects_that_preset(app):
-    """Turning matching text into a real selection is what keeps
-    base_type() and the dropdown showing the same thing."""
-    from netplanner.gui.dialogs import _TYPE_CHOICES, _TypeCombo
-
-    combo = _TypeCombo(InterfaceType.ETH_1G, None)
-    combo.setEditText("25 gbps")
-    combo._normalize()
-    assert combo.currentIndex() == _TYPE_CHOICES.index(InterfaceType.ETH_25G)
-    assert combo.base_type() is InterfaceType.ETH_25G
-    assert combo.label_override() is None
-    combo.deleteLater()
 
 
 # --------------------------------------------------------- the interfaces table
@@ -412,8 +231,9 @@ def test_the_columns_read_left_to_right_as_rate_unit_negotiated(app):
     in what unit, and what that comes to once the far end has its say."""
     from netplanner.gui.dialogs import _COLUMN_LABELS
 
-    assert _COLUMN_LABELS[:5] == [
-        "Name", "Maximum Interface Speed", "Unit", "Negotiated", "Media",
+    assert _COLUMN_LABELS == [
+        "Name", "Maximum Interface Speed", "Unit", "Negotiated",
+        "IP address (CIDR)", "MAC address", "VLAN mode", "VLAN(s)",
     ]
 
 
@@ -428,8 +248,8 @@ def test_a_fresh_row_starts_at_one_gigabit(app):
     dialog = DevicePropertiesDialog(device)
     tab = dialog._interfaces
     tab._append_row(
-        "", InterfaceType.ETH_1G, None, DEFAULT_MAX_SPEED_MBPS, "",
-        "00:00:00:00:00:00", VlanMode.ACCESS, "1", None,
+        "", DEFAULT_MAX_SPEED_MBPS, "", "00:00:00:00:00:00",
+        VlanMode.ACCESS, "1", None,
     )
     row = tab.table.rowCount() - 1
     assert tab.table.cellWidget(row, COL_MAX_SPEED).text() == "1"
@@ -512,17 +332,17 @@ def test_a_port_with_no_rate_at_either_end_shows_nothing(app):
     from unittest.mock import MagicMock
 
     from netplanner.app.controller import AppController
-    from netplanner.gui.dialogs import COL_MEDIA, COL_NEGOTIATED
+    from netplanner.gui.dialogs import COL_MAX_SPEED, COL_NEGOTIATED
 
     controller = AppController(repository=MagicMock())
     ap = controller.add_device("ap1", DeviceType.ACCESS_POINT, 0, 0)
     dialog = _dialog_for(controller, ap)
     table = dialog._interfaces.table
-    wireless_rows = [
+    unrated_rows = [
         row for row in range(table.rowCount())
-        if table.cellWidget(row, COL_MEDIA).currentText() == "Wireless"
+        if table.cellWidget(row, COL_MAX_SPEED).text() == ""
     ]
-    assert table.item(wireless_rows[0], COL_NEGOTIATED).text() == "—"
+    assert table.item(unrated_rows[0], COL_NEGOTIATED).text() == "—"
     dialog.deleteLater()
 
 
@@ -582,34 +402,14 @@ def test_a_rate_typed_into_the_table_reaches_the_link(app):
     assert controller.plan.get_link(link.id).bandwidth_mbps == 1_000
 
 
-def test_a_media_label_typed_into_the_table_leaves_the_rate_alone(app):
-    """Regression. The media name used to be parsed for a rate, so
-    "1000" beside a Gbps selector became a thousand gigabits and
-    overwrote the port's real speed."""
-    from netplanner.gui.dialogs import COL_MAX_SPEED, COL_MEDIA
-
-    controller, sw, _, _ = _linked_pair()
-    dialog = _dialog_for(controller, sw)
-    tab = dialog._interfaces
-
-    tab.table.cellWidget(0, COL_MEDIA).setEditText("1000")
-    assert tab.table.cellWidget(0, COL_MAX_SPEED).text() == "1"
-    result = tab.result_interfaces()[0]
-    assert result.max_speed_mbps == 1_000
-    assert result.type_label == "1000"
-    dialog.deleteLater()
-
-
 def test_opening_and_accepting_the_dialog_does_not_move_the_rate(app):
-    """Regression. A port whose media name read as a rate was re-derived
-    from that name on every open, multiplying the stored figure by a
-    thousand each time the dialog was accepted."""
+    """Regression. A port's rate used to be re-derived from a media name
+    on every open, so a port labelled "1000" had its stored figure
+    multiplied by a thousand each time the dialog was accepted."""
     from netplanner.gui.dialogs import DevicePropertiesDialog
 
     device = Device(name="rtr1", device_type=DeviceType.ROUTER)
-    device.interfaces.append(
-        Interface(name="Gig0/0", type_label_override="1000", max_speed_mbps=1_000)
-    )
+    device.interfaces.append(Interface(name="Gig0/0", max_speed_mbps=1_000))
     for _ in range(4):
         dialog = DevicePropertiesDialog(device)
         device.interfaces = dialog._interfaces.result_interfaces()

@@ -58,44 +58,6 @@ class DeviceStatus(Enum):
         }[self]
 
 
-class InterfaceType(Enum):
-    """Physical/radio interface classes, ordered roughly by speed."""
-
-    WIRELESS = "wireless"
-    ETH_1G = "1g"
-    ETH_10G = "10g"
-    ETH_25G = "25g"
-    ETH_100G = "100g"
-
-    @property
-    def label(self) -> str:
-        """Human-readable label used in menus, dialogs, and labels."""
-        return {
-            InterfaceType.WIRELESS: "Wireless",
-            InterfaceType.ETH_1G: "1 Gbps",
-            InterfaceType.ETH_10G: "10 Gbps",
-            InterfaceType.ETH_25G: "25 Gbps",
-            InterfaceType.ETH_100G: "100 Gbps",
-        }[self]
-
-    @property
-    def speed_mbps(self) -> int | None:
-        """Nominal line rate in Mbps, or None when it isn't fixed.
-
-        Wireless deliberately has no fixed rate: a PtP dish negotiates
-        by modulation, distance and channel width, so inventing a number
-        here would be worse than leaving it unset and letting the user
-        type the real figure.
-        """
-        return {
-            InterfaceType.WIRELESS: None,
-            InterfaceType.ETH_1G: 1_000,
-            InterfaceType.ETH_10G: 10_000,
-            InterfaceType.ETH_25G: 25_000,
-            InterfaceType.ETH_100G: 100_000,
-        }[self]
-
-
 def best_unit_for(mbps: int) -> int:
     """The unit a figure reads best in: gigabits once it reaches 1000.
 
@@ -128,49 +90,6 @@ MBPS = 1
 # default produced, so a port built without a stated rate describes
 # itself the same way it did before the rate became a field.
 DEFAULT_MAX_SPEED_MBPS = 1_000
-
-
-def parse_speed_mbps(text: str, default_unit: int = MBPS) -> int | None:
-    """Parse a typed line rate into Mbps.
-
-    Accepts what someone would actually type: a bare number ("850"), or
-    a number with a unit in any of the usual spellings ("2.5G",
-    "2.5 Gbps", "40 Gb/s", "100M"). Blank means "no manual figure — use
-    the interface type".
-
-    A written unit always wins. A bare number is read in `default_unit`,
-    which is how the Speed column's unit selector gives "2.5" the
-    meaning the person sitting in front of it expects.
-
-    Raises ValueError on anything else, so a typo is rejected rather
-    than silently becoming a speed the user did not intend.
-    """
-    cleaned = text.strip().lower().replace(" ", "")
-    if not cleaned:
-        return None
-
-    multiplier = default_unit
-    for suffix, factor in (("gbps", 1000), ("gb/s", 1000), ("gbit", 1000),
-                           ("gb", 1000), ("g", 1000),
-                           ("mbps", 1), ("mb/s", 1), ("mbit", 1),
-                           ("mb", 1), ("m", 1)):
-        if cleaned.endswith(suffix):
-            cleaned = cleaned[: -len(suffix)]
-            multiplier = factor
-            break
-
-    try:
-        value = float(cleaned)
-    except ValueError as exc:
-        raise ValueError(f"{text!r} is not a line rate") from exc
-    if value <= 0:
-        raise ValueError(f"{text!r} is not a positive line rate")
-
-    mbps = round(value * multiplier)
-    if mbps < 1:
-        # e.g. "0.4M": rounds to zero, which would read as "unset".
-        raise ValueError(f"{text!r} is below 1 Mbps")
-    return mbps
 
 
 def negotiated_speed_mbps(a: Interface | None, b: Interface | None) -> int | None:
@@ -425,24 +344,18 @@ class Interface:
     """
 
     name: str  # e.g. "eth0", "Gig0/1", "wlan0"
-    interface_type: InterfaceType = InterfaceType.ETH_1G
     ip_address: str | None = None  # CIDR notation, e.g. "10.0.1.1/24"
     mac_address: str = field(default_factory=blank_mac)
     subnet_id: str | None = None  # references Subnet.id
     vlan_mode: VlanMode = VlanMode.ACCESS
     access_vlan: int = 1  # VLAN carried untagged when vlan_mode is ACCESS
     trunk_vlans: list[int] = field(default_factory=list)  # tagged VLANs when TRUNK
-    # The fastest this port can run, in Mbps. Stated outright rather
-    # than inferred from the media name, so a 2.5G access port, a
-    # 200 Mbps licensed radio and a rate-limited handoff each say what
-    # they are. None means the rate is unknown — a radio nobody has
-    # measured yet — and is carried as unknown rather than guessed.
+    # The fastest this port can run, in Mbps. A port's whole physical
+    # specification: a 2.5G access port, a 200 Mbps licensed radio and a
+    # rate-limited handoff each say what they are, in a figure. None
+    # means the rate is unknown — a radio nobody has measured yet — and
+    # is carried as unknown rather than guessed.
     max_speed_mbps: int | None = DEFAULT_MAX_SPEED_MBPS
-    # Manual media name for ports the presets do not cover: "SFP28 DAC",
-    # "T1 serial", "DOCSIS 3.1", "10GBASE-LR". None means the name comes
-    # from interface_type. Purely a label: it describes the port, and
-    # never sets or changes max_speed_mbps.
-    type_label_override: str | None = None
     id: str = field(default_factory=new_id)
 
     @property
@@ -451,29 +364,11 @@ class Interface:
         return self.max_speed_mbps
 
     @property
-    def type_label(self) -> str:
-        """How this port's media reads: the manual name, or the type's."""
-        return self.type_label_override or self.interface_type.label
-
-    @property
-    def port_summary(self) -> str:
-        """Media and rate for menus, collapsed when they would repeat.
-
-        A port left on a preset is named for its rate ("1 Gbps"), so
-        printing both would read "1 Gbps, 1 Gbps". A port with a media
-        name of its own has something to say in each half: "SFP28 DAC,
-        25 Gbps". A port with no rate at all just gives its name.
-        """
-        if self.max_speed_mbps is None or self.type_label == self.speed_label:
-            return self.type_label
-        return f"{self.type_label}, {self.speed_label}"
-
-    @property
     def speed_label(self) -> str:
         """How this port's rate reads in menus and pickers.
 
         A port whose rate was never established says so, rather than
-        borrowing a figure from its media name.
+        offering a figure nobody established.
         """
         if self.max_speed_mbps is None:
             return "rate unknown"

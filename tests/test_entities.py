@@ -158,39 +158,39 @@ def test_typed_default_interfaces():
     from unittest.mock import MagicMock
 
     from netplanner.app.controller import AppController
-    from netplanner.domain.entities import InterfaceType
 
     ctrl = AppController(repository=MagicMock())
     sw = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
-    types = [i.interface_type for i in sw.interfaces]
-    assert types.count(InterfaceType.ETH_1G) == 8
-    assert types.count(InterfaceType.ETH_10G) == 2
+    rates = [i.max_speed_mbps for i in sw.interfaces]
+    assert rates.count(1_000) == 8
+    assert rates.count(10_000) == 2
+    # A radio's port has no rate until someone measures it.
     ap = ctrl.add_device("apr1", DeviceType.AP_RADIO, 0, 0)
-    assert any(i.interface_type == InterfaceType.WIRELESS for i in ap.interfaces)
+    assert any(i.max_speed_mbps is None for i in ap.interfaces)
 
 
-def test_interface_types_persist():
+def test_interface_rates_persist():
     from pathlib import Path
 
-    from netplanner.domain.entities import Device, Interface, InterfaceType
+    from netplanner.domain.entities import Device, Interface
     from netplanner.domain.model import NetworkPlan
     from netplanner.persistence.repository import PlanRepository
 
-    repo = PlanRepository(db_path=Path("/tmp/iface_types.db"))
+    repo = PlanRepository(db_path=Path("/tmp/iface_rates.db"))
     plan = NetworkPlan("typed")
     plan.add_device(Device(
         name="core",
         device_type=DeviceType.SWITCH,
         interfaces=[
-            Interface(name="Hun0/1", interface_type=InterfaceType.ETH_100G),
-            Interface(name="Twe0/1", interface_type=InterfaceType.ETH_25G),
+            Interface(name="Hun0/1", max_speed_mbps=100_000),
+            Interface(name="Twe0/1", max_speed_mbps=25_000),
         ],
     ))
     repo.save(plan)
     loaded = repo.load(plan.id)
-    loaded_types = {i.name: i.interface_type for i in loaded.devices[0].interfaces}
-    assert loaded_types["Hun0/1"] == InterfaceType.ETH_100G
-    assert loaded_types["Twe0/1"] == InterfaceType.ETH_25G
+    rates = {i.name: i.max_speed_mbps for i in loaded.devices[0].interfaces}
+    assert rates["Hun0/1"] == 100_000
+    assert rates["Twe0/1"] == 25_000
 
 
 def test_macs_default_to_all_zeros():
@@ -1521,59 +1521,38 @@ def test_labelled_link_exports(tmp_path):
 
 
 # --------------------------------------------------------- link speed logic
-def test_interface_type_speeds():
-    from netplanner.domain.entities import InterfaceType
-
-    assert InterfaceType.ETH_1G.speed_mbps == 1_000
-    assert InterfaceType.ETH_10G.speed_mbps == 10_000
-    assert InterfaceType.ETH_25G.speed_mbps == 25_000
-    assert InterfaceType.ETH_100G.speed_mbps == 100_000
-    # Wireless has no fixed line rate; inventing one would be misleading.
-    assert InterfaceType.WIRELESS.speed_mbps is None
-
-
-def test_every_interface_type_has_a_speed_entry():
-    """Guards against a new interface type missing from the speed table."""
-    from netplanner.domain.entities import InterfaceType
-
-    for itype in InterfaceType:
-        _ = itype.speed_mbps  # raises KeyError if unmapped
-
-
 def test_negotiated_speed_takes_the_slower_end():
-    from netplanner.domain.entities import Interface, InterfaceType, negotiated_speed_mbps
+    from netplanner.domain.entities import Interface, negotiated_speed_mbps
 
-    def iface(itype):
-        return Interface(name="x", interface_type=itype,
-                         max_speed_mbps=itype.speed_mbps)
+    def iface(mbps):
+        return Interface(name="x", max_speed_mbps=mbps)
 
     assert negotiated_speed_mbps(
-        iface(InterfaceType.ETH_10G), iface(InterfaceType.ETH_1G)
+        iface(10_000), iface(1_000)
     ) == 1_000
     assert negotiated_speed_mbps(
-        iface(InterfaceType.ETH_100G), iface(InterfaceType.ETH_25G)
+        iface(100_000), iface(25_000)
     ) == 25_000
     # Order must not matter.
     assert negotiated_speed_mbps(
-        iface(InterfaceType.ETH_1G), iface(InterfaceType.ETH_100G)
+        iface(1_000), iface(100_000)
     ) == 1_000
 
 
 def test_negotiated_speed_ignores_rateless_wireless():
     """A dish patched into a 1G port: the wired end is the best estimate
     available, so it's used rather than discarding the link's speed."""
-    from netplanner.domain.entities import Interface, InterfaceType, negotiated_speed_mbps
+    from netplanner.domain.entities import Interface, negotiated_speed_mbps
 
-    def iface(itype):
-        return Interface(name="x", interface_type=itype,
-                         max_speed_mbps=itype.speed_mbps)
+    def iface(mbps):
+        return Interface(name="x", max_speed_mbps=mbps)
 
     assert negotiated_speed_mbps(
-        iface(InterfaceType.WIRELESS), iface(InterfaceType.ETH_1G)
+        iface(None), iface(1_000)
     ) == 1_000
     # Both ends rateless: nothing can be inferred.
     assert negotiated_speed_mbps(
-        iface(InterfaceType.WIRELESS), iface(InterfaceType.WIRELESS)
+        iface(None), iface(None)
     ) is None
 
 
@@ -1587,12 +1566,12 @@ def test_new_link_auto_populates_the_slower_speed():
     from unittest.mock import MagicMock
 
     from netplanner.app.controller import AppController
-    from netplanner.domain.entities import InterfaceType, LinkType
+    from netplanner.domain.entities import LinkType
 
     ctrl = AppController(repository=MagicMock())
     sw = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
     rtr = ctrl.add_device("rtr1", DeviceType.ROUTER, 300, 0)
-    ten_gig = next(i for i in sw.interfaces if i.interface_type is InterfaceType.ETH_10G)
+    ten_gig = next(i for i in sw.interfaces if i.max_speed_mbps == 10_000)
     one_gig = rtr.interfaces[0]
 
     link = ctrl.add_link(
@@ -1618,12 +1597,12 @@ def test_link_derived_speed_reflects_current_ports():
     from unittest.mock import MagicMock
 
     from netplanner.app.controller import AppController
-    from netplanner.domain.entities import InterfaceType, LinkType
+    from netplanner.domain.entities import LinkType
 
     ctrl = AppController(repository=MagicMock())
     sw = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
     rtr = ctrl.add_device("rtr1", DeviceType.ROUTER, 300, 0)
-    ten_gig = next(i for i in sw.interfaces if i.interface_type is InterfaceType.ETH_10G)
+    ten_gig = next(i for i in sw.interfaces if i.max_speed_mbps == 10_000)
     link = ctrl.add_link(
         sw.id, rtr.id, LinkType.FIBER,
         a_interface_id=ten_gig.id, b_interface_id=rtr.interfaces[0].id,
@@ -1661,12 +1640,12 @@ def _linked_10g_to_1g():
     from unittest.mock import MagicMock
 
     from netplanner.app.controller import AppController
-    from netplanner.domain.entities import InterfaceType, LinkType
+    from netplanner.domain.entities import LinkType
 
     ctrl = AppController(repository=MagicMock())
     sw = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
     rtr = ctrl.add_device("rtr1", DeviceType.ROUTER, 300, 0)
-    ten_gig = next(i for i in sw.interfaces if i.interface_type is InterfaceType.ETH_10G)
+    ten_gig = next(i for i in sw.interfaces if i.max_speed_mbps == 10_000)
     link = ctrl.add_link(
         sw.id, rtr.id, LinkType.FIBER,
         a_interface_id=ten_gig.id, b_interface_id=rtr.interfaces[0].id,
@@ -1674,15 +1653,14 @@ def _linked_10g_to_1g():
     return ctrl, sw, rtr, link
 
 
-def _edit_port_type(ctrl, device, index, new_type):
-    """Replace a port's type the way the dialog does: new objects, same ids."""
+def _edit_port_rate(ctrl, device, index, new_mbps):
+    """Re-rate a port the way the dialog does: new objects, same ids."""
     from dataclasses import replace
 
     from netplanner.domain.entities import DeviceStatus
 
     interfaces = [
-        replace(iface, interface_type=new_type, max_speed_mbps=new_type.speed_mbps)
-        if i == index else replace(iface)
+        replace(iface, max_speed_mbps=new_mbps) if i == index else replace(iface)
         for i, iface in enumerate(device.interfaces)
     ]
     ctrl.edit_device_properties(
@@ -1699,32 +1677,26 @@ def test_new_links_track_interface_speeds_by_default():
 
 def test_link_speed_follows_a_port_upgrade():
     """The feature: raise the slow end and the link follows."""
-    from netplanner.domain.entities import InterfaceType
-
     ctrl, _, rtr, link = _linked_10g_to_1g()
-    _edit_port_type(ctrl, rtr, 0, InterfaceType.ETH_25G)
+    _edit_port_rate(ctrl, rtr, 0, 25_000)
     assert link.bandwidth_mbps == 10_000  # now capped by the 10G end
 
 
 def test_link_speed_follows_a_port_downgrade():
-    from netplanner.domain.entities import InterfaceType
-
     ctrl, sw, _, link = _linked_10g_to_1g()
     index = next(
         i for i, iface in enumerate(sw.interfaces)
-        if iface.interface_type is InterfaceType.ETH_10G
+        if iface.max_speed_mbps == 10_000
     )
-    _edit_port_type(ctrl, sw, index, InterfaceType.ETH_1G)
+    _edit_port_rate(ctrl, sw, index, 1_000)
     assert link.bandwidth_mbps == 1_000
 
 
 def test_recomputed_speed_undoes_with_the_interface_edit():
     """Undo restores the ports and re-derives from them, so the speed
     reverts as part of the same single undo step."""
-    from netplanner.domain.entities import InterfaceType
-
     ctrl, _, rtr, link = _linked_10g_to_1g()
-    _edit_port_type(ctrl, rtr, 0, InterfaceType.ETH_25G)
+    _edit_port_rate(ctrl, rtr, 0, 25_000)
     assert link.bandwidth_mbps == 10_000
     ctrl.undo()
     assert link.bandwidth_mbps == 1_000
@@ -1734,23 +1706,23 @@ def test_recomputed_speed_undoes_with_the_interface_edit():
 
 def test_manual_bandwidth_is_never_overwritten():
     """A measured or contracted rate must survive port changes."""
-    from netplanner.domain.entities import InterfaceType, LinkType
+    from netplanner.domain.entities import LinkType
 
     ctrl, _, rtr, link = _linked_10g_to_1g()
     ctrl.edit_link(link.id, "", LinkType.FIBER, 500, bandwidth_auto=False)
     assert link.bandwidth_auto is False
 
-    _edit_port_type(ctrl, rtr, 0, InterfaceType.ETH_100G)
+    _edit_port_rate(ctrl, rtr, 0, 100_000)
     assert link.bandwidth_mbps == 500  # untouched
 
 
 def test_reenabling_auto_resumes_tracking():
-    from netplanner.domain.entities import InterfaceType, LinkType
+    from netplanner.domain.entities import LinkType
 
     ctrl, _, rtr, link = _linked_10g_to_1g()
     ctrl.edit_link(link.id, "", LinkType.FIBER, 500, bandwidth_auto=False)
     ctrl.edit_link(link.id, "", LinkType.FIBER, 1_000, bandwidth_auto=True)
-    _edit_port_type(ctrl, rtr, 0, InterfaceType.ETH_25G)
+    _edit_port_rate(ctrl, rtr, 0, 25_000)
     assert link.bandwidth_mbps == 10_000
 
 
@@ -1765,7 +1737,7 @@ def test_recompute_only_touches_links_that_changed():
 def test_editing_an_unrelated_device_leaves_speeds_alone():
     ctrl, _, _, link = _linked_10g_to_1g()
     other = ctrl.add_device("ws1", DeviceType.WORKSTATION, 600, 0)
-    _edit_port_type(ctrl, other, 0, other.interfaces[0].interface_type)
+    _edit_port_rate(ctrl, other, 0, other.interfaces[0].max_speed_mbps)
     assert link.bandwidth_mbps == 1_000
 
 

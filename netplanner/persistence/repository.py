@@ -10,13 +10,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 
 from netplanner.domain.entities import (
+    DEFAULT_MAX_SPEED_MBPS,
     ConfigFile,
     ConfigFormat,
     Device,
     DeviceStatus,
     DeviceType,
     Interface,
-    InterfaceType,
     Link,
     LinkType,
     Site,
@@ -210,7 +210,6 @@ def _device_to_dict(d: Device) -> dict:
     for cfg_data, cfg in zip(data.get("configs", []), d.configs, strict=True):
         cfg_data["config_format"] = cfg.config_format.value
     for iface_data, iface in zip(data["interfaces"], d.interfaces, strict=True):
-        iface_data["interface_type"] = iface.interface_type.value
         iface_data["vlan_mode"] = iface.vlan_mode.value
     return data
 
@@ -218,9 +217,9 @@ def _device_to_dict(d: Device) -> dict:
 def _device_from_dict(data: dict) -> Device:
     """Rebuild a Device from a stored dict.
 
-    Payloads written before interface types existed lack the
-    "interface_type" key; those default to 1 Gbps. Payloads written
-    before status tags existed lack "status"; those default to Active.
+    Payloads written before status tags existed lack "status"; those
+    default to Active. See _interface_from_dict for how a port's rate is
+    recovered from the older shapes it was stored in.
     """
     data = dict(data)
     data["device_type"] = DeviceType(data["device_type"])
@@ -238,20 +237,36 @@ def _config_from_dict(data: dict) -> ConfigFile:
     return ConfigFile(**data)
 
 
+# Ports used to carry a media class, and to take their rate from it
+# when no explicit figure was set. The classes are gone; the rates they
+# stood for are not, and a plan written by an older build still names
+# them. Decoding that naming is a storage-format concern, which is why
+# the table lives here rather than in the domain.
+_LEGACY_TYPE_SPEEDS_MBPS: dict[str, int | None] = {
+    "wireless": None,   # never had a nominal rate to begin with
+    "1g": 1_000,
+    "10g": 10_000,
+    "25g": 25_000,
+    "100g": 100_000,
+}
+
+
 def _interface_from_dict(data: dict) -> Interface:
     """Rebuild an Interface, tolerating pre-MAC, pre-type, and pre-VLAN payloads."""
     data = dict(data)
-    itype = InterfaceType(data.get("interface_type", "1g"))
-    data["interface_type"] = itype
     # Plans written before the rate became a field of its own carried it
-    # as "speed_mbps_override": a figure only for ports the presets did
-    # not cover, with everything else falling back to the type. Promote
-    # that fallback to a stated rate so a port keeps running at the
-    # speed it ran at before, and Wireless keeps having none.
+    # as "speed_mbps_override": a figure only for ports the media class
+    # did not cover, with everything else falling back to that class.
+    # Promote the fallback to a stated rate so a port keeps running at
+    # the speed it ran at before, and an unmeasured radio keeps none.
+    legacy_type = data.pop("interface_type", "1g")
     legacy_speed = data.pop("speed_mbps_override", None)
+    data.pop("type_label_override", None)  # the media name, no longer carried
     if "max_speed_mbps" not in data:
         data["max_speed_mbps"] = (
-            legacy_speed if legacy_speed is not None else itype.speed_mbps
+            legacy_speed
+            if legacy_speed is not None
+            else _LEGACY_TYPE_SPEEDS_MBPS.get(legacy_type, DEFAULT_MAX_SPEED_MBPS)
         )
     # Older plans predate VLAN support; default to plain access-mode VLAN 1.
     data["vlan_mode"] = VlanMode(data.get("vlan_mode", "access"))

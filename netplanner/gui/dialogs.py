@@ -39,7 +39,6 @@ from netplanner.domain.entities import (
     Device,
     DeviceStatus,
     Interface,
-    InterfaceType,
     Link,
     LinkType,
     Site,
@@ -65,31 +64,20 @@ COL_NAME = 0
 COL_MAX_SPEED = 1
 COL_UNIT = 2
 COL_NEGOTIATED = 3
-COL_MEDIA = 4
-COL_IP = 5
-COL_MAC = 6
-COL_VLAN_MODE = 7
-COL_VLANS = 8
+COL_IP = 4
+COL_MAC = 5
+COL_VLAN_MODE = 6
+COL_VLANS = 7
 
 _COLUMN_LABELS = [
     "Name",
     "Maximum Interface Speed",
     "Unit",
     "Negotiated",
-    "Media",
     "IP address (CIDR)",
     "MAC address",
     "VLAN mode",
     "VLAN(s)",
-]
-
-# Row order for the Media dropdown in the interfaces table.
-_TYPE_CHOICES = [
-    InterfaceType.ETH_1G,
-    InterfaceType.ETH_10G,
-    InterfaceType.ETH_25G,
-    InterfaceType.ETH_100G,
-    InterfaceType.WIRELESS,
 ]
 
 # Row order for the VLAN Mode dropdown in the interfaces table.
@@ -109,13 +97,6 @@ BANDWIDTH_UNITS = (("Mbps", 1), ("Gbps", 1000))
 def _format_mbps(mbps: int) -> str:
     """Render a Mbps figure in whichever unit reads better."""
     return format_speed_mbps(mbps)
-
-
-# Offered in the Speed column's dropdown, one shortlist per unit. They
-# are a convenience, not a constraint: the field is editable, so
-# anything parse_speed_mbps understands can be typed instead.
-_SPEED_PRESETS_MBPS = [10, 100, 200, 500]
-_SPEED_PRESETS_GBPS = [1_000, 2_500, 5_000, 10_000, 25_000, 40_000, 100_000]
 
 
 class _UnitCombo(QComboBox):
@@ -201,82 +182,6 @@ class _SpeedEdit(QLineEdit):
     def set_mbps(self, mbps: int | None, unit: int) -> None:
         """Show a stored rate in `unit`, or clear the field for None."""
         self.setText("" if mbps is None else format_speed_value(mbps, unit))
-
-
-class _TypeCombo(QComboBox):
-    """Media picker: the built-in classes, or a name you type.
-
-    This column describes what the port *is* — "SFP28 DAC", "T1 serial",
-    "DOCSIS 3.1", "10GBASE-LR". It is a label and only a label: the rate
-    lives in its own column and is never inferred from this text.
-
-    Reading a rate out of the media name is what this column used to do,
-    and it could not be made safe. "1000" beside a Gbps selector is a
-    thousand megabits to the person typing it and a thousand gigabits to
-    a parser told to read bare numbers as gigabits, and the figure it
-    produced overwrote the stored rate every time the dialog opened.
-
-    Text that names a preset *is* that preset, however it got into the
-    field. Making the box editable meant a name could arrive without the
-    dropdown ever being used — typed by hand, completed inline by Qt, or
-    pasted — and reading the preset from the selected index alone left
-    the port on its old media class while the cell displayed the new one.
-    """
-
-    def __init__(self, itype: InterfaceType, label_override: str | None, parent=None):
-        super().__init__(parent)
-        self.setEditable(True)
-        self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        for choice in _TYPE_CHOICES:
-            self.addItem(choice.label, choice)
-        self._base = itype
-        self.setCurrentIndex(_TYPE_CHOICES.index(itype))
-        if label_override:
-            self.setEditText(label_override)
-        self.currentIndexChanged.connect(self._on_preset_chosen)
-        self.lineEdit().editingFinished.connect(self._normalize)
-
-    def _on_preset_chosen(self, index: int) -> None:
-        data = self.itemData(index)
-        if isinstance(data, InterfaceType):
-            self._base = data
-
-    def _named_preset(self) -> InterfaceType | None:
-        """The preset the current text names, if it names one."""
-        text = self.currentText().strip()
-        for choice in _TYPE_CHOICES:
-            if text.casefold() == choice.label.casefold():
-                return choice
-        return None
-
-    def base_type(self) -> InterfaceType:
-        """The port's media class: what an unset speed falls back to.
-
-        Reads the text first so a preset typed rather than picked still
-        counts, then falls back to the last preset actually selected.
-        """
-        return self._named_preset() or self._base
-
-    def label_override(self) -> str | None:
-        """The typed name, or None when the text is just a preset."""
-        text = self.currentText().strip()
-        if not text or self._named_preset() is not None:
-            return None
-        return text
-
-    def _normalize(self) -> None:
-        """Turn typed text into a real selection where one applies.
-
-        Selecting the item (rather than leaving matching text in the
-        line edit) is what tells the Speed column which preset its
-        Default entry now defers to.
-        """
-        if not self.currentText().strip():
-            self.setCurrentIndex(_TYPE_CHOICES.index(self._base))
-            return
-        preset = self._named_preset()
-        if preset is not None:
-            self.setCurrentIndex(_TYPE_CHOICES.index(preset))
 
 
 class DevicePropertiesDialog(QDialog):
@@ -387,7 +292,7 @@ class _GeneralTab(QWidget):
 
 
 class _InterfacesTab(QWidget):
-    """Editable table of the device's ports: rate, media, IP, MAC, VLAN.
+    """Editable table of the device's ports: rate, IP, MAC, VLAN.
 
     The VLAN Mode column picks Access or Trunk; the VLAN(s) column's
     meaning depends on the mode — a single VLAN ID for Access, or a
@@ -398,9 +303,6 @@ class _InterfacesTab(QWidget):
     next to them and is not an input: it is what the port will actually
     run at once the far end has had its say, recomputed as the rate and
     the unit are edited.
-
-    Media is a label. It records what the port is — "SFP28 DAC", "T1
-    serial" — and has no bearing on the rate.
     """
 
     def __init__(
@@ -422,8 +324,7 @@ class _InterfacesTab(QWidget):
 
         for iface in device.interfaces:
             self._append_row(
-                iface.name, iface.interface_type, iface.type_label_override,
-                iface.max_speed_mbps, iface.ip_address or "",
+                iface.name, iface.max_speed_mbps, iface.ip_address or "",
                 iface.mac_address, iface.vlan_mode, _vlans_to_text(iface),
                 iface.id,
             )
@@ -432,8 +333,8 @@ class _InterfacesTab(QWidget):
         add_btn = QPushButton("Add interface")
         add_btn.clicked.connect(
             lambda: self._append_row(
-                "", InterfaceType.ETH_1G, None, DEFAULT_MAX_SPEED_MBPS, "",
-                blank_mac(), VlanMode.ACCESS, "1", None,
+                "", DEFAULT_MAX_SPEED_MBPS, "", blank_mac(),
+                VlanMode.ACCESS, "1", None,
             )
         )
         remove_btn = QPushButton("Remove selected")
@@ -449,8 +350,6 @@ class _InterfacesTab(QWidget):
     def _append_row(
         self,
         name: str,
-        itype: InterfaceType,
-        type_label: str | None,
         max_speed_mbps: int | None,
         ip: str,
         mac: str,
@@ -499,14 +398,6 @@ class _InterfacesTab(QWidget):
             "the maximum of the port it is patched into."
         )
         self.table.setItem(row, COL_NEGOTIATED, negotiated_item)
-
-        media_combo = _TypeCombo(itype, type_label)
-        media_combo.setToolTip(
-            "What this port is. Pick a preset, or type your own name — "
-            "SFP28 DAC, T1 serial, DOCSIS 3.1. A label only: it does not "
-            "set the speed."
-        )
-        self.table.setCellWidget(row, COL_MEDIA, media_combo)
 
         # Both figures follow the inputs as they are edited, so the row
         # always shows what pressing OK would produce. The handlers find
@@ -624,20 +515,11 @@ class _InterfacesTab(QWidget):
             ip_item = self.table.item(row, COL_IP)
             mac_item = self.table.item(row, COL_MAC)
             vlans_item = self.table.item(row, COL_VLANS)
-            media_combo = self.table.cellWidget(row, COL_MEDIA)
             vlan_mode_combo = self.table.cellWidget(row, COL_VLAN_MODE)
 
             name = (name_item.text() if name_item else "").strip()
             if not name:
                 continue
-            itype = (
-                media_combo.base_type()
-                if isinstance(media_combo, _TypeCombo)
-                else InterfaceType.ETH_1G
-            )
-            type_label = (
-                media_combo.label_override() if isinstance(media_combo, _TypeCombo) else None
-            )
             ip = (ip_item.text() if ip_item else "").strip() or None
             mac = (mac_item.text() if mac_item else "").strip() or blank_mac()
             vlan_mode = (
@@ -651,8 +533,6 @@ class _InterfacesTab(QWidget):
 
             kwargs = {
                 "name": name,
-                "interface_type": itype,
-                "type_label_override": type_label,
                 "max_speed_mbps": self._row_rate_mbps(row),
                 "ip_address": ip,
                 "mac_address": mac,

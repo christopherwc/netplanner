@@ -223,12 +223,12 @@ def test_bandwidth_units_round_trip(app, controller):
     Regression: the unit handler read the combo after it had already
     changed, so converting back to Mbps divided the value by 1000.
     """
-    from netplanner.domain.entities import InterfaceType, LinkType
+    from netplanner.domain.entities import LinkType
     from netplanner.gui.dialogs import LinkPropertiesDialog
 
     sw = controller.add_device("sw1", DeviceType.SWITCH, 0, 0)
     rtr = controller.add_device("rtr1", DeviceType.ROUTER, 300, 0)
-    ten = next(i for i in sw.interfaces if i.interface_type is InterfaceType.ETH_10G)
+    ten = next(i for i in sw.interfaces if i.max_speed_mbps == 10_000)
     link = controller.add_link(
         sw.id, rtr.id, LinkType.FIBER,
         a_interface_id=ten.id, b_interface_id=rtr.interfaces[0].id,

@@ -23,7 +23,6 @@ from netplanner.domain.entities import (
     Device,
     DeviceType,
     Interface,
-    InterfaceType,
     Link,
     LinkType,
     Subnet,
@@ -143,11 +142,6 @@ def test_validate_flags_duplicate_macs(controller, pair):
 
 
 # --------------------------------------------------------------- entities
-def test_interface_type_labels():
-    for itype in InterfaceType:
-        assert itype.label  # every member has a label
-
-
 def test_vlan_mode_labels():
     assert VlanMode.ACCESS.label == "Access"
     assert VlanMode.TRUNK.label == "Trunk"
