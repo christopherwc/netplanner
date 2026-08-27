@@ -412,6 +412,52 @@ Tagging `vX.Y.Z` runs the same pipeline, verifies the tag matches the
 version in `pyproject.toml`, and publishes a GitHub release with the
 distributions and their checksums.
 
+## Security
+
+Full policy, threat model and known gaps: [SECURITY.md](SECURITY.md).
+Report vulnerabilities through the
+[security advisory form](https://github.com/christopherwc/netplanner/security/advisories/new),
+not a public issue.
+
+The short version of why any of this applies to a diagramming tool: a
+plan stores attached device configs verbatim, and a running-config
+contains enable secrets, community strings and PSKs — so the database is
+a credential store whether or not it was meant to be one. And `.netplan`
+files are made to be mailed to colleagues, so the loader is handling
+untrusted input even though nothing about the workflow feels like it.
+
+So:
+
+- **Plans and logs are owner-only** (`0700` directories, `0600` files).
+  The default umask would leave both readable by every account on the
+  machine. A filesystem that cannot honour a mode logs a warning and
+  carries on rather than refusing to start.
+- **Project files are bounded on load** — 64 MiB, and nesting too deep
+  for the parser is reported as a malformed file rather than crashing
+  the app. Attached configs are capped at 16 MiB.
+- **Exports don't carry your filesystem.** A config remembers where it
+  was imported from; that path is kept locally and stripped from
+  `.netplan` exports, because `/home/you/clients/acme-bank/core-sw.cfg`
+  describes your client list rather than the network you documented.
+
+None of it encrypts anything. If a config is too sensitive to sit in
+plaintext under your home directory, don't attach it.
+
+### Pinning actions by digest
+
+One gap worth closing when convenient. Workflows reference actions by
+tag (`actions/checkout@v4`), and a tag can be moved. Pinning by commit
+SHA makes that immutable, and Dependabot still updates SHA pins as long
+as the version stays in a trailing comment:
+
+```bash
+gh api repos/actions/checkout/git/ref/tags/v4 --jq '.object.sha'
+# then: uses: actions/checkout@<sha>  # v4
+```
+
+Worth doing for every entry in `.github/workflows/` and
+`.github/actions/setup/action.yml`.
+
 ## Project files
 
 - Database: `~/.local/share/netplanner/plans.db` (respects `XDG_DATA_HOME`)
