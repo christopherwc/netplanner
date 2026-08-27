@@ -387,8 +387,10 @@ uv run pytest --cov=netplanner --cov-fail-under=100    # tests + coverage gate
 uv run python .github/scripts/startup_smoke.py         # launches the app, quits itself
 ```
 
-Coverage is at 100% of lines and the gate enforces it, so new code needs
-tests to merge. Warnings are errors (`filterwarnings = ["error"]`), which
+Coverage is at 100% of lines **and branches**, and the gate enforces
+both, so new code needs tests to merge. Branch coverage is the half that
+catches an untested guard: a line gate is satisfied the first time an
+`if` runs, whoever the answer was. Warnings are errors (`filterwarnings = ["error"]`), which
 is how a deprecation in PyQt6 or SQLAlchemy announces itself on the weekly
 scheduled run rather than on launch day.
 
@@ -401,7 +403,7 @@ a schedule, and is called by the release workflow:
 | --- | --- |
 | Lint | ruff, reported as inline annotations on the diff |
 | Type check | mypy, blocking — zero errors on `netplanner/` |
-| Tests | Python 3.12–3.14, gated at 100% line coverage |
+| Tests | Python 3.12–3.14, gated at 100% line and branch coverage |
 | Startup smoke | launches the real entry point; catches import errors a green suite misses |
 | Dependency audit | pip-audit against the dependencies exported from `uv.lock` |
 | Package | `uv build`, installs the wheel clean, checks the console script |

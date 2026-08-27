@@ -460,7 +460,10 @@ class _InterfacesTab(QWidget):
         if row < 0:  # pragma: no cover - defensive
             return
         speed_edit = self.table.cellWidget(row, COL_MAX_SPEED)
-        if isinstance(speed_edit, _SpeedEdit):
+        # Always a _SpeedEdit: _append_row is the only thing that fills
+        # this column. The check is a type narrowing for the lines
+        # below, not a case that occurs.
+        if isinstance(speed_edit, _SpeedEdit):  # pragma: no branch
             mbps = speed_edit.mbps(unit_combo.previous_unit())
             speed_edit.set_mbps(mbps, unit_combo.unit())
         unit_combo.remember_unit()

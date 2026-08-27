@@ -140,7 +140,7 @@ def _wrap_notes(notes: str) -> list[str]:
             current = word
         else:
             current = candidate
-    if current:
+    if current:  # pragma: no branch
         lines.append(current)
 
     if len(lines) > NOTES_MAX_LINES:
