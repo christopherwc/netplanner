@@ -30,6 +30,11 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
+          # The release is published with the GitHub CLI over the API,
+          # so nothing here needs git credentials. Leaving them in
+          # .git/config would expose the token to every later step,
+          # including anything a build dependency runs.
+          persist-credentials: false
 
       - uses: astral-sh/setup-uv@v5
         with:
@@ -40,9 +45,15 @@ jobs:
       # A tag that disagrees with the packaged version produces a
       # release whose artifacts are named after a different release.
       # Cheaper to fail here than to explain it later.
+      # The tag reaches the shell through the environment, not through
+      # ${{ }} interpolation. Interpolation pastes the value into the
+      # script before bash sees it, so a tag named `v1.0.0$(id)` would
+      # be executed rather than compared.
       - name: Check the tag matches the packaged version
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          tag="${{ inputs.tag || github.ref_name }}"
+          tag="$TAG"
           version="$(uv run --no-project python -c 'import tomllib,pathlib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
           echo "tag=$tag packaged version=$version"
           if [ "$tag" != "v$version" ]; then
@@ -69,8 +80,9 @@ jobs:
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          tag="${{ inputs.tag || github.ref_name }}"
+          tag="$TAG"
           gh release create "$tag" \
             --title "NetPlanner $tag" \
             --generate-notes \

@@ -40,6 +40,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup
       # --output-format=github turns findings into inline PR annotations
       # on the offending line instead of a wall of log text.
@@ -57,6 +59,8 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup
       - name: Run mypy
         run: |
@@ -78,6 +82,8 @@ jobs:
         python-version: ["3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup
         with:
@@ -119,6 +125,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       # Installs the built package, not an editable checkout: this job
       # is about what a user gets from `pip install netplanner`.
       - uses: ./.github/actions/setup
@@ -141,6 +149,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup
       # Audited from uv.lock rather than a hand-kept requirements file,
       # so what is scanned is exactly what gets installed. Exported at
@@ -162,6 +172,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       # Qt libraries are needed even here: the verification step below
       # imports netplanner.gui out of the installed wheel.
       - uses: ./.github/actions/setup
