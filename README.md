@@ -13,38 +13,37 @@ equipment, cable it up port-by-port, and export the result.
   points, dish radios (PtP), AP radios (sector), and workstations, each
   with its own color and glyph. Click a type, click the canvas to place;
   devices are auto-named (`rtr1`, `sw1`, `dish1`, ...).
-- **Typed interfaces** — every device is created with a realistic set of
-  ports (e.g. routers get 4x 1 Gbps, switches get 8x 1 Gbps + 2x 10 Gbps
-  uplinks, radios get a wireless port). Right-click a device →
-  *Edit properties…* → **Interfaces** tab to add/remove any number of
-  ports of any type: **Wireless, 1 Gbps, 10 Gbps, 25 Gbps, or 100 Gbps**,
-  with optional IP addresses in CIDR notation.
-- **Custom interface types** — the Type column is a dropdown you can also
-  type into. Pick one of the five built-in classes, or enter your own
-  name for media they don't cover: `SFP28 DAC`, `T1 serial`,
-  `DOCSIS 3.1`, `10GBASE-LR`. **A name that states a rate sets the
-  port's rate**: type `2.5G`, `40 Gbps` or `10GBASE-LR` and the Speed
-  column follows as you type, so the port really runs at that speed and
-  the links hanging off it renegotiate. Names with no rate in them —
-  `SFP28`, `T1 serial` — are labels only and leave Speed alone; the
-  preset you had selected stays underneath as the port's default speed,
-  so a renamed port never loses its rate. Typing a preset's name verbatim
-  (any casing) selects that preset rather than storing a lookalike
-  label, and clearing the field returns the port to its preset.
-- **Per-port speed override** — the Type column covers the common cases;
-  the **Speed** column next to it covers everything else. Leave it on
-  *Default* to follow the type, or pick a preset, or just type the real
-  figure. The **Unit** column says what that figure means and starts at
-  **Gbps**, so `2.5` is 2.5 Gbps; switch it to Mbps and `850` is
-  850 Mbps. A written unit always wins, so `850M` works with Gbps
-  selected, as do `2.5G`, `200 Mbps` and `40 Gb/s`. Units follow the
-  figure once you leave the field: enter `2500` in Mbps and it comes
-  back as `2.5` Gbps, the same threshold the rest of the app uses when
-  it prints a rate.
+- **Interfaces** — every device is created with a realistic set of ports
+  (e.g. routers get 4x 1 Gbps, switches get 8x 1 Gbps + 2x 10 Gbps
+  uplinks, radios get a port with no rate yet). Right-click a device →
+  *Edit properties…* → **Interfaces** tab to add or remove any number of
+  ports, set their speeds, and give them IP addresses in CIDR notation.
+- **Maximum Interface Speed** — a port's rate is the whole of its
+  physical specification, and it is stated outright rather than picked
+  from a list of classes. Type the number into **Maximum Interface
+  Speed**; the **Unit** column beside it says what the number means and
+  starts at **Gbps**, so `2.5` is 2.5 Gbps. Switch the row to Mbps and
+  `850` is 850 Mbps.
 
-  This is how you record a 2.5 GbE access port, a licensed radio that
-  negotiates 450 Mbps, or a handoff rate-limited below its port speed. Wireless ports have no nominal rate, so a manual figure is the
-  only way to give one a speed — and link derivation then uses it.
+  Any rate is expressible, so a 2.5 GbE access port, a licensed radio
+  measured at 450 Mbps, and a handoff rate-limited below its port speed
+  are all just figures — there is no preset list to fall outside of.
+  Switching the unit **re-expresses** the figure rather than rescaling
+  it: a 2.5 Gbps port shown in Mbps reads `2500`, and the port still
+  runs at the same speed. A rate opens in whichever unit reads better,
+  so an 850 Mbps port comes up in Mbps and a 2.5 Gbps one in Gbps.
+
+  **Leave the field blank when the rate is not known.** A radio nobody
+  has surveyed yet is carried as unmeasured rather than filled in with a
+  plausible number. A link to it then takes whatever the other end
+  states; only a link with no rate at either end is left unset for you
+  to complete.
+- **Negotiated** — the column to the right of Unit, and not an input. It
+  shows what the port will actually run at once the far end has had its
+  say: the slower of its own maximum and the maximum of the port it is
+  patched into. Patch a 40 Gbps port into a 10 Gbps one and it reads
+  10 Gbps. It updates as you type, so the row always shows what pressing
+  OK would produce. A port with no rate at either end shows `—`.
 - **MAC addresses** — every interface starts with an all-zeros placeholder
   MAC (`00:00:00:00:00:00`), editable per-port in the Interfaces tab when
   documenting real hardware. Plans saved before this feature load fine;
@@ -131,16 +130,16 @@ equipment, cable it up port-by-port, and export the result.
   **Links derive their speed from the ports they connect**, taking the
   *slower* of the two interfaces: patch a 10 Gbps port into a 1 Gbps
   port and the link records 1 Gbps, because that's what it actually
-  carries. Wireless interfaces have no fixed line rate, so they're
-  skipped in favour of the wired end; a link between two wireless ports
-  is left unset for you to fill in.
+  carries. A port whose rate is not known is skipped in favour of the
+  end that has one; a link between two such ports is left unset for you
+  to fill in.
 
-  **The speed keeps tracking the interfaces**: change a port's type *or
-  its manual speed* in the device properties dialog and every attached
-  link recomputes automatically — upgrade that 1 Gbps port to 25 Gbps
-  and the link becomes 10 Gbps, now capped by the other end; throttle a
-  10 Gbps port to `2.5G` and both it and the link follow. It reverts
-  with the same single Ctrl+Z that undoes the interface edit.
+  **The speed keeps tracking the interfaces**: change a port's maximum
+  speed in the device properties dialog and every attached link
+  recomputes automatically — raise that 1 Gbps port to 25 Gbps and the
+  link becomes 10 Gbps, now capped by the other end; throttle a 10 Gbps
+  port to 2.5 and both it and the link follow. It reverts with the same
+  single Ctrl+Z that undoes the interface edit.
 
   Tracking is shown as a **Track interface speeds** checkbox in the link
   dialog. Typing a bandwidth by hand unticks it, and from then on that
@@ -277,8 +276,9 @@ netplanner
 3. Click **Copper / Ethernet** under Connections, click `rtr1`, pick
    `Gig0/0`, click `sw1`, pick `Gig0/1` — cabled.
 4. Right-click `sw1` → *Edit properties…* → **Interfaces** tab to add a
-   25 Gbps port, set IPs, paste in real MAC addresses, or switch a port
-   to **Trunk** mode and list its VLANs (e.g. `10,20,30`).
+   port and type `25` next to Gbps, set IPs, paste in real MAC
+   addresses, or switch a port to **Trunk** mode and list its VLANs
+   (e.g. `10,20,30`).
 5. Switch to the **General** tab to set a device model, a loopback IP,
    a native VLAN (defaults to 1), a status (Active/Planned/Broken), and
    notes — all show up on the card immediately, with Planned adding

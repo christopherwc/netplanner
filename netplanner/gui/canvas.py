@@ -1140,9 +1140,9 @@ class PlanScene(QGraphicsScene):
             return _CANCELLED
         menu = QMenu()
         actions = {
-            # port_summary reflects a manual type name and rate when
-            # either is set, so the picker shows the real port.
-            menu.addAction(f"{i.name}  ({i.port_summary})"): i.id for i in free
+            # The rate is what distinguishes one free port from another
+            # here, so the picker shows it beside the name.
+            menu.addAction(f"{i.name}  ({i.speed_label})"): i.id for i in free
         }
         chosen = menu.exec(QCursor.pos())
         if chosen is None:

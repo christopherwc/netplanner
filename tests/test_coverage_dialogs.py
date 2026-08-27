@@ -27,7 +27,6 @@ from netplanner.domain.entities import (
     DeviceStatus,
     DeviceType,
     Interface,
-    InterfaceType,
     Link,
     LinkType,
     Site,
@@ -122,8 +121,7 @@ def test_interfaces_tab_add_remove_and_results(app, device):
     # Add a fresh row via the same helper the button uses, name it, and
     # confirm it comes back as a brand-new interface.
     tab._append_row(
-        "", InterfaceType.ETH_10G, None, 10_000, "", "00:00:00:00:00:00",
-        VlanMode.ACCESS, "30", None,
+        "", 10_000, "", "00:00:00:00:00:00", VlanMode.ACCESS, "30", None,
     )
     row = tab.table.rowCount() - 1
     tab.table.item(row, COL_NAME).setText("Fib0/1")
