@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
 
 from netplanner.app.controller import AppController
 from netplanner.export.vlans import VlanUsage, plan_vlan_usage
+from netplanner.gui.qtutil import required
 
 SWATCH = 12  # px square colour chip in the legend
 
@@ -90,7 +91,7 @@ class VlanPanel(QDockWidget):
         selected = self.selected_vlans()
 
         while self._rows.count():
-            item = self._rows.takeAt(0)
+            item = required(self._rows.takeAt(0), "layout item")
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()

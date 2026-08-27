@@ -97,8 +97,10 @@ class ConfigHighlighter(QSyntaxHighlighter):
             fmt.setFontItalic(True)
         return fmt
 
-    def highlightBlock(self, text: str) -> None:
+    def highlightBlock(self, text: str | None) -> None:
         """Called by Qt for each visible line."""
+        if text is None:  # pragma: no cover - Qt always supplies the line
+            return
         stripped = text.lstrip()
 
         # A comment line is styled as a whole and nothing else applies.

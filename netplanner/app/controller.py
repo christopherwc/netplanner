@@ -412,8 +412,7 @@ class AppController:
         """Start a fresh plan, discarding the current one and its history."""
         self.plan = NetworkPlan(name=name)
         self.commands = CommandStack()
-        # Active VLAN highlight; exports mirror what the canvas shows.
-        self.vlan_filter: set[int] = set()
+        self.vlan_filter = set()  # a fresh plan carries no highlight
 
     def save(self) -> None:
         """Persist the current plan to the SQLite database."""
@@ -423,8 +422,7 @@ class AppController:
         """Load a stored plan by id; resets undo history."""
         self.plan = self.repository.load(plan_id)
         self.commands = CommandStack()
-        # Active VLAN highlight; exports mirror what the canvas shows.
-        self.vlan_filter: set[int] = set()
+        self.vlan_filter = set()  # the loaded plan starts unfiltered
 
     # ---------------------------------------------------------------- export
     def export_to_pdf(self, path: Path) -> None:

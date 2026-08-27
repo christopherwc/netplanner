@@ -51,6 +51,7 @@ from netplanner.gui.dialogs import (
     TextBoxDialog,
 )
 from netplanner.gui.palette import SITE_TOOL, TEXT_TOOL
+from netplanner.gui.qtutil import required
 
 # Compact node size used when View -> "Show device details" is off.
 # Detailed-card metrics come from export.nodecard so the GUI and the
@@ -102,8 +103,14 @@ class DeviceItem(QGraphicsItem):
         return QRectF(-NODE_W / 2, -NODE_H / 2, NODE_W, NODE_H)
 
     # -------------------------------------------------------------- painting
-    def paint(self, painter: QPainter, option, widget=None) -> None:
+    def paint(self, painter: QPainter | None, option, widget=None) -> None:
         """Qt paint hook: dispatch to the detailed card or compact node."""
+        # Qt types the painter as optional because the C++ signature
+        # takes a pointer; it is never null for an item Qt is asking to
+        # draw. Guarding beats narrowing with an assert, which would be
+        # compiled out under -O and take the check with it.
+        if painter is None:  # pragma: no cover - Qt always supplies one
+            return
         if self._details_on():
             self._paint_card(painter)
         else:
@@ -514,7 +521,13 @@ class SiteItem(QGraphicsItem):
         return [line for line in lines if line]
 
     # ------------------------------------------------------------- paint
-    def paint(self, painter: QPainter, option, widget=None) -> None:
+    def paint(self, painter: QPainter | None, option, widget=None) -> None:
+        # Qt types the painter as optional because the C++ signature
+        # takes a pointer; it is never null for an item Qt is asking to
+        # draw. Guarding beats narrowing with an assert, which would be
+        # compiled out under -O and take the check with it.
+        if painter is None:  # pragma: no cover - Qt always supplies one
+            return
         rect = self.boundingRect()
         color = QColor(self.site.color)
 
@@ -706,8 +719,14 @@ class LinkItem(QGraphicsLineItem):
         path.lineTo(self.line().p2())
         return stroker.createStroke(path)
 
-    def paint(self, painter: QPainter, option, widget=None) -> None:
+    def paint(self, painter: QPainter | None, option, widget=None) -> None:
         """Draw the cable, thickened and highlighted while selected."""
+        # Qt types the painter as optional because the C++ signature
+        # takes a pointer; it is never null for an item Qt is asking to
+        # draw. Guarding beats narrowing with an assert, which would be
+        # compiled out under -O and take the check with it.
+        if painter is None:  # pragma: no cover - Qt always supplies one
+            return
         if self.isSelected():
             pen = QPen(self._base_pen)
             pen.setWidthF(self._base_pen.widthF() + 2)
@@ -810,8 +829,14 @@ class TextBoxItem(QGraphicsItem):
         self.update()
         super().hoverLeaveEvent(event)
 
-    def paint(self, painter: QPainter, option, widget=None) -> None:
+    def paint(self, painter: QPainter | None, option, widget=None) -> None:
         """Draw the wrapped lines, plus a border when selected/hovered."""
+        # Qt types the painter as optional because the C++ signature
+        # takes a pointer; it is never null for an item Qt is asking to
+        # draw. Guarding beats narrowing with an assert, which would be
+        # compiled out under -O and take the check with it.
+        if painter is None:  # pragma: no cover - Qt always supplies one
+            return
         rect = self.boundingRect()
 
         # Annotations carry their own light panel rather than relying on
@@ -915,7 +940,11 @@ class PlanScene(QGraphicsScene):
         self._device_items: dict[str, DeviceItem] = {}
         self._text_items: dict[str, TextBoxItem] = {}
         self._site_items: dict[str, SiteItem] = {}
-        self._link_items = []
+        # Everything update_links() draws and must remove again on the
+        # next rebuild: the cables themselves plus their label and port
+        # text. Typed as the base class because the list exists to be
+        # handed back to removeItem(), not to be read field by field.
+        self._link_items: list[QGraphicsItem] = []
         # Active VLAN highlight filter; empty set = show everything normally.
         self.vlan_filter: set[int] = set()
 
@@ -935,14 +964,14 @@ class PlanScene(QGraphicsScene):
         # Sites first so they're underneath; z-values enforce it anyway,
         # but creation order keeps the scene's item list readable.
         for site in self.controller.plan.sites.values():
-            item = SiteItem(site, self.controller)
-            self.addItem(item)
-            self._site_items[site.id] = item
+            site_item = SiteItem(site, self.controller)
+            self.addItem(site_item)
+            self._site_items[site.id] = site_item
 
         for textbox in self.controller.plan.textboxes.values():
-            item = TextBoxItem(textbox, self.controller)
-            self.addItem(item)
-            self._text_items[textbox.id] = item
+            text_item = TextBoxItem(textbox, self.controller)
+            self.addItem(text_item)
+            self._text_items[textbox.id] = text_item
 
         self.update_links()
         self.plan_changed.emit()
@@ -978,7 +1007,7 @@ class PlanScene(QGraphicsScene):
             self.addItem(line)
             self._link_items.append(line)
             if link.label:
-                text = self.addSimpleText(link.label)
+                text = required(self.addSimpleText(link.label), "link label item")
                 text.setBrush(QBrush(QColor(lstyle.color)))
                 label_rect = text.boundingRect()
                 mx, my = lift_above_line(
@@ -1000,7 +1029,7 @@ class PlanScene(QGraphicsScene):
                 port = self.controller.interface_name(dev_id, iface_id)
                 if not port:
                     continue
-                ptext = self.addSimpleText(port)
+                ptext = required(self.addSimpleText(port), "port label item")
                 ptext.setFont(port_font)
                 ptext.setBrush(QBrush(QColor("#666666")))
                 bounds = item.boundingRect()
@@ -1038,12 +1067,12 @@ class PlanScene(QGraphicsScene):
             return
 
         if isinstance(self.armed_tool, DeviceType) and device_item is None:
-            self._place_armed_device(event.scenePos())
+            self._place_armed_device(self.armed_tool, event.scenePos())
             event.accept()
             return
 
         if isinstance(self.armed_tool, LinkType):
-            self._handle_connect_click(device_item)
+            self._handle_connect_click(self.armed_tool, device_item)
             event.accept()
             return
 
@@ -1084,13 +1113,20 @@ class PlanScene(QGraphicsScene):
         )
         self.rebuild()
 
-    def _place_armed_device(self, pos: QPointF) -> None:
-        """Equipment tool click: drop an auto-named device at pos."""
-        name = self.controller.next_device_name(self.armed_tool)
-        self.controller.add_device(name, self.armed_tool, pos.x(), pos.y())
+    def _place_armed_device(self, device_type: DeviceType, pos: QPointF) -> None:
+        """Equipment tool click: drop an auto-named device at pos.
+
+        The tool arrives as an argument rather than being read back off
+        self: the caller has already established which kind it is, and
+        re-reading a mutable attribute would let the two disagree.
+        """
+        name = self.controller.next_device_name(device_type)
+        self.controller.add_device(name, device_type, pos.x(), pos.y())
         self.rebuild()
 
-    def _handle_connect_click(self, device_item: DeviceItem | None) -> None:
+    def _handle_connect_click(
+        self, link_type: LinkType, device_item: DeviceItem | None
+    ) -> None:
         """Connection tool click: first pick a source, then a target.
 
         Each pick pops up the device's free-interface menu; the link is
@@ -1117,7 +1153,7 @@ class PlanScene(QGraphicsScene):
         self.controller.add_link(
             self._pending_source.device.id,
             device_item.device.id,
-            link_type=self.armed_tool,
+            link_type=link_type,
             a_interface_id=self._pending_a_iface,
             b_interface_id=b_iface_id,
         )
@@ -1219,17 +1255,17 @@ class PlanScene(QGraphicsScene):
 
         # Links first: deleting a device would otherwise take them with
         # it, leaving a redundant no-op command on the undo stack.
-        for item in links:
-            self.controller.delete_link(item.link)
-        for item in devices:
-            self.controller.delete_device(item.device.id)
-        for item in texts:
-            self.controller.delete_textbox(item.textbox.id)
+        for link_item in links:
+            self.controller.delete_link(link_item.link)
+        for device in devices:
+            self.controller.delete_device(device.device.id)
+        for text in texts:
+            self.controller.delete_textbox(text.textbox.id)
         # Sites last: deleting one never affects the devices drawn over
         # it, so ordering is cosmetic, but it keeps the undo stack
         # reading outermost-container-last.
-        for item in sites:
-            self.controller.delete_site(item.site.id)
+        for site in sites:
+            self.controller.delete_site(site.site.id)
         self.rebuild()
 
     def delete_selection(self) -> None:
@@ -1311,7 +1347,7 @@ class NetworkCanvas(QGraphicsView):
         cursor = (
             Qt.CursorShape.CrossCursor if tool is not None else Qt.CursorShape.ArrowCursor
         )
-        self.viewport().setCursor(cursor)
+        required(self.viewport(), "viewport").setCursor(cursor)
 
     def keyPressEvent(self, event) -> None:
         """Esc returns to Select/Move mode via the palette."""
