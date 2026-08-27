@@ -202,13 +202,24 @@ class PlanRepository:
 
 
 # ------------------------------------------------------------- serialization
-def _device_to_dict(d: Device) -> dict:
-    """Serialize a Device (and its interfaces) to a JSON-safe dict."""
+def _device_to_dict(d: Device, *, include_local_paths: bool = True) -> dict:
+    """Serialize a Device (and its interfaces) to a JSON-safe dict.
+
+    ConfigFile.source_path records where a config was imported from, so
+    the dialog can show it and a re-import can find it again. That is
+    useful in the local database and wrong in a file meant to be sent to
+    someone: "/home/chris/clients/acme-bank/core-sw.cfg" describes the
+    sender's filesystem and their client list, neither of which is part
+    of the network being documented. Callers that export set
+    include_local_paths=False.
+    """
     data = asdict(d)
     data["device_type"] = d.device_type.value
     data["status"] = d.status.value
     for cfg_data, cfg in zip(data.get("configs", []), d.configs, strict=True):
         cfg_data["config_format"] = cfg.config_format.value
+        if not include_local_paths:
+            cfg_data["source_path"] = None
     for iface_data, iface in zip(data["interfaces"], d.interfaces, strict=True):
         iface_data["vlan_mode"] = iface.vlan_mode.value
     return data
