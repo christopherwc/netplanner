@@ -25,6 +25,16 @@ logger = logging.getLogger(__name__)
 
 FORMAT_VERSION = 1
 
+# A .netplan file is the format people mail to each other, so it is the
+# one input here that arrives from outside. Two bounds on what it may
+# cost to open one: the whole file is read into memory before parsing,
+# and json.loads recurses once per level of nesting.
+#
+# 64 MiB is far past any real plan — a thousand devices with configs
+# attached runs to single-digit megabytes — and small enough that a file
+# claiming otherwise is refused rather than swapped in.
+MAX_PROJECT_BYTES = 64 * 1024 * 1024
+
 
 def save_project(plan: NetworkPlan, path: Path) -> None:
     """Write a plan to a .netplan JSON file with verbose failure context."""
@@ -45,7 +55,7 @@ def _save_project_impl(plan: NetworkPlan, path: Path) -> None:
         "version": FORMAT_VERSION,
         "id": plan.id,
         "name": plan.name,
-        "devices": [_device_to_dict(d) for d in plan.devices],
+        "devices": [_device_to_dict(d, include_local_paths=False) for d in plan.devices],
         "links": [_link_to_dict(link) for link in plan.links],
         "subnets": [asdict(s) for s in plan.subnets.values()],
         "vlans": [asdict(v) for v in plan.vlans.values()],
@@ -110,6 +120,17 @@ def load_project(path: Path) -> NetworkPlan:
             f"Project file {path} is not valid JSON "
             f"(line {exc.lineno}, column {exc.colno}): {exc.msg}"
         ) from exc
+    except RecursionError as exc:
+        # Nesting deep enough to exhaust the interpreter stack. Python
+        # raises this from json.loads before any field is read, and it
+        # is a RuntimeError rather than a ValueError, so it would
+        # otherwise travel straight past every handler here and out
+        # through the UI as an unhandled crash.
+        logger.error("Project file nesting is too deep to parse: %s", path)
+        raise PersistenceError(
+            f"Project file {path} is nested too deeply to parse; it may be "
+            f"corrupt or deliberately malformed"
+        ) from exc
     except (KeyError, TypeError, ValueError) as exc:
         logger.exception("Project file has unexpected structure: %s", path)
         raise PersistenceError(
@@ -119,6 +140,12 @@ def load_project(path: Path) -> NetworkPlan:
 
 
 def _load_project_impl(path: Path) -> NetworkPlan:
+    size = path.stat().st_size
+    if size > MAX_PROJECT_BYTES:
+        raise ValueError(
+            f"{path} is {size} bytes, over the {MAX_PROJECT_BYTES}-byte limit "
+            f"for a project file"
+        )
     doc = json.loads(path.read_text(encoding="utf-8"))
     # Valid JSON that is not an object at all (a list, a bare string)
     # would otherwise fail later with an AttributeError from .get().
