@@ -22,9 +22,13 @@ equipment, cable it up port-by-port, and export the result.
 - **Custom interface types** — the Type column is a dropdown you can also
   type into. Pick one of the five built-in classes, or enter your own
   name for media they don't cover: `SFP28 DAC`, `T1 serial`,
-  `DOCSIS 3.1`, `10GBASE-LR`. A custom name is a label — the preset you
-  had selected stays underneath as the port's default speed, so a
-  renamed port never loses its rate. Typing a preset's name verbatim
+  `DOCSIS 3.1`, `10GBASE-LR`. **A name that states a rate sets the
+  port's rate**: type `2.5G`, `40 Gbps` or `10GBASE-LR` and the Speed
+  column follows as you type, so the port really runs at that speed and
+  the links hanging off it renegotiate. Names with no rate in them —
+  `SFP28`, `T1 serial` — are labels only and leave Speed alone; the
+  preset you had selected stays underneath as the port's default speed,
+  so a renamed port never loses its rate. Typing a preset's name verbatim
   (any casing) selects that preset rather than storing a lookalike
   label, and clearing the field returns the port to its preset.
 - **Per-port speed override** — the Type column covers the common cases;

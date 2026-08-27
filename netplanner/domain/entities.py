@@ -5,6 +5,7 @@ Plain dataclasses, independent of GUI and persistence layers.
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
@@ -165,6 +166,41 @@ def parse_speed_mbps(text: str, default_unit: int = MBPS) -> int | None:
         # e.g. "0.4M": rounds to zero, which would read as "unset".
         raise ValueError(f"{text!r} is below 1 Mbps")
     return mbps
+
+
+# A rate written inside a longer media name: the 25G in "SFP28 25G",
+# the 10G in "10GBASE-LR". Deliberately narrow — it needs a unit, so
+# "SFP28" and "DOCSIS 3.1" are names rather than accidental speeds.
+_EMBEDDED_RATE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(gbps|gbit|gb/s|gb|g|mbps|mbit|mb/s|mb|m)",
+    re.IGNORECASE,
+)
+
+
+def speed_from_type_label(text: str, default_unit: int = MBPS) -> int | None:
+    """The line rate a typed interface type implies, if it implies one.
+
+    People describe a port by its rate: they type "2.5G", "40 Gbps" or
+    "10GBASE-LR" into the type field and mean the port runs at that
+    speed. Reading those as decoration and leaving the port on its old
+    rate is how a type change silently fails to reach the links hanging
+    off it.
+
+    Returns None for names that carry no rate — "SFP28", "T1 serial",
+    "DOCSIS 3.1" — which stay pure labels.
+    """
+    try:
+        return parse_speed_mbps(text, default_unit)
+    except ValueError:
+        pass  # not a bare rate; it may still contain one
+
+    match = _EMBEDDED_RATE.search(text.strip())
+    if match is None:
+        return None
+    try:
+        return parse_speed_mbps(match.group(0), default_unit)
+    except ValueError:  # pragma: no cover - the regex guarantees a parse
+        return None
 
 
 def negotiated_speed_mbps(a: Interface | None, b: Interface | None) -> int | None:

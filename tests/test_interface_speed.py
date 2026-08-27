@@ -651,3 +651,115 @@ def test_interfaces_tab_round_trips_a_speed_entered_in_megabits(app):
     assert result.speed_mbps_override == 2_500
     assert result.speed_label == "2.5 Gbps"
     dialog.deleteLater()
+
+
+# ------------------------------- a type written as a rate is a rate
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("2.5G", 2_500),
+        ("40 Gbps", 40_000),
+        ("10GBASE-LR", 10_000),   # the rate is inside the media name
+        ("SFP28 25G", 25_000),
+        ("100M", 100),
+        ("SFP28", None),          # a name, not a rate
+        ("T1 serial", None),
+        ("DOCSIS 3.1", None),     # 3.1 with no unit is a version, not a speed
+        ("", None),
+    ],
+)
+def test_speed_read_out_of_a_typed_interface_type(text, expected):
+    from netplanner.domain.entities import speed_from_type_label
+
+    assert speed_from_type_label(text) == expected
+
+
+def test_typing_a_rate_as_the_type_sets_the_ports_speed(app):
+    """The reported symptom: type 2.5G as the interface type and the
+    port stayed at 1 Gbps, so every link off it kept negotiating 1 Gbps."""
+    from netplanner.gui.dialogs import DevicePropertiesDialog
+
+    device = Device(name="sw1", device_type=DeviceType.SWITCH)
+    device.interfaces.append(Interface(name="Gig0/1", interface_type=InterfaceType.ETH_1G))
+    dialog = DevicePropertiesDialog(device)
+    tab = dialog._interfaces
+
+    tab.table.cellWidget(0, 1).setEditText("2.5G")
+
+    # Visible in the table before OK is pressed, not just in the result.
+    assert tab.table.cellWidget(0, 2).currentText() == "2.5"
+    assert tab.table.cellWidget(0, 3).currentText() == "Gbps"
+
+    result = tab.result_interfaces()[0]
+    assert result.speed_mbps == 2_500
+    assert result.type_label_override == "2.5G"
+    dialog.deleteLater()
+
+
+def test_a_type_name_without_a_rate_leaves_the_speed_alone(app):
+    from netplanner.gui.dialogs import DevicePropertiesDialog
+
+    device = Device(name="sw1", device_type=DeviceType.SWITCH)
+    device.interfaces.append(
+        Interface(name="Gig0/1", interface_type=InterfaceType.ETH_25G, speed_mbps_override=2_500)
+    )
+    dialog = DevicePropertiesDialog(device)
+    tab = dialog._interfaces
+
+    tab.table.cellWidget(0, 1).setEditText("SFP28 DAC")
+    result = tab.result_interfaces()[0]
+    assert result.speed_mbps_override == 2_500  # untouched
+    assert result.type_label_override == "SFP28 DAC"
+    dialog.deleteLater()
+
+
+def test_two_typed_rates_negotiate_to_the_slower_end(app):
+    """End to end: the link speed is the negotiation of the two ports."""
+    from unittest.mock import MagicMock
+
+    from netplanner.app.controller import AppController
+    from netplanner.gui.dialogs import DevicePropertiesDialog
+
+    controller = AppController(repository=MagicMock())
+    sw = controller.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    rtr = controller.add_device("rtr1", DeviceType.ROUTER, 400, 0)
+    link = controller.add_link(
+        sw.id, rtr.id, LinkType.FIBER,
+        a_interface_id=sw.interfaces[0].id, b_interface_id=rtr.interfaces[0].id,
+    )
+    controller.plan.recompute_auto_link_speeds()
+    assert link.bandwidth_mbps == 1_000
+
+    for device, typed in ((sw, "2.5G"), (rtr, "40G")):
+        dialog = DevicePropertiesDialog(device)
+        # No focus change: straight from typing to OK, which is what a
+        # person does and what editingFinished alone would have missed.
+        dialog._interfaces.table.cellWidget(0, 1).setEditText(typed)
+        controller.edit_device_properties(
+            device.id, device.device_model, device.loopback_ip, device.notes,
+            device.native_vlan, device.status, dialog._interfaces.result_interfaces(),
+        )
+        dialog.deleteLater()
+
+    assert controller.plan.get_link(link.id).bandwidth_mbps == 2_500  # the slower end
+    controller.undo()
+    controller.undo()
+    assert controller.plan.get_link(link.id).bandwidth_mbps == 1_000
+
+
+def test_a_preset_type_does_not_become_a_manual_speed(app):
+    """Picking 10 Gbps from the list means the port follows the preset,
+    not that it carries a hand-set figure that stops tracking."""
+    from netplanner.gui.dialogs import DevicePropertiesDialog
+
+    device = Device(name="sw1", device_type=DeviceType.SWITCH)
+    device.interfaces.append(Interface(name="Gig0/1", interface_type=InterfaceType.ETH_1G))
+    dialog = DevicePropertiesDialog(device)
+    tab = dialog._interfaces
+
+    tab.table.cellWidget(0, 1).setCurrentIndex(1)  # 10 Gbps preset
+    result = tab.result_interfaces()[0]
+    assert result.interface_type is InterfaceType.ETH_10G
+    assert result.speed_mbps_override is None
+    assert result.speed_mbps == 10_000
+    dialog.deleteLater()

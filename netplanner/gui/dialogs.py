@@ -48,6 +48,7 @@ from netplanner.domain.entities import (
     format_speed_mbps,
     format_speed_value,
     parse_speed_mbps,
+    speed_from_type_label,
 )
 from netplanner.errors import ConfigImportError
 from netplanner.export.styles import link_style_for
@@ -172,6 +173,19 @@ class _TypeCombo(QComboBox):
         if not text or self._named_preset() is not None:
             return None
         return text
+
+    def implied_speed_mbps(self, default_unit: int = GBPS) -> int | None:
+        """The rate a typed name implies, if it implies one.
+
+        Typing "2.5G" or "10GBASE-LR" into this column describes a port
+        that runs at that rate, so the row's Speed follows it. Names
+        with no rate in them — "SFP28", "T1 serial" — imply nothing and
+        leave Speed alone.
+        """
+        label = self.label_override()
+        if label is None:
+            return None
+        return speed_from_type_label(label, default_unit)
 
     def _normalize(self) -> None:
         """Turn typed text into a real selection where one applies.
@@ -390,6 +404,15 @@ class _GeneralTab(QWidget):
         form.addRow("Notes:", self.notes_edit)
 
 
+def _apply_implied_speed(
+    type_combo: _TypeCombo, speed_combo: _SpeedCombo, unit_combo: _UnitCombo
+) -> None:
+    """Push a rate written into the Type column onto the Speed column."""
+    implied = type_combo.implied_speed_mbps(unit_combo.unit())
+    if implied is not None:
+        speed_combo.set_mbps(implied)
+
+
 class _InterfacesTab(QWidget):
     """Editable table of the device's ports: name, type, speed, unit, IP, MAC, VLAN.
 
@@ -490,6 +513,17 @@ class _InterfacesTab(QWidget):
                 types.base_type()
             )
         )
+        # A type typed as a rate ("2.5G", "10GBASE-LR") sets the row's
+        # speed, so the change is visible in the table before OK and
+        # reaches the links that derive from this port. Tracked as the
+        # text changes rather than on focus loss: pressing OK straight
+        # from the Type field never fires editingFinished, and a port
+        # silently keeping its old rate is the whole bug this fixes.
+        type_combo.editTextChanged.connect(
+            lambda _text, combo=speed_combo, types=type_combo, units=unit_combo: (
+                _apply_implied_speed(types, combo, units)
+            )
+        )
         self.table.setCellWidget(row, 2, speed_combo)
         self.table.setCellWidget(row, 3, unit_combo)
 
@@ -557,6 +591,14 @@ class _InterfacesTab(QWidget):
             speed_override = (
                 speed_combo.current_mbps() if isinstance(speed_combo, _SpeedCombo) else None
             )
+            if speed_override is None and isinstance(type_combo, _TypeCombo):
+                # The Speed column is still deferring, so a rate written
+                # into the Type column is the port's rate. Checked here
+                # as well as on editingFinished, because pressing OK
+                # straight from the Type field never fires that.
+                unit_combo = self.table.cellWidget(row, 3)
+                unit = unit_combo.unit() if isinstance(unit_combo, _UnitCombo) else GBPS
+                speed_override = type_combo.implied_speed_mbps(unit)
 
             kwargs = {
                 "name": name,
