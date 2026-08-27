@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from functools import partial
 from typing import ClassVar
 
 from PyQt6.QtCore import Qt
@@ -423,11 +422,18 @@ class _InterfacesTab(QWidget):
 
         # The negotiated figure follows the Type field as it is typed and
         # the unit selector as it is switched, so the row always shows
-        # what pressing OK would produce.
-        refresh = partial(self._refresh_negotiated, row)
-        type_combo.editTextChanged.connect(lambda _text: refresh())
-        type_combo.currentIndexChanged.connect(lambda _index: refresh())
-        unit_combo.currentIndexChanged.connect(lambda _index: refresh())
+        # what pressing OK would produce. The handlers look their row up
+        # from the widget rather than closing over the index, which goes
+        # stale the moment a row above them is removed.
+        type_combo.editTextChanged.connect(
+            lambda _text, w=type_combo: self._refresh_negotiated(self._row_of(w, 1))
+        )
+        type_combo.currentIndexChanged.connect(
+            lambda _index, w=type_combo: self._refresh_negotiated(self._row_of(w, 1))
+        )
+        unit_combo.currentIndexChanged.connect(
+            lambda _index, w=unit_combo: self._refresh_negotiated(self._row_of(w, 3))
+        )
 
         self.table.setItem(row, 4, QTableWidgetItem(ip))
         self.table.setItem(row, 5, QTableWidgetItem(mac))
@@ -445,6 +451,18 @@ class _InterfacesTab(QWidget):
         self.table.setItem(row, 7, vlans_item)
 
         self._refresh_negotiated(row)  # draw the figure the row starts with
+
+    def _row_of(self, widget: QWidget, column: int) -> int:
+        """Which row holds `widget` in `column`, or -1 if it has gone.
+
+        Row indices shift when a row above is removed, so a signal
+        handler cannot hold one. Looking the widget up when the signal
+        fires is the only index that is right when it is used.
+        """
+        for row in range(self.table.rowCount()):
+            if self.table.cellWidget(row, column) is widget:
+                return row
+        return -1  # pragma: no cover - a removed row's widget is destroyed
 
     def _remove_selected(self) -> None:
         rows = sorted({i.row() for i in self.table.selectedIndexes()}, reverse=True)
@@ -468,6 +486,8 @@ class _InterfacesTab(QWidget):
 
     def _refresh_negotiated(self, row: int) -> None:
         """Redraw one row's negotiated figure from the current inputs."""
+        if row < 0:  # pragma: no cover - defensive
+            return
         item = self.table.item(row, 2)
         unit_combo = self.table.cellWidget(row, 3)
         name_item = self.table.item(row, 0)
