@@ -573,3 +573,19 @@ def test_normalizing_a_typed_preset_name_selects_that_preset(app):
     assert combo.base_type() is InterfaceType.ETH_25G
     assert combo.label_override() is None
     combo.deleteLater()
+
+
+def test_editing_a_row_after_removing_the_one_above_it(app):
+    """Regression. The refresh handlers closed over the row index they
+    were built with, so removing a row left every handler below it
+    pointed one row too far down: editing the new first row redrew the
+    second row's negotiated figure and left its own stale."""
+    controller, sw, _, _ = _linked_pair()
+    dialog = _dialog_for(controller, sw)
+    tab = dialog._interfaces
+
+    tab.table.selectRow(0)
+    tab._remove_selected()
+    tab.table.cellWidget(0, 1).setEditText("2.5G")
+    assert tab.table.item(0, 2).text() == "2.5"
+    dialog.deleteLater()
