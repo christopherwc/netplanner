@@ -5,7 +5,6 @@ Plain dataclasses, independent of GUI and persistence layers.
 
 from __future__ import annotations
 
-import re
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
@@ -124,6 +123,12 @@ def format_speed_mbps(mbps: int) -> str:
 GBPS = 1000
 MBPS = 1
 
+# What a port states for itself when nothing else is known. One gigabit
+# is both the commonest access port and the rate the old type-derived
+# default produced, so a port built without a stated rate describes
+# itself the same way it did before the rate became a field.
+DEFAULT_MAX_SPEED_MBPS = 1_000
+
 
 def parse_speed_mbps(text: str, default_unit: int = MBPS) -> int | None:
     """Parse a typed line rate into Mbps.
@@ -166,41 +171,6 @@ def parse_speed_mbps(text: str, default_unit: int = MBPS) -> int | None:
         # e.g. "0.4M": rounds to zero, which would read as "unset".
         raise ValueError(f"{text!r} is below 1 Mbps")
     return mbps
-
-
-# A rate written inside a longer media name: the 25G in "SFP28 25G",
-# the 10G in "10GBASE-LR". Deliberately narrow — it needs a unit, so
-# "SFP28" and "DOCSIS 3.1" are names rather than accidental speeds.
-_EMBEDDED_RATE = re.compile(
-    r"(\d+(?:\.\d+)?)\s*(gbps|gbit|gb/s|gb|g|mbps|mbit|mb/s|mb|m)",
-    re.IGNORECASE,
-)
-
-
-def speed_from_type_label(text: str, default_unit: int = MBPS) -> int | None:
-    """The line rate a typed interface type implies, if it implies one.
-
-    People describe a port by its rate: they type "2.5G", "40 Gbps" or
-    "10GBASE-LR" into the type field and mean the port runs at that
-    speed. Reading those as decoration and leaving the port on its old
-    rate is how a type change silently fails to reach the links hanging
-    off it.
-
-    Returns None for names that carry no rate — "SFP28", "T1 serial",
-    "DOCSIS 3.1" — which stay pure labels.
-    """
-    try:
-        return parse_speed_mbps(text, default_unit)
-    except ValueError:
-        pass  # not a bare rate; it may still contain one
-
-    match = _EMBEDDED_RATE.search(text.strip())
-    if match is None:
-        return None
-    try:
-        return parse_speed_mbps(match.group(0), default_unit)
-    except ValueError:  # pragma: no cover - the regex guarantees a parse
-        return None
 
 
 def negotiated_speed_mbps(a: Interface | None, b: Interface | None) -> int | None:
@@ -462,23 +432,23 @@ class Interface:
     vlan_mode: VlanMode = VlanMode.ACCESS
     access_vlan: int = 1  # VLAN carried untagged when vlan_mode is ACCESS
     trunk_vlans: list[int] = field(default_factory=list)  # tagged VLANs when TRUNK
-    # Manual line rate in Mbps for ports the presets do not cover: a
-    # 2.5G access port, a 200 Mbps licensed radio, a rate-limited
-    # handoff. None means "use whatever interface_type says".
-    speed_mbps_override: int | None = None
-    # Manual type name for media the presets do not cover: "SFP28 DAC",
+    # The fastest this port can run, in Mbps. Stated outright rather
+    # than inferred from the media name, so a 2.5G access port, a
+    # 200 Mbps licensed radio and a rate-limited handoff each say what
+    # they are. None means the rate is unknown — a radio nobody has
+    # measured yet — and is carried as unknown rather than guessed.
+    max_speed_mbps: int | None = DEFAULT_MAX_SPEED_MBPS
+    # Manual media name for ports the presets do not cover: "SFP28 DAC",
     # "T1 serial", "DOCSIS 3.1", "10GBASE-LR". None means the name comes
-    # from interface_type. The enum is still carried underneath as the
-    # fallback for speed, so a custom name never loses its rate.
+    # from interface_type. Purely a label: it describes the port, and
+    # never sets or changes max_speed_mbps.
     type_label_override: str | None = None
     id: str = field(default_factory=new_id)
 
     @property
     def speed_mbps(self) -> int | None:
-        """Effective line rate: the manual figure if set, else the type's."""
-        if self.speed_mbps_override is not None:
-            return self.speed_mbps_override
-        return self.interface_type.speed_mbps
+        """The port's own rate, before the far end has any say."""
+        return self.max_speed_mbps
 
     @property
     def type_label(self) -> str:
@@ -487,14 +457,14 @@ class Interface:
 
     @property
     def port_summary(self) -> str:
-        """Type and rate for menus, collapsed when they would repeat.
+        """Media and rate for menus, collapsed when they would repeat.
 
-        A preset port's name is already its rate ("1 Gbps"), so printing
-        both would read "1 Gbps, 1 Gbps". A custom port has something to
-        say in each half: "SFP28 DAC, 25 Gbps". A port with no rate at
-        all — a radio nobody has measured — just gives its name.
+        A port left on a preset is named for its rate ("1 Gbps"), so
+        printing both would read "1 Gbps, 1 Gbps". A port with a media
+        name of its own has something to say in each half: "SFP28 DAC,
+        25 Gbps". A port with no rate at all just gives its name.
         """
-        if self.speed_mbps is None or self.type_label == self.speed_label:
+        if self.max_speed_mbps is None or self.type_label == self.speed_label:
             return self.type_label
         return f"{self.type_label}, {self.speed_label}"
 
@@ -502,12 +472,12 @@ class Interface:
     def speed_label(self) -> str:
         """How this port's rate reads in menus and pickers.
 
-        A manual figure is shown as itself; otherwise the interface type
-        speaks for the port, including Wireless, which has no fixed rate.
+        A port whose rate was never established says so, rather than
+        borrowing a figure from its media name.
         """
-        if self.speed_mbps_override is not None:
-            return format_speed_mbps(self.speed_mbps_override)
-        return self.interface_type.label
+        if self.max_speed_mbps is None:
+            return "rate unknown"
+        return format_speed_mbps(self.max_speed_mbps)
 
     def vlan_summary(self) -> str:
         """Short human-readable VLAN description for cards and menus."""

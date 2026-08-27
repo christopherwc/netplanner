@@ -39,6 +39,8 @@ from netplanner.gui.config_viewer import (
     ConfigViewerDialog,
 )
 from netplanner.gui.dialogs import (
+    COL_IP,
+    COL_NAME,
     DevicePropertiesDialog,
     LinkPropertiesDialog,
     SiteDialog,
@@ -120,15 +122,15 @@ def test_interfaces_tab_add_remove_and_results(app, device):
     # Add a fresh row via the same helper the button uses, name it, and
     # confirm it comes back as a brand-new interface.
     tab._append_row(
-        "", InterfaceType.ETH_10G, None, None, "", "00:00:00:00:00:00",
+        "", InterfaceType.ETH_10G, None, 10_000, "", "00:00:00:00:00:00",
         VlanMode.ACCESS, "30", None,
     )
     row = tab.table.rowCount() - 1
-    tab.table.item(row, 0).setText("Fib0/1")
-    tab.table.item(row, 4).setText("172.16.0.1/30")  # IP sits after Speed/Unit
+    tab.table.item(row, COL_NAME).setText("Fib0/1")
+    tab.table.item(row, COL_IP).setText("172.16.0.1/30")
 
     # Blank a name so that row is dropped from the results.
-    tab.table.item(1, 0).setText("   ")
+    tab.table.item(1, COL_NAME).setText("   ")
 
     result = tab.result_interfaces()
     names = [i.name for i in result]

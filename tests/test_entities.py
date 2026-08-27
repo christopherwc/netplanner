@@ -1544,7 +1544,8 @@ def test_negotiated_speed_takes_the_slower_end():
     from netplanner.domain.entities import Interface, InterfaceType, negotiated_speed_mbps
 
     def iface(itype):
-        return Interface(name="x", interface_type=itype)
+        return Interface(name="x", interface_type=itype,
+                         max_speed_mbps=itype.speed_mbps)
 
     assert negotiated_speed_mbps(
         iface(InterfaceType.ETH_10G), iface(InterfaceType.ETH_1G)
@@ -1564,7 +1565,8 @@ def test_negotiated_speed_ignores_rateless_wireless():
     from netplanner.domain.entities import Interface, InterfaceType, negotiated_speed_mbps
 
     def iface(itype):
-        return Interface(name="x", interface_type=itype)
+        return Interface(name="x", interface_type=itype,
+                         max_speed_mbps=itype.speed_mbps)
 
     assert negotiated_speed_mbps(
         iface(InterfaceType.WIRELESS), iface(InterfaceType.ETH_1G)
@@ -1628,7 +1630,7 @@ def test_link_derived_speed_reflects_current_ports():
     )
     # Upgrading the slower end raises what the link could carry. The
     # stored value is deliberately left alone; the dialog offers it.
-    rtr.interfaces[0].interface_type = InterfaceType.ETH_25G
+    rtr.interfaces[0].max_speed_mbps = 25_000
     assert ctrl.link_derived_speed(link) == 10_000
     assert link.bandwidth_mbps == 1_000
 
@@ -1679,7 +1681,8 @@ def _edit_port_type(ctrl, device, index, new_type):
     from netplanner.domain.entities import DeviceStatus
 
     interfaces = [
-        replace(iface, interface_type=new_type) if i == index else replace(iface)
+        replace(iface, interface_type=new_type, max_speed_mbps=new_type.speed_mbps)
+        if i == index else replace(iface)
         for i, iface in enumerate(device.interfaces)
     ]
     ctrl.edit_device_properties(
@@ -1753,11 +1756,9 @@ def test_reenabling_auto_resumes_tracking():
 
 def test_recompute_only_touches_links_that_changed():
     """The return value drives logging, so it must be accurate."""
-    from netplanner.domain.entities import InterfaceType
-
     ctrl, _, rtr, link = _linked_10g_to_1g()
     assert ctrl.plan.recompute_auto_link_speeds() == []  # already correct
-    rtr.interfaces[0].interface_type = InterfaceType.ETH_25G
+    rtr.interfaces[0].max_speed_mbps = 25_000
     assert ctrl.plan.recompute_auto_link_speeds() == [link.id]
 
 

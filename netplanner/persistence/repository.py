@@ -241,7 +241,18 @@ def _config_from_dict(data: dict) -> ConfigFile:
 def _interface_from_dict(data: dict) -> Interface:
     """Rebuild an Interface, tolerating pre-MAC, pre-type, and pre-VLAN payloads."""
     data = dict(data)
-    data["interface_type"] = InterfaceType(data.get("interface_type", "1g"))
+    itype = InterfaceType(data.get("interface_type", "1g"))
+    data["interface_type"] = itype
+    # Plans written before the rate became a field of its own carried it
+    # as "speed_mbps_override": a figure only for ports the presets did
+    # not cover, with everything else falling back to the type. Promote
+    # that fallback to a stated rate so a port keeps running at the
+    # speed it ran at before, and Wireless keeps having none.
+    legacy_speed = data.pop("speed_mbps_override", None)
+    if "max_speed_mbps" not in data:
+        data["max_speed_mbps"] = (
+            legacy_speed if legacy_speed is not None else itype.speed_mbps
+        )
     # Older plans predate VLAN support; default to plain access-mode VLAN 1.
     data["vlan_mode"] = VlanMode(data.get("vlan_mode", "access"))
     data.setdefault("access_vlan", 1)

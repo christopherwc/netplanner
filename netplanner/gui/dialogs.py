@@ -6,6 +6,7 @@ import logging
 from typing import ClassVar
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QDoubleValidator
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -31,6 +32,7 @@ from PyQt6.QtWidgets import (
 )
 
 from netplanner.domain.entities import (
+    DEFAULT_MAX_SPEED_MBPS,
     GBPS,
     MBPS,
     ConfigFile,
@@ -48,7 +50,6 @@ from netplanner.domain.entities import (
     format_speed_mbps,
     format_speed_value,
     negotiate_rates,
-    speed_from_type_label,
 )
 from netplanner.errors import ConfigImportError
 from netplanner.export.styles import link_style_for
@@ -56,7 +57,33 @@ from netplanner.gui.config_viewer import ConfigViewerDialog
 
 logger = logging.getLogger(__name__)
 
-# Row order for the Type dropdown in the interfaces table.
+# Column layout of the interfaces table. Named rather than numbered
+# because the rate, its unit and the negotiated figure read as a group
+# and have to stay adjacent: hand-renumbering them is how a cell ends up
+# wired to the widget next door.
+COL_NAME = 0
+COL_MAX_SPEED = 1
+COL_UNIT = 2
+COL_NEGOTIATED = 3
+COL_MEDIA = 4
+COL_IP = 5
+COL_MAC = 6
+COL_VLAN_MODE = 7
+COL_VLANS = 8
+
+_COLUMN_LABELS = [
+    "Name",
+    "Maximum Interface Speed",
+    "Unit",
+    "Negotiated",
+    "Media",
+    "IP address (CIDR)",
+    "MAC address",
+    "VLAN mode",
+    "VLAN(s)",
+]
+
+# Row order for the Media dropdown in the interfaces table.
 _TYPE_CHOICES = [
     InterfaceType.ETH_1G,
     InterfaceType.ETH_10G,
@@ -104,33 +131,96 @@ class _UnitCombo(QComboBox):
         super().__init__(parent)
         self.addItem("Gbps", GBPS)
         self.addItem("Mbps", MBPS)
+        self._previous = GBPS
 
     def unit(self) -> int:
         """Mbps per displayed unit: 1000 for Gbps, 1 for Mbps."""
         data = self.currentData()
         return data if isinstance(data, int) else GBPS
 
+    def previous_unit(self) -> int:
+        """The unit in force before the current selection.
+
+        Switching units re-expresses the rate beside it rather than
+        rescaling it, and re-expressing needs to know what the number
+        on screen meant a moment ago.
+        """
+        return self._previous
+
+    def remember_unit(self) -> None:
+        """Mark the current unit as the one a later switch moves from."""
+        self._previous = self.unit()
+
     def set_unit(self, unit: int) -> None:
         index = self.findData(unit)
         if index >= 0:
             self.setCurrentIndex(index)
+        self.remember_unit()
+
+
+class _SpeedEdit(QLineEdit):
+    """The port's maximum rate, as a bare number in the row's unit.
+
+    A number and nothing else. The unit is the selector beside it, so
+    there is no spelling to parse and nothing to guess: 2.5 next to Gbps
+    is 2.5 Gbps, and cannot be read as anything else.
+
+    Blank is a real value, not an empty one. It means the rate has not
+    been established — a licensed radio nobody has measured, a handoff
+    whose contracted rate is not known yet — and it is carried as
+    unknown rather than quietly filled in with a plausible figure.
+    """
+
+    def __init__(self, mbps: int | None, unit: int, parent=None):
+        super().__init__(parent)
+        # Six decimals is far past anything real; it exists so that
+        # re-expressing a rate in Mbps never truncates what Gbps held.
+        validator = QDoubleValidator(0.0, 1_000_000.0, 6, self)
+        validator.setNotation(QDoubleValidator.Notation.StandardNotation)
+        self.setValidator(validator)
+        self.setPlaceholderText("unknown")
+        self.set_mbps(mbps, unit)
+
+    def mbps(self, unit: int) -> int | None:
+        """The rate in Mbps, or None when the field is blank.
+
+        Anything that does not resolve to at least 1 Mbps reads as
+        unknown. The validator keeps out non-numbers, so the remaining
+        cases are a blank field and a figure rounding to zero.
+        """
+        text = self.text().strip()
+        if not text:
+            return None
+        try:
+            value = float(text)
+        except ValueError:  # pragma: no cover - the validator blocks these
+            return None
+        mbps = round(value * unit)
+        return mbps if mbps >= 1 else None
+
+    def set_mbps(self, mbps: int | None, unit: int) -> None:
+        """Show a stored rate in `unit`, or clear the field for None."""
+        self.setText("" if mbps is None else format_speed_value(mbps, unit))
 
 
 class _TypeCombo(QComboBox):
     """Media picker: the built-in classes, or a name you type.
 
-    The presets carry a nominal rate, which is what the Speed column
-    defers to. A typed name — "SFP28 DAC", "T1 serial", "DOCSIS 3.1" —
-    is a label only, so the port keeps whichever preset was selected
-    underneath it as the source of that default rate.
+    This column describes what the port *is* — "SFP28 DAC", "T1 serial",
+    "DOCSIS 3.1", "10GBASE-LR". It is a label and only a label: the rate
+    lives in its own column and is never inferred from this text.
+
+    Reading a rate out of the media name is what this column used to do,
+    and it could not be made safe. "1000" beside a Gbps selector is a
+    thousand megabits to the person typing it and a thousand gigabits to
+    a parser told to read bare numbers as gigabits, and the figure it
+    produced overwrote the stored rate every time the dialog opened.
 
     Text that names a preset *is* that preset, however it got into the
     field. Making the box editable meant a name could arrive without the
     dropdown ever being used — typed by hand, completed inline by Qt, or
     pasted — and reading the preset from the selected index alone left
-    the port on its old type while the cell displayed the new one. That
-    silently discarded type changes and, with them, the link speeds
-    derived from those types.
+    the port on its old media class while the cell displayed the new one.
     """
 
     def __init__(self, itype: InterfaceType, label_override: str | None, parent=None):
@@ -173,19 +263,6 @@ class _TypeCombo(QComboBox):
         if not text or self._named_preset() is not None:
             return None
         return text
-
-    def implied_speed_mbps(self, default_unit: int = GBPS) -> int | None:
-        """The rate a typed name implies, if it implies one.
-
-        Typing "2.5G" or "10GBASE-LR" into this column describes a port
-        that runs at that rate, so the row's Speed follows it. Names
-        with no rate in them — "SFP28", "T1 serial" — imply nothing and
-        leave Speed alone.
-        """
-        label = self.label_override()
-        if label is None:
-            return None
-        return speed_from_type_label(label, default_unit)
 
     def _normalize(self) -> None:
         """Turn typed text into a real selection where one applies.
@@ -310,16 +387,20 @@ class _GeneralTab(QWidget):
 
 
 class _InterfacesTab(QWidget):
-    """Editable table of the device's ports: name, type, IP, MAC, VLAN.
+    """Editable table of the device's ports: rate, media, IP, MAC, VLAN.
 
     The VLAN Mode column picks Access or Trunk; the VLAN(s) column's
     meaning depends on the mode — a single VLAN ID for Access, or a
     comma-separated list of VLAN IDs for Trunk (e.g. "10,20,30").
 
-    Type is where a port's rate is stated: pick a preset, or type one
-    ("2.5G", "10GBASE-LR", "500M"). Negotiated is not an input — it is
-    what the port will actually run at once the far end has its say,
-    recomputed as the Type field is edited.
+    Maximum Interface Speed is what the port can do on its own, entered
+    as a plain number in whatever the Unit column says. Negotiated sits
+    next to them and is not an input: it is what the port will actually
+    run at once the far end has had its say, recomputed as the rate and
+    the unit are edited.
+
+    Media is a label. It records what the port is — "SFP28 DAC", "T1
+    serial" — and has no bearing on the rate.
     """
 
     def __init__(
@@ -334,18 +415,15 @@ class _InterfacesTab(QWidget):
         # link, or None when nothing is patched in.
         self._peer_speeds = peer_speeds or {}
 
-        self.table = QTableWidget(0, 8)
-        self.table.setHorizontalHeaderLabels(
-            ["Name", "Type", "Negotiated", "Unit", "IP address (CIDR)", "MAC address",
-             "VLAN mode", "VLAN(s)"]
-        )
+        self.table = QTableWidget(0, len(_COLUMN_LABELS))
+        self.table.setHorizontalHeaderLabels(_COLUMN_LABELS)
         self.table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.table)
 
         for iface in device.interfaces:
             self._append_row(
                 iface.name, iface.interface_type, iface.type_label_override,
-                iface.speed_mbps_override, iface.ip_address or "",
+                iface.max_speed_mbps, iface.ip_address or "",
                 iface.mac_address, iface.vlan_mode, _vlans_to_text(iface),
                 iface.id,
             )
@@ -354,8 +432,8 @@ class _InterfacesTab(QWidget):
         add_btn = QPushButton("Add interface")
         add_btn.clicked.connect(
             lambda: self._append_row(
-                "", InterfaceType.ETH_1G, None, None, "", blank_mac(),
-                VlanMode.ACCESS, "1", None,
+                "", InterfaceType.ETH_1G, None, DEFAULT_MAX_SPEED_MBPS, "",
+                blank_mac(), VlanMode.ACCESS, "1", None,
             )
         )
         remove_btn = QPushButton("Remove selected")
@@ -373,7 +451,7 @@ class _InterfacesTab(QWidget):
         name: str,
         itype: InterfaceType,
         type_label: str | None,
-        speed_override: int | None,
+        max_speed_mbps: int | None,
         ip: str,
         mac: str,
         vlan_mode: VlanMode,
@@ -382,73 +460,81 @@ class _InterfacesTab(QWidget):
     ) -> None:
         """Add one editable row; iface_id is stashed in UserRole for reuse.
 
-        New rows start with an all-zeros placeholder MAC
-        (see domain.entities.blank_mac) and access-mode VLAN 1; the
-        user fills in real values, or leaves them as-is for a rough
-        sketch.
+        New rows start at one gigabit, with an all-zeros placeholder MAC
+        (see domain.entities.blank_mac) and access-mode VLAN 1; the user
+        fills in real values, or leaves them as-is for a rough sketch.
         """
         row = self.table.rowCount()
         self.table.insertRow(row)
 
         name_item = QTableWidgetItem(name)
         name_item.setData(Qt.ItemDataRole.UserRole, iface_id)
-        self.table.setItem(row, 0, name_item)
+        self.table.setItem(row, COL_NAME, name_item)
 
-        type_combo = _TypeCombo(itype, type_label)
-        type_combo.setToolTip(
-            "Media class for this port. Pick a preset, or type your own "
-            "name — SFP28 DAC, T1 serial, DOCSIS 3.1. A custom name keeps "
-            "the selected preset underneath as its default speed."
-        )
-        self.table.setCellWidget(row, 1, type_combo)
-
+        # A rate is shown in the unit it reads best in, so a 1000 Mbps
+        # port opens as "1" beside Gbps rather than "1000" beside Mbps.
+        unit = best_unit_for(max_speed_mbps) if max_speed_mbps is not None else GBPS
         unit_combo = _UnitCombo()
+        unit_combo.set_unit(unit)
         unit_combo.setToolTip(
-            "Unit the negotiated figure is shown in. Gbps by default; a "
-            "rate that reaches 1 Gbps is shown in Gbps automatically."
+            "Unit for this row's maximum and negotiated figures. Gbps by "
+            "default; switching re-expresses the rate rather than changing it."
         )
 
-        speed_item = QTableWidgetItem()
+        speed_edit = _SpeedEdit(max_speed_mbps, unit)
+        speed_edit.setToolTip(
+            "The fastest this port can run, in the unit beside it. Leave "
+            "blank when the rate is not known — a radio nobody has "
+            "measured — and nothing will be assumed on its behalf."
+        )
+        self.table.setCellWidget(row, COL_MAX_SPEED, speed_edit)
+        self.table.setCellWidget(row, COL_UNIT, unit_combo)
+
+        negotiated_item = QTableWidgetItem()
         # Derived, so not editable: what this port runs at is decided by
-        # its own rate and the far end's, never typed here.
-        speed_item.setFlags(speed_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        speed_item.setToolTip(
-            "What this port will run at: the slower of its own rate and "
-            "the rate of the port it is patched into. Set the rate in the "
-            "Type column."
+        # its own maximum and the far end's, never typed here.
+        negotiated_item.setFlags(negotiated_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        negotiated_item.setToolTip(
+            "What this port will run at: the slower of its own maximum and "
+            "the maximum of the port it is patched into."
         )
-        self.table.setItem(row, 2, speed_item)
-        self.table.setCellWidget(row, 3, unit_combo)
+        self.table.setItem(row, COL_NEGOTIATED, negotiated_item)
 
-        # The negotiated figure follows the Type field as it is typed and
-        # the unit selector as it is switched, so the row always shows
-        # what pressing OK would produce. The handlers look their row up
-        # from the widget rather than closing over the index, which goes
-        # stale the moment a row above them is removed.
-        type_combo.editTextChanged.connect(
-            lambda _text, w=type_combo: self._refresh_negotiated(self._row_of(w, 1))
+        media_combo = _TypeCombo(itype, type_label)
+        media_combo.setToolTip(
+            "What this port is. Pick a preset, or type your own name — "
+            "SFP28 DAC, T1 serial, DOCSIS 3.1. A label only: it does not "
+            "set the speed."
         )
-        type_combo.currentIndexChanged.connect(
-            lambda _index, w=type_combo: self._refresh_negotiated(self._row_of(w, 1))
+        self.table.setCellWidget(row, COL_MEDIA, media_combo)
+
+        # Both figures follow the inputs as they are edited, so the row
+        # always shows what pressing OK would produce. The handlers find
+        # their row from the widget rather than closing over the index,
+        # which would go stale the moment a row above them is removed.
+        speed_edit.textChanged.connect(
+            lambda _text, w=speed_edit: self._refresh_negotiated(
+                self._row_of(w, COL_MAX_SPEED)
+            )
         )
         unit_combo.currentIndexChanged.connect(
-            lambda _index, w=unit_combo: self._refresh_negotiated(self._row_of(w, 3))
+            lambda _index, w=unit_combo: self._on_unit_changed(w)
         )
 
-        self.table.setItem(row, 4, QTableWidgetItem(ip))
-        self.table.setItem(row, 5, QTableWidgetItem(mac))
+        self.table.setItem(row, COL_IP, QTableWidgetItem(ip))
+        self.table.setItem(row, COL_MAC, QTableWidgetItem(mac))
 
         vlan_mode_combo = QComboBox()
         for choice in _VLAN_MODE_CHOICES:
             vlan_mode_combo.addItem(choice.label, choice)
         vlan_mode_combo.setCurrentIndex(_VLAN_MODE_CHOICES.index(vlan_mode))
-        self.table.setCellWidget(row, 6, vlan_mode_combo)
+        self.table.setCellWidget(row, COL_VLAN_MODE, vlan_mode_combo)
 
         vlans_item = QTableWidgetItem(vlans_text)
         vlans_item.setToolTip(
             "Access: a single VLAN ID. Trunk: comma-separated VLAN IDs, e.g. 10,20,30"
         )
-        self.table.setItem(row, 7, vlans_item)
+        self.table.setItem(row, COL_VLANS, vlans_item)
 
         self._refresh_negotiated(row)  # draw the figure the row starts with
 
@@ -456,8 +542,8 @@ class _InterfacesTab(QWidget):
         """Which row holds `widget` in `column`, or -1 if it has gone.
 
         Row indices shift when a row above is removed, so a signal
-        handler cannot hold one. Looking the widget up when the signal
-        fires is the only index that is right when it is used.
+        handler cannot hold one. Looking the widget up at signal time is
+        the only index that is right when it is used.
         """
         for row in range(self.table.rowCount()):
             if self.table.cellWidget(row, column) is widget:
@@ -469,28 +555,42 @@ class _InterfacesTab(QWidget):
         for row in rows:
             self.table.removeRow(row)
 
+    def _on_unit_changed(self, unit_combo: _UnitCombo) -> None:
+        """Re-express this row's maximum in the newly chosen unit.
+
+        Switching the selector is a change of how the rate is written,
+        not of the rate: 2.5 under Gbps becomes 2500 under Mbps, and the
+        port still runs at the same speed. Rescaling instead — leaving
+        2.5 in place to mean 2.5 Mbps — would silently cut a port to a
+        thousandth of its rate for the price of one dropdown.
+        """
+        row = self._row_of(unit_combo, COL_UNIT)
+        if row < 0:  # pragma: no cover - defensive
+            return
+        speed_edit = self.table.cellWidget(row, COL_MAX_SPEED)
+        if isinstance(speed_edit, _SpeedEdit):
+            mbps = speed_edit.mbps(unit_combo.previous_unit())
+            speed_edit.set_mbps(mbps, unit_combo.unit())
+        unit_combo.remember_unit()
+        self._refresh_negotiated(row)
+
     # ----------------------------------------------------------------- result
     def _row_rate_mbps(self, row: int) -> int | None:
-        """The rate this row's port states for itself, before the far end.
-
-        A typed type that names a rate is that rate; anything else falls
-        back to the preset underneath, which is None for Wireless.
-        """
-        type_combo = self.table.cellWidget(row, 1)
-        unit_combo = self.table.cellWidget(row, 3)
-        if not isinstance(type_combo, _TypeCombo):  # pragma: no cover - defensive
+        """The maximum this row's port states for itself, in Mbps."""
+        speed_edit = self.table.cellWidget(row, COL_MAX_SPEED)
+        unit_combo = self.table.cellWidget(row, COL_UNIT)
+        if not isinstance(speed_edit, _SpeedEdit):  # pragma: no cover - defensive
             return None
         unit = unit_combo.unit() if isinstance(unit_combo, _UnitCombo) else GBPS
-        implied = type_combo.implied_speed_mbps(unit)
-        return implied if implied is not None else type_combo.base_type().speed_mbps
+        return speed_edit.mbps(unit)
 
     def _refresh_negotiated(self, row: int) -> None:
         """Redraw one row's negotiated figure from the current inputs."""
         if row < 0:  # pragma: no cover - defensive
             return
-        item = self.table.item(row, 2)
-        unit_combo = self.table.cellWidget(row, 3)
-        name_item = self.table.item(row, 0)
+        item = self.table.item(row, COL_NEGOTIATED)
+        unit_combo = self.table.cellWidget(row, COL_UNIT)
+        name_item = self.table.item(row, COL_NAME)
         if item is None or name_item is None:  # pragma: no cover - defensive
             return
 
@@ -500,14 +600,14 @@ class _InterfacesTab(QWidget):
         negotiated = negotiate_rates(own, peer)
 
         if negotiated is None:
-            # Wireless with no figure, patched into nothing or into
-            # another port with no figure: there is nothing to state.
+            # A port with no rate of its own, patched into nothing or
+            # into another port with no rate: there is nothing to state.
             item.setText("—")
             return
+        # Shown in the row's own unit, not whichever unit reads best.
+        # Choosing the unit here would move the selector under the
+        # person editing the maximum beside it.
         unit = unit_combo.unit() if isinstance(unit_combo, _UnitCombo) else GBPS
-        if unit != best_unit_for(negotiated) and isinstance(unit_combo, _UnitCombo):
-            unit_combo.set_unit(best_unit_for(negotiated))  # re-enters via the signal
-            return
         item.setText(format_speed_value(negotiated, unit))
 
     def result_interfaces(self) -> list[Interface]:
@@ -520,23 +620,23 @@ class _InterfacesTab(QWidget):
         """
         result: list[Interface] = []
         for row in range(self.table.rowCount()):
-            name_item = self.table.item(row, 0)
-            ip_item = self.table.item(row, 4)
-            mac_item = self.table.item(row, 5)
-            vlans_item = self.table.item(row, 7)
-            type_combo = self.table.cellWidget(row, 1)
-            vlan_mode_combo = self.table.cellWidget(row, 6)
+            name_item = self.table.item(row, COL_NAME)
+            ip_item = self.table.item(row, COL_IP)
+            mac_item = self.table.item(row, COL_MAC)
+            vlans_item = self.table.item(row, COL_VLANS)
+            media_combo = self.table.cellWidget(row, COL_MEDIA)
+            vlan_mode_combo = self.table.cellWidget(row, COL_VLAN_MODE)
 
             name = (name_item.text() if name_item else "").strip()
             if not name:
                 continue
             itype = (
-                type_combo.base_type()
-                if isinstance(type_combo, _TypeCombo)
+                media_combo.base_type()
+                if isinstance(media_combo, _TypeCombo)
                 else InterfaceType.ETH_1G
             )
             type_label = (
-                type_combo.label_override() if isinstance(type_combo, _TypeCombo) else None
+                media_combo.label_override() if isinstance(media_combo, _TypeCombo) else None
             )
             ip = (ip_item.text() if ip_item else "").strip() or None
             mac = (mac_item.text() if mac_item else "").strip() or blank_mac()
@@ -549,19 +649,11 @@ class _InterfacesTab(QWidget):
             access_vlan, trunk_vlans = _parse_vlans(vlan_mode, vlans_text)
             iface_id = name_item.data(Qt.ItemDataRole.UserRole)
 
-            # A rate stated in the Type column is the port's rate; a
-            # preset carries its own, so it needs no override.
-            unit_combo = self.table.cellWidget(row, 3)
-            unit = unit_combo.unit() if isinstance(unit_combo, _UnitCombo) else GBPS
-            speed_override = (
-                type_combo.implied_speed_mbps(unit) if isinstance(type_combo, _TypeCombo) else None
-            )
-
             kwargs = {
                 "name": name,
                 "interface_type": itype,
                 "type_label_override": type_label,
-                "speed_mbps_override": speed_override,
+                "max_speed_mbps": self._row_rate_mbps(row),
                 "ip_address": ip,
                 "mac_address": mac,
                 "vlan_mode": vlan_mode,
@@ -572,7 +664,6 @@ class _InterfacesTab(QWidget):
                 kwargs["id"] = iface_id
             result.append(Interface(**kwargs))
         return result
-
 
 def _vlans_to_text(iface: Interface) -> str:
     """Render an interface's VLAN membership for the editable text cell."""

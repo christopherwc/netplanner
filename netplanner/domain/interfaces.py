@@ -48,6 +48,16 @@ _TEMPLATES: dict[DeviceType, list[tuple[str, InterfaceType]]] = {
 
 
 def default_interfaces(device_type: DeviceType) -> list[Interface]:
-    """Build the fresh interface list for a newly-placed device."""
+    """Build the fresh interface list for a newly-placed device.
+
+    The template's type seeds the port's maximum rate as well as its
+    media name, so a fresh Gig0/1 arrives stating 1 Gbps outright
+    rather than leaving it to be inferred later. Wireless seeds nothing:
+    a radio's rate depends on modulation, distance and channel width, so
+    the port starts with its rate unknown and waits for a real figure.
+    """
     template = _TEMPLATES.get(device_type, _TEMPLATES[DeviceType.OTHER])
-    return [Interface(name=name, interface_type=itype) for name, itype in template]
+    return [
+        Interface(name=name, interface_type=itype, max_speed_mbps=itype.speed_mbps)
+        for name, itype in template
+    ]
