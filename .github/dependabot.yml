@@ -1,8 +1,11 @@
 version: 2
 updates:
-  # Python dependencies. Grouped so a quiet week produces one PR rather
-  # than six, each of which would otherwise run the full matrix.
-  - package-ecosystem: pip
+  # Python dependencies. Every version is pinned, so these PRs are the
+  # mechanism by which a pin ever moves: without them the pins go stale
+  # and stale pins miss security fixes. Grouped so a quiet week produces
+  # one PR rather than six, each of which would otherwise run the full
+  # matrix.
+  - package-ecosystem: uv
     directory: "/"
     schedule:
       interval: weekly

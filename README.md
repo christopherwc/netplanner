@@ -1,7 +1,8 @@
 # NetPlanner
 
 [![CI](https://github.com/christopherwc/netplanner/actions/workflows/ci.yml/badge.svg)](https://github.com/christopherwc/netplanner/actions/workflows/ci.yml)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
+[![uv](https://img.shields.io/badge/packaged%20with-uv-de5fe9)](https://docs.astral.sh/uv/)
 
 A network planning tool for Linux with a PyQt6 GUI, SQLite persistence,
 and PDF/PNG export. Design network diagrams Packet Tracer-style: place
@@ -242,30 +243,108 @@ identical.
 
 ## Setup
 
-Arch Linux:
+Dependencies are managed with [uv](https://docs.astral.sh/uv/). Install it
+first:
 
 ```bash
-sudo pacman -S python
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# or: pacman -S uv   (Arch)   |   pipx install uv   (anywhere)
+```
+
+Qt links against a handful of system libraries even though PyQt6 bundles
+Qt itself. Arch Linux:
+
+```bash
+sudo pacman -S libglvnd libxkbcommon-x11 dbus fontconfig
 ```
 
 Debian/Ubuntu:
 
 ```bash
-sudo apt install python3 python3-venv libgl1 libegl1
+sudo apt install libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3 libfontconfig1
 ```
 
-Then:
+Then, from the repository root:
 
 ```bash
-python3 -m venv venv && source venv/bin/activate
-pip install -e ".[dev]"
+uv sync --extra dev
 ```
+
+That creates `.venv/`, installs the exact versions recorded in `uv.lock`,
+and installs NetPlanner itself in editable mode. uv fetches its own
+Python if you do not have 3.12+; there is no separate venv step.
+
+Commands run through `uv run`, which activates the environment for you:
+
+```bash
+uv run netplanner        # launch the app
+uv run pytest            # run the tests
+```
+
+`source .venv/bin/activate` works too if you prefer an activated shell.
+
+## Dependency pinning
+
+Every runtime and development dependency is pinned to an exact version in
+`pyproject.toml` (`numpy==2.5.2`, not `numpy>=1.26`), and `uv.lock`
+records the resolved version **and the SHA-256 hash** of every artifact,
+including transitive ones.
+
+This is a supply-chain measure, and it buys three specific things:
+
+- **An update is a commit, not an event.** With a floor like `>=1.26`, a
+  compromised or simply broken release enters the project the next time
+  anyone runs an install, on whatever machine happens to install first.
+  With a pin, that release cannot arrive until someone changes a line and
+  a reviewer approves it. The dependency set becomes reviewable history.
+- **The artifact is verified, not just named.** A version number alone
+  does not tell you that the file you downloaded is the file the
+  maintainer published. `uv sync` checks each download against the hash
+  in `uv.lock` and fails if it differs, so a tampered or substituted
+  artifact stops the install rather than executing.
+- **What CI tested is what ships.** Developer machines, all three CI
+  Python versions, and the release job resolve to identical bytes, so a
+  green pipeline is evidence about the artifact users actually get — not
+  about a similar one.
+
+**The tradeoff is real and worth stating: pins go stale, and stale pins
+miss security fixes.** Pinning only helps if something moves the pins.
+That job belongs to Dependabot (`.github/dependabot.yml`), which opens a
+grouped PR weekly against the `uv` ecosystem; the pipeline then runs in
+full against the proposed versions before anyone merges. Pinning without
+that is worse than floors, not better.
+
+CI enforces this with `uv sync --locked` and `UV_LOCKED=1`: if
+`pyproject.toml` and `uv.lock` ever disagree, the run fails instead of
+quietly installing a set nobody reviewed. (`--frozen` is the weaker
+flag — it installs from the lock but accepts one that has fallen behind
+`pyproject.toml`, which is exactly the case worth catching.)
+
+To move a pin deliberately:
+
+```bash
+uv lock --upgrade-package numpy      # or --upgrade for everything
+uv sync --extra dev
+uv run pytest --cov=netplanner --cov-fail-under=100
+```
+
+Commit `pyproject.toml` and `uv.lock` together — they are one unit, and
+`--locked` will reject them if they drift apart.
+
+### Python version support
+
+NetPlanner requires **Python 3.12 or newer**. That floor is a consequence
+of pinning rather than a use of any 3.12 feature: the current numpy and
+scipy releases require 3.12, and the current networkx requires 3.11, so
+covering 3.10 and 3.11 as well would mean three different pinned versions
+of each — which is not pinning. Supporting one exact set per dependency
+was the more valuable half of the trade.
 
 ## Run
 
 ```bash
-netplanner
-# or: python -m netplanner.main
+uv run netplanner
+# or: uv run python -m netplanner.main
 ```
 
 ### Quick tour
@@ -292,7 +371,7 @@ Esc always returns to Select/Move mode.
 ## Test
 
 ```bash
-pytest
+uv run pytest
 ```
 
 The GUI tests need a Qt platform plugin; they set `QT_QPA_PLATFORM=offscreen`
@@ -301,10 +380,10 @@ themselves, so no display server is required.
 To run what CI runs:
 
 ```bash
-pip install -e ".[dev]"
-ruff check .                                    # lint
-pytest --cov=netplanner --cov-fail-under=100    # tests + coverage gate
-python .github/scripts/startup_smoke.py         # launches the app, quits itself
+uv sync --locked --extra dev                           # exactly what CI installs
+uv run ruff check .                                    # lint
+uv run pytest --cov=netplanner --cov-fail-under=100    # tests + coverage gate
+uv run python .github/scripts/startup_smoke.py         # launches the app, quits itself
 ```
 
 Coverage is at 100% of lines and the gate enforces it, so new code needs
@@ -321,10 +400,13 @@ a schedule, and is called by the release workflow:
 | --- | --- |
 | Lint | ruff, reported as inline annotations on the diff |
 | Type check | mypy — advisory today, see the note in the workflow |
-| Tests | Python 3.10–3.14, gated at 100% line coverage |
+| Tests | Python 3.12–3.14, gated at 100% line coverage |
 | Startup smoke | launches the real entry point; catches import errors a green suite misses |
-| Dependency audit | pip-audit against the declared dependencies |
-| Package | builds sdist and wheel, installs the wheel clean, checks the console script |
+| Dependency audit | pip-audit against the dependencies exported from `uv.lock` |
+| Package | `uv build`, installs the wheel clean, checks the console script |
+
+Every job installs with `uv sync --locked`, so a lockfile that disagrees
+with `pyproject.toml` fails the run rather than resolving around it.
 
 Tagging `vX.Y.Z` runs the same pipeline, verifies the tag matches the
 version in `pyproject.toml`, and publishes a GitHub release with the
@@ -334,3 +416,5 @@ distributions and their checksums.
 
 - Database: `~/.local/share/netplanner/plans.db` (respects `XDG_DATA_HOME`)
 - JSON projects: any path you choose, `.netplan` extension by convention
+- `uv.lock`: the resolved dependency set with hashes — committed, and
+  updated together with `pyproject.toml`
