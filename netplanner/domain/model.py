@@ -11,6 +11,7 @@ import networkx as nx
 
 from .entities import (
     Device,
+    Interface,
     Link,
     Site,
     Subnet,
@@ -118,6 +119,34 @@ class NetworkPlan:
                 link.bandwidth_mbps = derived
                 changed.append(link.id)
         return changed
+
+    def peer_speeds_for(self, device: Device) -> dict[str, int | None]:
+        """For each of a device's ports, the rate of the port it faces.
+
+        The interfaces table shows what a port will negotiate while it
+        is being edited, and that needs the far end's rate. None means
+        nothing is patched into that port, or the far end has no rate of
+        its own.
+        """
+        ports = {iface.id for iface in device.interfaces}
+        peers: dict[str, int | None] = {iface.id: None for iface in device.interfaces}
+        for link in self.links:
+            for near, far in (
+                (link.a_interface_id, link.b_interface_id),
+                (link.b_interface_id, link.a_interface_id),
+            ):
+                if near in ports and far is not None:
+                    far_iface = self.interface_by_id(far)
+                    peers[near] = far_iface.speed_mbps if far_iface else None
+        return peers
+
+    def interface_by_id(self, interface_id: str) -> Interface | None:
+        """Find an interface anywhere in the plan by its id."""
+        for device in self.devices:
+            for iface in device.interfaces:
+                if iface.id == interface_id:
+                    return iface
+        return None
 
     def get_link(self, link_id: str) -> Link | None:
         """Look up a link by id; None if absent.

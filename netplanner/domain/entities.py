@@ -213,11 +213,20 @@ def negotiated_speed_mbps(a: Interface | None, b: Interface | None) -> int | Non
     know, so the wired end is the best available estimate. When neither
     end has a fixed rate, the result is None ("not set").
     """
-    speeds = [
-        iface.speed_mbps
-        for iface in (a, b)
-        if iface is not None and iface.speed_mbps is not None
-    ]
+    return negotiate_rates(
+        a.speed_mbps if a else None,
+        b.speed_mbps if b else None,
+    )
+
+
+def negotiate_rates(a_mbps: int | None, b_mbps: int | None) -> int | None:
+    """The negotiation rule itself, over two bare rates.
+
+    Separated so the interfaces table can show what a port will
+    negotiate while it is being edited, without inventing a second
+    definition that could drift from the one links use.
+    """
+    speeds = [rate for rate in (a_mbps, b_mbps) if rate is not None]
     return min(speeds) if speeds else None
 
 
