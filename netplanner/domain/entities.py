@@ -96,22 +96,45 @@ class InterfaceType(Enum):
         }[self]
 
 
+def best_unit_for(mbps: int) -> int:
+    """The unit a figure reads best in: gigabits once it reaches 1000.
+
+    One rule, used by the formatter and by the Speed column's unit
+    selector, so a rate is shown the same way wherever it appears.
+    """
+    return GBPS if mbps >= GBPS else MBPS
+
+
+def format_speed_value(mbps: int, unit: int) -> str:
+    """Just the number, as it should read in `unit`."""
+    value = mbps / unit
+    return f"{value:g}"
+
+
 def format_speed_mbps(mbps: int) -> str:
     """Render a Mbps figure in whichever unit reads better."""
-    if mbps >= 1000 and mbps % 1000 == 0:
-        return f"{mbps // 1000} Gbps"
-    if mbps >= 1000:
-        return f"{mbps / 1000:g} Gbps"
-    return f"{mbps} Mbps"
+    unit = best_unit_for(mbps)
+    return f"{format_speed_value(mbps, unit)} {'Gbps' if unit == GBPS else 'Mbps'}"
 
 
-def parse_speed_mbps(text: str) -> int | None:
+# What "1 unit" is worth in Mbps, for the unit selector and for reading
+# bare numbers. Gbps leads: ports are specified in gigabits far more
+# often than megabits.
+GBPS = 1000
+MBPS = 1
+
+
+def parse_speed_mbps(text: str, default_unit: int = MBPS) -> int | None:
     """Parse a typed line rate into Mbps.
 
-    Accepts what someone would actually type for a port that is not one
-    of the presets: a bare number in Mbps ("850"), or a number with a
-    unit in any of the usual spellings ("2.5G", "2.5 Gbps", "40 Gb/s",
-    "100M"). Blank means "no manual figure — use the interface type".
+    Accepts what someone would actually type: a bare number ("850"), or
+    a number with a unit in any of the usual spellings ("2.5G",
+    "2.5 Gbps", "40 Gb/s", "100M"). Blank means "no manual figure — use
+    the interface type".
+
+    A written unit always wins. A bare number is read in `default_unit`,
+    which is how the Speed column's unit selector gives "2.5" the
+    meaning the person sitting in front of it expects.
 
     Raises ValueError on anything else, so a typo is rejected rather
     than silently becoming a speed the user did not intend.
@@ -120,7 +143,7 @@ def parse_speed_mbps(text: str) -> int | None:
     if not cleaned:
         return None
 
-    multiplier = 1
+    multiplier = default_unit
     for suffix, factor in (("gbps", 1000), ("gb/s", 1000), ("gbit", 1000),
                            ("gb", 1000), ("g", 1000),
                            ("mbps", 1), ("mb/s", 1), ("mbit", 1),
