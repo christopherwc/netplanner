@@ -179,3 +179,15 @@ def test_the_local_database_keeps_the_path(tmp_path):
 
     restored = repo.load(plan.id).devices[0].configs[0]
     assert restored.source_path == "/home/chris/clients/acme-bank/core-sw.cfg"
+
+
+# --------------------------------------------------- narrowing Qt's Optionals
+def test_a_missing_qt_object_raises_rather_than_vanishing():
+    """`assert x is not None` would disappear under `python -O`, taking
+    the check with it — which is why the linter refuses asserts outside
+    tests, and why this narrows by raising instead."""
+    from netplanner.gui.qtutil import required
+
+    assert required("a menu bar", "menu bar") == "a menu bar"
+    with pytest.raises(RuntimeError, match="Qt returned no menu bar"):
+        required(None, "menu bar")

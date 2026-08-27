@@ -53,6 +53,7 @@ from netplanner.domain.entities import (
 from netplanner.errors import ConfigImportError
 from netplanner.export.styles import link_style_for
 from netplanner.gui.config_viewer import ConfigViewerDialog
+from netplanner.gui.qtutil import required
 
 logger = logging.getLogger(__name__)
 
@@ -319,7 +320,7 @@ class _InterfacesTab(QWidget):
 
         self.table = QTableWidget(0, len(_COLUMN_LABELS))
         self.table.setHorizontalHeaderLabels(_COLUMN_LABELS)
-        self.table.horizontalHeader().setStretchLastSection(True)
+        required(self.table.horizontalHeader(), "table header").setStretchLastSection(True)
         layout.addWidget(self.table)
 
         for iface in device.interfaces:
@@ -517,7 +518,12 @@ class _InterfacesTab(QWidget):
             vlans_item = self.table.item(row, COL_VLANS)
             vlan_mode_combo = self.table.cellWidget(row, COL_VLAN_MODE)
 
-            name = (name_item.text() if name_item else "").strip()
+            # Skipped outright rather than read through a ternary: a row
+            # with no name cell is not a port, and returning early is
+            # also what lets the id below be read without a second guard.
+            if name_item is None:  # pragma: no cover - defensive
+                continue
+            name = name_item.text().strip()
             if not name:
                 continue
             ip = (ip_item.text() if ip_item else "").strip() or None
@@ -531,18 +537,23 @@ class _InterfacesTab(QWidget):
             access_vlan, trunk_vlans = _parse_vlans(vlan_mode, vlans_text)
             iface_id = name_item.data(Qt.ItemDataRole.UserRole)
 
-            kwargs = {
-                "name": name,
-                "max_speed_mbps": self._row_rate_mbps(row),
-                "ip_address": ip,
-                "mac_address": mac,
-                "vlan_mode": vlan_mode,
-                "access_vlan": access_vlan,
-                "trunk_vlans": trunk_vlans,
-            }
+            # Built directly rather than splatted from a dict: a dict
+            # of mixed value types has no per-key type, so **kwargs
+            # discards every field's type on the way into Interface.
+            interface = Interface(
+                name=name,
+                max_speed_mbps=self._row_rate_mbps(row),
+                ip_address=ip,
+                mac_address=mac,
+                vlan_mode=vlan_mode,
+                access_vlan=access_vlan,
+                trunk_vlans=trunk_vlans,
+            )
+            # An id only exists for a row that came from a saved port;
+            # a row the user just added gets the one Interface made.
             if iface_id:
-                kwargs["id"] = iface_id
-            result.append(Interface(**kwargs))
+                interface.id = iface_id
+            result.append(interface)
         return result
 
 def _vlans_to_text(iface: Interface) -> str:
@@ -597,7 +608,7 @@ class _ConfigsTab(QWidget):
 
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(["File name", "Format", "Size"])
-        self.table.horizontalHeader().setStretchLastSection(True)
+        required(self.table.horizontalHeader(), "table header").setStretchLastSection(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         # Double-clicking a row opens the viewer rather than editing in place.
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)

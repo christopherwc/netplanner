@@ -381,7 +381,8 @@ To run what CI runs:
 
 ```bash
 uv sync --locked --extra dev                           # exactly what CI installs
-uv run ruff check .                                    # lint
+uv run ruff check .                                    # lint (incl. bandit rules)
+uv run mypy netplanner                                 # types
 uv run pytest --cov=netplanner --cov-fail-under=100    # tests + coverage gate
 uv run python .github/scripts/startup_smoke.py         # launches the app, quits itself
 ```
@@ -399,7 +400,7 @@ a schedule, and is called by the release workflow:
 | Job | What it guards |
 | --- | --- |
 | Lint | ruff, reported as inline annotations on the diff |
-| Type check | mypy — advisory today, see the note in the workflow |
+| Type check | mypy, blocking — zero errors on `netplanner/` |
 | Tests | Python 3.12–3.14, gated at 100% line coverage |
 | Startup smoke | launches the real entry point; catches import errors a green suite misses |
 | Dependency audit | pip-audit against the dependencies exported from `uv.lock` |

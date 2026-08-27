@@ -325,7 +325,10 @@ def _export_png_impl(scene, path: Path) -> None:
             ty += line_height
 
     # Downsample for antialiasing
-    img = img.resize((w // SCALE, h // SCALE), Image.LANCZOS)
+    # Image.Resampling.LANCZOS, not the Image.LANCZOS alias: the alias
+    # still resolves at runtime but is absent from Pillow's type stubs,
+    # and the enum is where the constant has actually lived since 9.1.
+    img = img.resize((w // SCALE, h // SCALE), Image.Resampling.LANCZOS)
     img.save(path, "PNG")
 
 
@@ -375,10 +378,21 @@ def _blend(color: str, toward: str, amount: float) -> tuple[int, int, int]:
     """Mix `color` toward `toward`; used to fake alpha for dimmed cards."""
     def rgb(value: str) -> tuple[int, int, int]:
         value = value.lstrip("#")
-        return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
+        # Spelled out rather than built by a generator: a comprehension
+        # produces tuple[int, ...], which is the wrong shape for a
+        # colour and would let a four-channel value through unnoticed.
+        return (
+            int(value[0:2], 16),
+            int(value[2:4], 16),
+            int(value[4:6], 16),
+        )
 
     a, b = rgb(color), rgb(toward)
-    return tuple(int(a[i] * amount + b[i] * (1 - amount)) for i in range(3))
+    return (
+        int(a[0] * amount + b[0] * (1 - amount)),
+        int(a[1] * amount + b[1] * (1 - amount)),
+        int(a[2] * amount + b[2] * (1 - amount)),
+    )
 
 
 def _dashed_line(draw, p1, p2, color, width, pattern) -> None:

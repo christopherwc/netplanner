@@ -49,29 +49,19 @@ jobs:
         run: uv run ruff check --output-format=github .
 
   typecheck:
-    name: Type check (mypy, advisory)
+    name: Type check (mypy)
     runs-on: ubuntu-latest
-    # Non-blocking on purpose: mypy currently reports 68 errors, ~36 of
-    # them Qt accessors typed as Optional (menuBar(), statusBar()) that
-    # are never None in practice. The job exists to stop the count
-    # growing and to make it visible; flip continue-on-error to false
-    # once it reaches zero.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
+      # Blocking. mypy reports zero errors on netplanner/, so this is a
+      # ratchet rather than a report: a new Optional read through, or a
+      # signature that no longer matches the Qt base class it overrides,
+      # fails the run instead of being appended to a list nobody reads.
       - name: Run mypy
-        run: |
-          uv run mypy netplanner | tee mypy.txt || true
-          {
-            echo "### mypy (advisory)"
-            echo ""
-            echo '```'
-            tail -n 20 mypy.txt
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: uv run mypy netplanner
 
   test:
     name: Tests (Python ${{ matrix.python-version }})
@@ -208,12 +198,13 @@ jobs:
   ci-passed:
     name: CI passed
     runs-on: ubuntu-latest
-    needs: [lint, test, startup, audit, package]
+    needs: [lint, typecheck, test, startup, audit, package]
     if: ${{ always() }}
     steps:
       - name: Verify every required job succeeded
         run: |
-          echo "lint:     ${{ needs.lint.result }}"
+          echo "lint:      ${{ needs.lint.result }}"
+          echo "typecheck: ${{ needs.typecheck.result }}"
           echo "test:     ${{ needs.test.result }}"
           echo "startup:  ${{ needs.startup.result }}"
           echo "audit:    ${{ needs.audit.result }}"

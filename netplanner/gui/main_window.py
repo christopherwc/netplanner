@@ -14,6 +14,7 @@ from netplanner.app.controller import AppController
 from .canvas import NetworkCanvas
 from .palette import EquipmentPalette
 from .panels import PropertiesPanel
+from .qtutil import required
 from .vlan_panel import VlanPanel
 
 logger = logging.getLogger(__name__)
@@ -50,9 +51,9 @@ class MainWindow(QMainWindow):
 
     # ----------------------------------------------------------------- menus
     def _build_menus(self) -> None:
-        bar = self.menuBar()
+        bar = required(self.menuBar(), "menu bar")
 
-        file_menu = bar.addMenu("&File")
+        file_menu = required(bar.addMenu("&File"), "File menu")
         file_menu.addAction(self._action("&New plan", QKeySequence.StandardKey.New, self._new_plan))
         file_menu.addAction(self._action("&Rename plan…", None, self._rename_plan))
         file_menu.addAction(self._action("&Save", QKeySequence.StandardKey.Save, self._save))
@@ -62,7 +63,7 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(self._action("&Quit", QKeySequence.StandardKey.Quit, self.close))
 
-        edit_menu = bar.addMenu("&Edit")
+        edit_menu = required(bar.addMenu("&Edit"), "Edit menu")
         edit_menu.addAction(self._action("&Undo", QKeySequence.StandardKey.Undo, self._undo))
         edit_menu.addAction(self._action("&Redo", QKeySequence.StandardKey.Redo, self._redo))
         edit_menu.addSeparator()
@@ -70,14 +71,14 @@ class MainWindow(QMainWindow):
             self._action("&Delete selected", QKeySequence.StandardKey.Delete, self._delete)
         )
 
-        view_menu = bar.addMenu("&View")
+        view_menu = required(bar.addMenu("&View"), "View menu")
         details_action = QAction("Show device &details", self)
         details_action.setCheckable(True)
         details_action.setChecked(True)  # IPs, MACs, and type visible by default
         details_action.toggled.connect(self.canvas.set_show_details)
         view_menu.addAction(details_action)
 
-        plan_menu = bar.addMenu("&Plan")
+        plan_menu = required(bar.addMenu("&Plan"), "Plan menu")
         plan_menu.addAction(self._action("&Auto layout", None, self._auto_layout))
         plan_menu.addAction(self._action("&Validate", None, self._validate))
 
@@ -124,7 +125,7 @@ class MainWindow(QMainWindow):
 
     def _save(self) -> None:
         self.controller.save()
-        self.statusBar().showMessage("Plan saved", 3000)
+        required(self.statusBar(), "status bar").showMessage("Plan saved", 3000)
 
     def _delete(self) -> None:
         """Delete whatever is selected on the canvas (devices and/or links)."""
@@ -177,10 +178,10 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, "Export PDF", "", "PDF files (*.pdf)")
         if path:
             self.controller.export_to_pdf(Path(path))
-            self.statusBar().showMessage(f"Exported {path}", 3000)
+            required(self.statusBar(), "status bar").showMessage(f"Exported {path}", 3000)
 
     def _export_png(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "Export PNG", "", "PNG files (*.png)")
         if path:
             self.controller.export_to_png(Path(path))
-            self.statusBar().showMessage(f"Exported {path}", 3000)
+            required(self.statusBar(), "status bar").showMessage(f"Exported {path}", 3000)

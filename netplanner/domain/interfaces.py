@@ -16,12 +16,28 @@ from .entities import DeviceType, Interface
 # than leaving it for whoever ran the site survey to fill in.
 _GIG, _TEN_GIG, _UNMEASURED = 1_000, 10_000, None
 
-_TEMPLATES: dict[DeviceType, list[tuple[str, int | None]]] = {
-    DeviceType.ROUTER: [(f"Gig0/{n}", _GIG) for n in range(4)],
-    DeviceType.SWITCH: (
-        [(f"Gig0/{n}", _GIG) for n in range(1, 9)]
-        + [("Ten0/1", _TEN_GIG), ("Ten0/2", _TEN_GIG)]
-    ),
+# A port as the templates describe it, before an Interface exists.
+_PortTemplate = tuple[str, int | None]
+
+
+def _numbered(prefix: str, rate: int | None, count: int, start: int = 0) -> list[_PortTemplate]:
+    """A run of like-named ports at the same rate: Gig0/1 … Gig0/8.
+
+    Written as a function rather than inline comprehensions so the
+    element type is declared once. A bare comprehension infers
+    list[tuple[str, int]] — lists are invariant, so that is not a
+    list[_PortTemplate] and the table below would not typecheck.
+    """
+    return [(f"{prefix}{n}", rate) for n in range(start, start + count)]
+
+
+_TEMPLATES: dict[DeviceType, list[_PortTemplate]] = {
+    DeviceType.ROUTER: _numbered("Gig0/", _GIG, 4),
+    DeviceType.SWITCH: [
+        *_numbered("Gig0/", _GIG, 8, start=1),
+        ("Ten0/1", _TEN_GIG),
+        ("Ten0/2", _TEN_GIG),
+    ],
     DeviceType.FIREWALL: [
         ("wan0", _GIG),
         ("lan0", _GIG),
