@@ -15,6 +15,8 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from netplanner.domain.entities import (
+    GBPS,
+    MBPS,
     Device,
     DeviceType,
     Interface,
@@ -193,41 +195,47 @@ def app():
 
 
 def test_speed_combo_offers_presets_and_accepts_typing(app):
-    from netplanner.gui.dialogs import _SpeedCombo
+    from netplanner.gui.dialogs import _SpeedCombo, _UnitCombo
 
-    combo = _SpeedCombo(None, InterfaceType.ETH_1G)
+    units = _UnitCombo()
+    combo = _SpeedCombo(None, InterfaceType.ETH_1G, units)
     assert combo.current_mbps() is None  # defaults to the type
     assert combo.itemText(0) == "Default (1 Gbps)"
 
     combo.setCurrentIndex(combo.findData(10_000))  # a preset
     assert combo.current_mbps() == 10_000
 
-    combo.setEditText("2.5g")  # something the presets do not cover
+    combo.setEditText("2.5g")  # a written unit always wins
     assert combo.current_mbps() == 2_500
     combo._normalize()
-    assert combo.currentText() == "2.5 Gbps"
+    assert combo.currentText() == "2.5"
+    assert units.currentText() == "Gbps"
     combo.deleteLater()
+    units.deleteLater()
 
 
 def test_speed_combo_keeps_the_last_good_value_on_a_typo(app):
     """Reverting is better than silently storing None: the user asked
     for a speed, and a typo should not read as 'use the default'."""
-    from netplanner.gui.dialogs import _SpeedCombo
+    from netplanner.gui.dialogs import _SpeedCombo, _UnitCombo
 
-    combo = _SpeedCombo(850, InterfaceType.ETH_1G)
+    units = _UnitCombo()
+    combo = _SpeedCombo(850, InterfaceType.ETH_1G, units)
     assert combo.current_mbps() == 850
+    assert units.currentText() == "Mbps"  # sub-gigabit reads better here
 
     combo.setEditText("fat-fingered")
     assert combo.current_mbps() == 850
     combo._normalize()
-    assert combo.currentText() == "850 Mbps"
+    assert combo.currentText() == "850"
     combo.deleteLater()
+    units.deleteLater()
 
 
 def test_speed_combo_default_entry_follows_the_type(app):
-    from netplanner.gui.dialogs import _SpeedCombo
+    from netplanner.gui.dialogs import _SpeedCombo, _UnitCombo
 
-    combo = _SpeedCombo(None, InterfaceType.ETH_1G)
+    combo = _SpeedCombo(None, InterfaceType.ETH_1G, _UnitCombo())
     combo.set_default_type(InterfaceType.ETH_100G)
     assert combo.itemText(0) == "Default (100 Gbps)"
     assert combo.current_mbps() is None  # still deferring
@@ -236,7 +244,7 @@ def test_speed_combo_default_entry_follows_the_type(app):
     assert combo.itemText(0) == "Default (no fixed rate)"
 
     # A row already carrying a manual figure keeps it when the type moves.
-    custom = _SpeedCombo(2_500, InterfaceType.ETH_1G)
+    custom = _SpeedCombo(2_500, InterfaceType.ETH_1G, _UnitCombo())
     custom.set_default_type(InterfaceType.ETH_10G)
     assert custom.current_mbps() == 2_500
     combo.deleteLater()
@@ -254,13 +262,14 @@ def test_interfaces_tab_round_trips_a_manual_speed(app):
     dialog = DevicePropertiesDialog(device)
     tab = dialog._interfaces
 
-    # The existing override is shown as typed text, not a preset index.
-    assert tab.table.cellWidget(1, 2).currentText() == "2.5 Gbps"
+    # The existing override is shown as a number, with its unit beside it.
+    assert tab.table.cellWidget(1, 2).currentText() == "2.5"
+    assert tab.table.cellWidget(1, 3).currentText() == "Gbps"
 
     # Give the first port a figure the presets do not have.
     speed_combo = tab.table.cellWidget(0, 2)
     assert isinstance(speed_combo, _SpeedCombo)
-    speed_combo.setEditText("200M")
+    speed_combo.setEditText("200M")  # written unit beats the Gbps selector
 
     result = tab.result_interfaces()
     assert result[0].speed_mbps_override == 200
@@ -533,3 +542,112 @@ def test_clearing_a_typed_type_returns_to_the_last_selected_preset(app):
     assert combo.currentText() == "25 Gbps"
     assert combo.base_type() is InterfaceType.ETH_25G
     combo.deleteLater()
+
+
+# ------------------------------------------------------------ units of measure
+def test_a_new_port_reads_numbers_as_gbps(app):
+    """The default unit. A bare 2.5 beside a 10 Gbps type means
+    2.5 Gbps to everyone except a parser that assumes megabits."""
+    from netplanner.gui.dialogs import _SpeedCombo, _UnitCombo
+
+    units = _UnitCombo()
+    assert units.currentText() == "Gbps"
+    assert units.unit() == GBPS
+
+    combo = _SpeedCombo(None, InterfaceType.ETH_10G, units)
+    combo.setEditText("2.5")
+    assert combo.current_mbps() == 2_500
+    combo.deleteLater()
+    units.deleteLater()
+
+
+def test_megabits_become_gigabits_once_they_reach_the_threshold(app):
+    """Enter 2500 in Mbps and it comes back as 2.5 Gbps."""
+    from netplanner.gui.dialogs import _SpeedCombo, _UnitCombo
+
+    units = _UnitCombo()
+    units.set_unit(MBPS)
+    combo = _SpeedCombo(None, InterfaceType.ETH_10G, units)
+
+    combo.setEditText("2500")
+    combo._normalize()  # what leaving the field does
+    assert units.currentText() == "Gbps"
+    assert combo.currentText() == "2.5"
+    assert combo.current_mbps() == 2_500  # the figure itself never moved
+
+    # And the other way: a sub-gigabit figure is clearer in megabits.
+    combo.setEditText("0.85")
+    combo._normalize()
+    assert units.currentText() == "Mbps"
+    assert combo.currentText() == "850"
+    assert combo.current_mbps() == 850
+    combo.deleteLater()
+    units.deleteLater()
+
+
+def test_switching_the_unit_re_expresses_but_does_not_rescale(app):
+    """Switching to Mbps must show 2500, not turn 2.5 into 2.5 Mbps."""
+    from netplanner.gui.dialogs import _SpeedCombo, _UnitCombo
+
+    units = _UnitCombo()
+    combo = _SpeedCombo(2_500, InterfaceType.ETH_10G, units)
+    assert units.currentText() == "Gbps"
+    assert combo.currentText() == "2.5"
+
+    units.set_unit(MBPS)
+    assert combo.currentText() == "2500"
+    assert combo.current_mbps() == 2_500
+
+    units.set_unit(GBPS)
+    assert combo.currentText() == "2.5"
+    assert combo.current_mbps() == 2_500
+    combo.deleteLater()
+    units.deleteLater()
+
+
+def test_a_written_unit_beats_the_selector(app):
+    from netplanner.gui.dialogs import _SpeedCombo, _UnitCombo
+
+    units = _UnitCombo()  # Gbps
+    combo = _SpeedCombo(None, InterfaceType.ETH_1G, units)
+    combo.setEditText("850M")
+    assert combo.current_mbps() == 850
+    combo.deleteLater()
+    units.deleteLater()
+
+
+def test_the_preset_list_follows_the_unit(app):
+    """100 Mbps listed as "0.1" under Gbps would be a worse menu than
+    no menu, so each unit gets its own shortlist."""
+    from netplanner.gui.dialogs import _SpeedCombo, _UnitCombo
+
+    units = _UnitCombo()
+    combo = _SpeedCombo(None, InterfaceType.ETH_1G, units)
+    gbps_items = [combo.itemText(i) for i in range(1, combo.count())]
+    assert "2.5" in gbps_items and "100" in gbps_items  # 2.5G and 100G
+
+    units.set_unit(MBPS)
+    mbps_items = [combo.itemText(i) for i in range(1, combo.count())]
+    assert "200" in mbps_items and "500" in mbps_items
+    assert combo.current_mbps() is None  # still deferring to the type
+    combo.deleteLater()
+    units.deleteLater()
+
+
+def test_interfaces_tab_round_trips_a_speed_entered_in_megabits(app):
+    from netplanner.gui.dialogs import DevicePropertiesDialog
+
+    device = Device(name="sw1", device_type=DeviceType.SWITCH)
+    device.interfaces.append(Interface(name="Gig0/1", interface_type=InterfaceType.ETH_10G))
+    dialog = DevicePropertiesDialog(device)
+    tab = dialog._interfaces
+
+    tab.table.cellWidget(0, 3).set_unit(MBPS)
+    tab.table.cellWidget(0, 2).setEditText("2500")
+    tab.table.cellWidget(0, 2)._normalize()
+
+    assert tab.table.cellWidget(0, 3).currentText() == "Gbps"
+    result = tab.result_interfaces()[0]
+    assert result.speed_mbps_override == 2_500
+    assert result.speed_label == "2.5 Gbps"
+    dialog.deleteLater()

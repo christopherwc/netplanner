@@ -125,7 +125,7 @@ def test_interfaces_tab_add_remove_and_results(app, device):
     )
     row = tab.table.rowCount() - 1
     tab.table.item(row, 0).setText("Fib0/1")
-    tab.table.item(row, 3).setText("172.16.0.1/30")
+    tab.table.item(row, 4).setText("172.16.0.1/30")  # IP sits after Speed/Unit
 
     # Blank a name so that row is dropped from the results.
     tab.table.item(1, 0).setText("   ")

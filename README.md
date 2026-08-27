@@ -30,10 +30,16 @@ equipment, cable it up port-by-port, and export the result.
 - **Per-port speed override** — the Type column covers the common cases;
   the **Speed** column next to it covers everything else. Leave it on
   *Default* to follow the type, or pick a preset, or just type the real
-  figure: `2.5G`, `850`, `200 Mbps`, `40 Gb/s`. A bare number is read as
-  Mbps. This is how you record a 2.5 GbE access port, a licensed radio
-  that negotiates 450 Mbps, or a handoff rate-limited below its port
-  speed. Wireless ports have no nominal rate, so a manual figure is the
+  figure. The **Unit** column says what that figure means and starts at
+  **Gbps**, so `2.5` is 2.5 Gbps; switch it to Mbps and `850` is
+  850 Mbps. A written unit always wins, so `850M` works with Gbps
+  selected, as do `2.5G`, `200 Mbps` and `40 Gb/s`. Units follow the
+  figure once you leave the field: enter `2500` in Mbps and it comes
+  back as `2.5` Gbps, the same threshold the rest of the app uses when
+  it prints a rate.
+
+  This is how you record a 2.5 GbE access port, a licensed radio that
+  negotiates 450 Mbps, or a handoff rate-limited below its port speed. Wireless ports have no nominal rate, so a manual figure is the
   only way to give one a speed — and link derivation then uses it.
 - **MAC addresses** — every interface starts with an all-zeros placeholder
   MAC (`00:00:00:00:00:00`), editable per-port in the Interfaces tab when

@@ -31,6 +31,8 @@ from PyQt6.QtWidgets import (
 )
 
 from netplanner.domain.entities import (
+    GBPS,
+    MBPS,
     ConfigFile,
     Device,
     DeviceStatus,
@@ -41,8 +43,10 @@ from netplanner.domain.entities import (
     Site,
     TextBox,
     VlanMode,
+    best_unit_for,
     blank_mac,
     format_speed_mbps,
+    format_speed_value,
     parse_speed_mbps,
 )
 from netplanner.errors import ConfigImportError
@@ -79,10 +83,36 @@ def _format_mbps(mbps: int) -> str:
     return format_speed_mbps(mbps)
 
 
-# Offered in the Speed column's dropdown. The list is a convenience, not
-# a constraint: the field is editable, so anything parse_speed_mbps
-# understands can be typed instead.
-_SPEED_PRESETS = [100, 1_000, 2_500, 5_000, 10_000, 25_000, 40_000, 100_000]
+# Offered in the Speed column's dropdown, one shortlist per unit. They
+# are a convenience, not a constraint: the field is editable, so
+# anything parse_speed_mbps understands can be typed instead.
+_SPEED_PRESETS_MBPS = [10, 100, 200, 500]
+_SPEED_PRESETS_GBPS = [1_000, 2_500, 5_000, 10_000, 25_000, 40_000, 100_000]
+
+
+class _UnitCombo(QComboBox):
+    """Mbps/Gbps selector for one row of the interfaces table.
+
+    Gbps is first, and so the default for a port with no figure of its
+    own, because ports are specified in gigabits far more often than
+    megabits — and because a bare "2.5" typed beside a 10 Gbps type
+    means 2.5 Gbps to everyone except a parser that assumes Mbps.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.addItem("Gbps", GBPS)
+        self.addItem("Mbps", MBPS)
+
+    def unit(self) -> int:
+        """Mbps per displayed unit: 1000 for Gbps, 1 for Mbps."""
+        data = self.currentData()
+        return data if isinstance(data, int) else GBPS
+
+    def set_unit(self, unit: int) -> None:
+        index = self.findData(unit)
+        if index >= 0:
+            self.setCurrentIndex(index)
 
 
 class _TypeCombo(QComboBox):
@@ -161,34 +191,73 @@ class _TypeCombo(QComboBox):
 class _SpeedCombo(QComboBox):
     """Line-rate picker: common speeds, or type your own.
 
+    Shows the number only; the Unit column beside it says what the
+    number means, and a bare number is read in that unit. A written
+    unit still wins, so "850M" works with Gbps selected.
+
     The first entry defers to the interface type, and its label follows
     the row's Type dropdown so the user can see what deferring means.
-    Anything typed is normalized when focus leaves the field —
-    "2.5g" becomes "2.5 Gbps" — and unparsable text reverts to the last
+    Typed text is normalized when focus leaves the field: the figure is
+    re-expressed in whichever unit reads better, so 2500 entered as
+    Mbps comes back as 2.5 Gbps. Unparsable text reverts to the last
     good value rather than being quietly discarded at OK time.
     """
 
-    def __init__(self, mbps: int | None, itype: InterfaceType, parent=None):
+    def __init__(
+        self,
+        mbps: int | None,
+        itype: InterfaceType,
+        unit_combo: _UnitCombo,
+        parent=None,
+    ):
         super().__init__(parent)
         self.setEditable(True)
         self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        self.addItem("", None)  # filled in by set_default_type below
-        for preset in _SPEED_PRESETS:
-            self.addItem(format_speed_mbps(preset), preset)
-        self.set_default_type(itype)
+        self._unit_combo = unit_combo
         self._last_valid: int | None = mbps
-        self.set_mbps(mbps)
+        self._default_label = ""
+        self._set_default_label(itype)
+        if mbps is not None:
+            unit_combo.set_unit(best_unit_for(mbps))
+        self._rebuild_items()
+        unit_combo.currentIndexChanged.connect(self._rebuild_items)
         self.lineEdit().editingFinished.connect(self._normalize)
+
+    # ------------------------------------------------------------ contents
+    def _set_default_label(self, itype: InterfaceType) -> None:
+        rate = itype.speed_mbps
+        self._default_label = (
+            f"Default ({format_speed_mbps(rate)})" if rate else "Default (no fixed rate)"
+        )
+
+    def _rebuild_items(self) -> None:
+        """Offer presets that make sense in the selected unit.
+
+        Listing 100 Mbps as "0.1" under Gbps would be a worse menu than
+        no menu, so each unit gets its own shortlist. Rebuilding also
+        redraws the current figure, which is how switching units
+        re-expresses it without changing what is stored.
+        """
+        keep = self._last_valid
+        unit = self._unit_combo.unit()
+        self.clear()
+        self.addItem(self._default_label, None)
+        for preset in (_SPEED_PRESETS_GBPS if unit == GBPS else _SPEED_PRESETS_MBPS):
+            self.addItem(format_speed_value(preset, unit), preset)
+        self._show(keep)
 
     def set_default_type(self, itype: InterfaceType) -> None:
         """Relabel the defer-to-type entry when the row's Type changes."""
-        deferred = self.currentIndex() == 0
-        rate = itype.speed_mbps
-        self.setItemText(0, f"Default ({itype.label})" if rate else "Default (no fixed rate)")
+        deferred = self._last_valid is None
+        self._set_default_label(itype)
+        self.setItemText(0, self._default_label)
         if deferred:
             self.setCurrentIndex(0)
 
-    def set_mbps(self, mbps: int | None) -> None:
+    # -------------------------------------------------------------- values
+    def _show(self, mbps: int | None) -> None:
+        """Display a figure in the current unit, without reading it back."""
+        self._last_valid = mbps
         if mbps is None:
             self.setCurrentIndex(0)
             return
@@ -196,16 +265,25 @@ class _SpeedCombo(QComboBox):
         if index >= 0:
             self.setCurrentIndex(index)
         else:
-            self.setEditText(format_speed_mbps(mbps))
+            self.setEditText(format_speed_value(mbps, self._unit_combo.unit()))
+
+    def set_mbps(self, mbps: int | None) -> None:
+        """Display a figure, moving to whichever unit reads better for it."""
+        self._last_valid = mbps
+        if mbps is not None and self._unit_combo.unit() != best_unit_for(mbps):
+            # The unit change rebuilds the list, which redraws the value.
+            self._unit_combo.set_unit(best_unit_for(mbps))
+            return
+        self._show(mbps)
 
     def current_mbps(self) -> int | None:
         """The row's manual override, or None to defer to the type."""
         text = self.currentText().strip()
-        if not text or text == self.itemText(0):
+        if not text or text == self._default_label:
             self._last_valid = None
             return None
         try:
-            self._last_valid = parse_speed_mbps(text)
+            self._last_valid = parse_speed_mbps(text, self._unit_combo.unit())
         except ValueError:
             logger.info("Ignoring unparsable interface speed %r", text)
         return self._last_valid
@@ -313,7 +391,7 @@ class _GeneralTab(QWidget):
 
 
 class _InterfacesTab(QWidget):
-    """Editable table of the device's ports: name, type, speed, IP, MAC, VLAN.
+    """Editable table of the device's ports: name, type, speed, unit, IP, MAC, VLAN.
 
     The VLAN Mode column picks Access or Trunk; the VLAN(s) column's
     meaning depends on the mode — a single VLAN ID for Access, or a
@@ -327,9 +405,9 @@ class _InterfacesTab(QWidget):
         super().__init__(parent)
         layout = QVBoxLayout(self)
 
-        self.table = QTableWidget(0, 7)
+        self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
-            ["Name", "Type", "Speed", "IP address (CIDR)", "MAC address",
+            ["Name", "Type", "Speed", "Unit", "IP address (CIDR)", "MAC address",
              "VLAN mode", "VLAN(s)"]
         )
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -395,10 +473,16 @@ class _InterfacesTab(QWidget):
         )
         self.table.setCellWidget(row, 1, type_combo)
 
-        speed_combo = _SpeedCombo(speed_override, itype)  # itype: the fallback rate
+        unit_combo = _UnitCombo()
+        unit_combo.setToolTip(
+            "Unit the Speed number is given in. Gbps by default; a rate "
+            "that reaches 1 Gbps is re-expressed in Gbps automatically."
+        )
+        speed_combo = _SpeedCombo(speed_override, itype, unit_combo)
         speed_combo.setToolTip(
             "Line rate for this port. Leave on Default to follow the Type "
-            "column, or type a figure such as 2.5G, 850, or 200 Mbps."
+            "column, pick a preset, or type a figure — read in the unit "
+            "beside it, unless you write one (850M works under Gbps)."
         )
         # Keep the Default entry honest when the port's type changes.
         type_combo.currentIndexChanged.connect(
@@ -407,21 +491,22 @@ class _InterfacesTab(QWidget):
             )
         )
         self.table.setCellWidget(row, 2, speed_combo)
+        self.table.setCellWidget(row, 3, unit_combo)
 
-        self.table.setItem(row, 3, QTableWidgetItem(ip))
-        self.table.setItem(row, 4, QTableWidgetItem(mac))
+        self.table.setItem(row, 4, QTableWidgetItem(ip))
+        self.table.setItem(row, 5, QTableWidgetItem(mac))
 
         vlan_mode_combo = QComboBox()
         for choice in _VLAN_MODE_CHOICES:
             vlan_mode_combo.addItem(choice.label, choice)
         vlan_mode_combo.setCurrentIndex(_VLAN_MODE_CHOICES.index(vlan_mode))
-        self.table.setCellWidget(row, 5, vlan_mode_combo)
+        self.table.setCellWidget(row, 6, vlan_mode_combo)
 
         vlans_item = QTableWidgetItem(vlans_text)
         vlans_item.setToolTip(
             "Access: a single VLAN ID. Trunk: comma-separated VLAN IDs, e.g. 10,20,30"
         )
-        self.table.setItem(row, 6, vlans_item)
+        self.table.setItem(row, 7, vlans_item)
 
     def _remove_selected(self) -> None:
         rows = sorted({i.row() for i in self.table.selectedIndexes()}, reverse=True)
@@ -440,12 +525,12 @@ class _InterfacesTab(QWidget):
         result: list[Interface] = []
         for row in range(self.table.rowCount()):
             name_item = self.table.item(row, 0)
-            ip_item = self.table.item(row, 3)
-            mac_item = self.table.item(row, 4)
-            vlans_item = self.table.item(row, 6)
+            ip_item = self.table.item(row, 4)
+            mac_item = self.table.item(row, 5)
+            vlans_item = self.table.item(row, 7)
             type_combo = self.table.cellWidget(row, 1)
             speed_combo = self.table.cellWidget(row, 2)
-            vlan_mode_combo = self.table.cellWidget(row, 5)
+            vlan_mode_combo = self.table.cellWidget(row, 6)
 
             name = (name_item.text() if name_item else "").strip()
             if not name:
