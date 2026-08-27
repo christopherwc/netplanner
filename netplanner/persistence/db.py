@@ -17,9 +17,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 
 from netplanner.errors import PersistenceError
+from netplanner.permissions import (
+    PRIVATE_DIR_MODE,
+    PRIVATE_FILE_MODE,
+    restrict_to_owner,
+)
 
 logger = logging.getLogger(__name__)
-
 
 def default_db_path() -> Path:
     """Where plans live, creating the directory if it is missing.
@@ -31,7 +35,11 @@ def default_db_path() -> Path:
     base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
     data_dir = base / "netplanner"
     try:
-        data_dir.mkdir(parents=True, exist_ok=True)
+        data_dir.mkdir(parents=True, exist_ok=True, mode=PRIVATE_DIR_MODE)
+        # mkdir's mode applies only when it creates the directory, and
+        # is masked by the umask even then. A data directory left over
+        # from a build that predates this needs narrowing too.
+        restrict_to_owner(data_dir, PRIVATE_DIR_MODE)
     except OSError as exc:
         logger.exception("Could not create the data directory %s", data_dir)
         raise PersistenceError(
@@ -105,6 +113,8 @@ def make_engine(db_path: Path | None = None) -> Engine:
         raise PersistenceError(
             f"Could not open the database {path}: {type(exc).__name__}: {exc}"
         ) from exc
+    # After create_all, so the file exists to be chmod'ed on first run.
+    restrict_to_owner(path, PRIVATE_FILE_MODE)
     return engine
 
 
