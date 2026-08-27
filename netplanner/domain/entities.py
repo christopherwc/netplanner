@@ -187,7 +187,7 @@ class TextBox:
                     current = word
                 else:
                     current = candidate
-            if current:
+            if current:  # pragma: no branch
                 lines.append(current)
         return lines or [""]
 

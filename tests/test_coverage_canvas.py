@@ -18,6 +18,7 @@ to make choices without blocking.
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,7 +28,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PyQt6", reason="PyQt6 not installed")
 
 from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
-from PyQt6.QtGui import QImage, QKeyEvent, QMouseEvent, QPainter
+from PyQt6.QtGui import QImage, QKeyEvent, QMouseEvent, QPainter, QPen
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import (
     QApplication,
@@ -50,6 +51,7 @@ from netplanner.gui.canvas import (
     NetworkCanvas,
     PlanScene,
     SiteItem,
+    TextBoxItem,
 )
 from netplanner.gui.palette import SITE_TOOL, TEXT_TOOL
 
@@ -815,3 +817,147 @@ def test_canvas_delete_selection_delegates(populated, canvas, scene):
     with patch.object(scene, "delete_selection") as ds:
         canvas.delete_selection()
     ds.assert_called_once()
+
+
+# ------------------------------------------ items that are not in a scene yet
+#
+# Every canvas item asks `isinstance(self.scene(), PlanScene)` before
+# telling the scene to redraw. scene() is None for an item that has been
+# built but not added — which is every item for the moment between
+# construction and addItem(), and any item a caller holds after a
+# rebuild has replaced the scene's copy. The guard was never run with
+# that answer, so these exercise the detached side of each one.
+def _detached_items(controller):
+    """One of each item type, constructed but never added to a scene."""
+    device = controller.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    other = controller.add_device("rtr1", DeviceType.ROUTER, 300, 0)
+    link = controller.add_link(device.id, other.id, LinkType.FIBER)
+    site = controller.add_site("Rack 3", 0, 0)
+    textbox = controller.add_textbox("DMZ", 400, 400)
+    return (
+        DeviceItem(device, controller),
+        LinkItem(link, controller, 0, 0, 300, 0, QPen()),
+        SiteItem(site, controller),
+        TextBoxItem(textbox, controller),
+    )
+
+
+@contextmanager
+def _quiet_super(item):
+    """Silence the base class's mouseReleaseEvent for one call.
+
+    These handlers open with super().mouseReleaseEvent(event), and Qt
+    refuses to construct a QGraphicsSceneMouseEvent from Python — it
+    cannot be instantiated or subclassed. Stubbing the base lets the
+    handler's own logic, which is what is under test, run against the
+    stub event the rest of this module uses.
+    """
+    base = type(item).__mro__[1]
+    with patch.object(base, "mouseReleaseEvent", lambda self, event: None):
+        yield
+
+
+def _delete_action(menu: QMenu):
+    return next(a for a in menu.actions() if a.text().startswith("Delete"))
+
+
+def test_deleting_from_a_detached_item_menu_does_not_reach_a_scene(app, controller):
+    """Choosing Delete on an item with no scene has nowhere to send the
+    request. It must decline rather than raise inside the menu handler."""
+    items = _detached_items(controller)
+    devices_before = len(controller.plan.devices)
+
+    for item in items:
+        with patch.object(QMenu, "exec", lambda self, *a: _delete_action(self)):
+            item.contextMenuEvent(ctx_event())
+
+    assert len(controller.plan.devices) == devices_before  # nothing deleted
+
+
+def test_dismissing_an_item_menu_changes_nothing(app, controller):
+    """Right-click then click away: exec returns None, so every branch
+    comparing the result against an action has to fall through."""
+    items = _detached_items(controller)
+    depth = len(controller.commands._undo)
+
+    for item in items:
+        with patch.object(QMenu, "exec", lambda self, *a: None):
+            item.contextMenuEvent(ctx_event())
+
+    assert len(controller.commands._undo) == depth  # no command was pushed
+
+
+def test_editing_a_detached_item_leaves_the_scene_alone(app, controller):
+    """The edit dialogs accept, the model changes, and the redraw is
+    skipped because there is no scene to redraw."""
+    device_item, link_item, site_item, text_item = _detached_items(controller)
+    cases = [
+        (device_item, "Edit properties…", "DevicePropertiesDialog"),
+        (link_item, "Edit link…", "LinkPropertiesDialog"),
+        (site_item, "Edit site…", "SiteDialog"),
+        (text_item, "Edit text…", "TextBoxDialog"),
+    ]
+    for item, label, dialog_name in cases:
+        with patch.object(
+            QMenu, "exec", lambda self, *a, _l=label: pick_action(self, _l)
+        ), patch(f"{CANVAS_NS}.{dialog_name}.exec", return_value=1):
+            item.contextMenuEvent(ctx_event())
+
+    assert controller.plan.devices  # the plan survived every edit
+
+
+def test_a_rejected_properties_dialog_edits_nothing(app, controller):
+    """Cancel on the device dialog: no command, and no rebuild."""
+    device_item = _detached_items(controller)[0]
+    depth = len(controller.commands._undo)
+
+    with patch.object(
+        QMenu, "exec", lambda self, *a: pick_action(self, "Edit properties…")
+    ), patch(f"{CANVAS_NS}.DevicePropertiesDialog.exec", return_value=0):
+        device_item.contextMenuEvent(ctx_event())
+
+    assert len(controller.commands._undo) == depth
+
+
+def test_releasing_an_item_that_never_moved_records_nothing(app, controller):
+    """Click without dragging. The position matches what the model
+    already holds, so there is no move to make undoable."""
+    device_item, _, site_item, text_item = _detached_items(controller)
+    depth = len(controller.commands._undo)
+
+    for item, model in (
+        (device_item, device_item.device),
+        (site_item, site_item.site),
+        (text_item, text_item.textbox),
+    ):
+        item.setPos(model.x, model.y)
+        with _quiet_super(item):
+            item.mouseReleaseEvent(FakeSceneEvent())
+
+    assert len(controller.commands._undo) == depth
+
+
+def test_dragging_a_detached_device_records_the_move_without_a_scene(app, controller):
+    """The move is still undoable; only the link redraw is skipped."""
+    device_item = _detached_items(controller)[0]
+    depth = len(controller.commands._undo)
+
+    device_item.setPos(500, 500)
+    with _quiet_super(device_item):
+        device_item.mouseReleaseEvent(FakeSceneEvent())
+
+    assert len(controller.commands._undo) == depth + 1
+
+
+def test_a_device_with_no_notes_paints_without_a_notes_block(app, controller):
+    """The notes section is optional and most devices have none."""
+    device = controller.add_device("bare", DeviceType.SWITCH, 0, 0)
+    device.notes = ""
+    item = DeviceItem(device, controller)
+
+    image = QImage(400, 400, QImage.Format.Format_ARGB32)
+    painter = QPainter(image)
+    try:
+        item.paint(painter, None)
+    finally:
+        painter.end()

@@ -192,7 +192,11 @@ class ConfigTextView(QPlainTextEdit):
         bottom = top + self.blockBoundingRect(block).height()
 
         while block.isValid() and top <= event.rect().bottom():
-            if block.isVisible() and bottom >= event.rect().top():
+            # Skips blocks scrolled out of the repaint region. Real on a
+            # scrolled view and not reproducible under the offscreen
+            # platform, which repaints whole widgets: pragma rather than
+            # a test that would assert nothing about the geometry.
+            if block.isVisible() and bottom >= event.rect().top():  # pragma: no branch
                 painter.drawText(
                     0, int(top), self._gutter.width() - 6, self.fontMetrics().height(),
                     Qt.AlignmentFlag.AlignRight, str(number + 1),
