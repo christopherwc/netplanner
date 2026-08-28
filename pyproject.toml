@@ -99,14 +99,10 @@ branch = true
 
 [tool.coverage.report]
 show_missing = true
-# Every line and every branch. Anything less means new code arrived
-# without tests, or an existing guard lost the case that ran it.
-#
-# The handful of arcs that cannot be taken carry `# pragma: no branch`
-# at the site with a note saying why — a word-wrap tail that cannot see
-# an empty accumulator, an isinstance narrowing over a column only one
-# function fills. Each is a claim about the code that a reader can
-# check, which a blanket threshold below 100 would not be.
+# Every line and every branch, with nothing excluded: there is not a
+# single `# pragma: no cover` or `# pragma: no branch` in the package.
+# A pragma is a claim that a line cannot run, and the claims here were
+# wrong often enough that the rule is now to test the path or delete it.
 fail_under = 100
 
 [tool.mypy]

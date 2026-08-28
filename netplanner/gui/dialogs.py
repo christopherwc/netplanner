@@ -175,7 +175,7 @@ class _SpeedEdit(QLineEdit):
             return None
         try:
             value = float(text)
-        except ValueError:  # pragma: no cover - the validator blocks these
+        except ValueError:
             return None
         mbps = round(value * unit)
         return mbps if mbps >= 1 else None
@@ -440,7 +440,7 @@ class _InterfacesTab(QWidget):
         for row in range(self.table.rowCount()):
             if self.table.cellWidget(row, column) is widget:
                 return row
-        return -1  # pragma: no cover - a removed row's widget is destroyed
+        return -1
 
     def _remove_selected(self) -> None:
         rows = sorted({i.row() for i in self.table.selectedIndexes()}, reverse=True)
@@ -457,13 +457,13 @@ class _InterfacesTab(QWidget):
         thousandth of its rate for the price of one dropdown.
         """
         row = self._row_of(unit_combo, COL_UNIT)
-        if row < 0:  # pragma: no cover - defensive
+        if row < 0:
             return
         speed_edit = self.table.cellWidget(row, COL_MAX_SPEED)
         # Always a _SpeedEdit: _append_row is the only thing that fills
         # this column. The check is a type narrowing for the lines
         # below, not a case that occurs.
-        if isinstance(speed_edit, _SpeedEdit):  # pragma: no branch
+        if isinstance(speed_edit, _SpeedEdit):
             mbps = speed_edit.mbps(unit_combo.previous_unit())
             speed_edit.set_mbps(mbps, unit_combo.unit())
         unit_combo.remember_unit()
@@ -474,19 +474,19 @@ class _InterfacesTab(QWidget):
         """The maximum this row's port states for itself, in Mbps."""
         speed_edit = self.table.cellWidget(row, COL_MAX_SPEED)
         unit_combo = self.table.cellWidget(row, COL_UNIT)
-        if not isinstance(speed_edit, _SpeedEdit):  # pragma: no cover - defensive
+        if not isinstance(speed_edit, _SpeedEdit):
             return None
         unit = unit_combo.unit() if isinstance(unit_combo, _UnitCombo) else GBPS
         return speed_edit.mbps(unit)
 
     def _refresh_negotiated(self, row: int) -> None:
         """Redraw one row's negotiated figure from the current inputs."""
-        if row < 0:  # pragma: no cover - defensive
+        if row < 0:
             return
         item = self.table.item(row, COL_NEGOTIATED)
         unit_combo = self.table.cellWidget(row, COL_UNIT)
         name_item = self.table.item(row, COL_NAME)
-        if item is None or name_item is None:  # pragma: no cover - defensive
+        if item is None or name_item is None:
             return
 
         iface_id = name_item.data(Qt.ItemDataRole.UserRole)
@@ -524,7 +524,7 @@ class _InterfacesTab(QWidget):
             # Skipped outright rather than read through a ternary: a row
             # with no name cell is not a port, and returning early is
             # also what lets the id below be read without a second guard.
-            if name_item is None:  # pragma: no cover - defensive
+            if name_item is None:
                 continue
             name = name_item.text().strip()
             if not name:

@@ -99,7 +99,7 @@ class ConfigHighlighter(QSyntaxHighlighter):
 
     def highlightBlock(self, text: str | None) -> None:
         """Called by Qt for each visible line."""
-        if text is None:  # pragma: no cover - Qt always supplies the line
+        if text is None:
             return
         stripped = text.lstrip()
 
@@ -192,11 +192,11 @@ class ConfigTextView(QPlainTextEdit):
         bottom = top + self.blockBoundingRect(block).height()
 
         while block.isValid() and top <= event.rect().bottom():
-            # Skips blocks scrolled out of the repaint region. Real on a
-            # scrolled view and not reproducible under the offscreen
-            # platform, which repaints whole widgets: pragma rather than
-            # a test that would assert nothing about the geometry.
-            if block.isVisible() and bottom >= event.rect().top():  # pragma: no branch
+            # Qt repaints only the damaged rectangle, and a block above
+            # it still arrives here from firstVisibleBlock(). Stepping
+            # over it rather than numbering it is what keeps the gutter
+            # aligned with the text during a partial repaint.
+            if block.isVisible() and bottom >= event.rect().top():
                 painter.drawText(
                     0, int(top), self._gutter.width() - 6, self.fontMetrics().height(),
                     Qt.AlignmentFlag.AlignRight, str(number + 1),
