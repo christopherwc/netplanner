@@ -218,7 +218,7 @@ def _wrap_site_notes(site, max_lines: int = 4) -> list[str]:
                 current = word
             else:
                 current = candidate
-        if current:  # pragma: no branch
+        if current:
             lines.append(current)
         if len(lines) > max_lines:
             break

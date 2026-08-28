@@ -390,7 +390,12 @@ uv run python .github/scripts/startup_smoke.py         # launches the app, quits
 Coverage is at 100% of lines **and branches**, and the gate enforces
 both, so new code needs tests to merge. Branch coverage is the half that
 catches an untested guard: a line gate is satisfied the first time an
-`if` runs, whoever the answer was. Warnings are errors (`filterwarnings = ["error"]`), which
+`if` runs, whichever way it went.
+
+Nothing is excluded — there is no `# pragma: no cover` anywhere in the
+package. A pragma is a claim that a line cannot run, and it is worth as
+much as the reasoning behind it, which is to say it should be a test or
+a deletion instead. Warnings are errors (`filterwarnings = ["error"]`), which
 is how a deprecation in PyQt6 or SQLAlchemy announces itself on the weekly
 scheduled run rather than on launch day.
 

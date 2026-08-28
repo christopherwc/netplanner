@@ -109,7 +109,7 @@ class DeviceItem(QGraphicsItem):
         # takes a pointer; it is never null for an item Qt is asking to
         # draw. Guarding beats narrowing with an assert, which would be
         # compiled out under -O and take the check with it.
-        if painter is None:  # pragma: no cover - Qt always supplies one
+        if painter is None:
             return
         if self._details_on():
             self._paint_card(painter)
@@ -526,7 +526,7 @@ class SiteItem(QGraphicsItem):
         # takes a pointer; it is never null for an item Qt is asking to
         # draw. Guarding beats narrowing with an assert, which would be
         # compiled out under -O and take the check with it.
-        if painter is None:  # pragma: no cover - Qt always supplies one
+        if painter is None:
             return
         rect = self.boundingRect()
         color = QColor(self.site.color)
@@ -725,7 +725,7 @@ class LinkItem(QGraphicsLineItem):
         # takes a pointer; it is never null for an item Qt is asking to
         # draw. Guarding beats narrowing with an assert, which would be
         # compiled out under -O and take the check with it.
-        if painter is None:  # pragma: no cover - Qt always supplies one
+        if painter is None:
             return
         if self.isSelected():
             pen = QPen(self._base_pen)
@@ -835,7 +835,7 @@ class TextBoxItem(QGraphicsItem):
         # takes a pointer; it is never null for an item Qt is asking to
         # draw. Guarding beats narrowing with an assert, which would be
         # compiled out under -O and take the check with it.
-        if painter is None:  # pragma: no cover - Qt always supplies one
+        if painter is None:
             return
         rect = self.boundingRect()
 
