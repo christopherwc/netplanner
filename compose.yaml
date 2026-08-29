@@ -1,0 +1,64 @@
+# NetPlanner via Compose.
+#
+#   docker compose run --rm ci          run the gates
+#   xhost +SI:localuser:$USER           let the container reach your X server
+#   docker compose up netplanner        run the app
+#
+# The xhost line is the part to think about before running: it grants
+# your X server to a local account, and X has no meaningful isolation
+# between clients. See "Running the GUI" in README.md.
+
+services:
+  netplanner:
+    build:
+      context: .
+      target: runtime
+    image: netplanner:local
+    init: true
+
+    environment:
+      # Forwarded from the host. Wayland users: see the README — this
+      # path runs through XWayland.
+      DISPLAY: ${DISPLAY:?DISPLAY is not set; the GUI needs a display}
+      QT_X11_NO_MITSHM: "1"
+
+    volumes:
+      # The X socket, read-only: the container needs to talk to the
+      # display, not to modify how the host offers it.
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      # Plans and logs, kept on the host so they outlive the container.
+      - netplanner-data:/data
+
+    # --- hardening ---------------------------------------------------
+    # The application writes only to /data, so everything else can be
+    # immutable. Qt still needs scratch space, and with no XDG_RUNTIME_DIR
+    # set it creates /tmp/runtime-netplanner itself — which is why /tmp is
+    # a tmpfs and why the "XDG_RUNTIME_DIR not set" warning on startup is
+    # expected rather than a fault.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # No ports, and no network at all. NetPlanner has no listener and
+    # makes no outbound request, and X11 here goes over the mounted unix
+    # socket rather than TCP. If DISPLAY names a host (`host:0`) instead
+    # of a socket (`:0`), drop this line — that path does need the network.
+    network_mode: none
+
+  ci:
+    build:
+      context: .
+      target: ci
+    image: netplanner-ci:local
+    init: true
+    # Left with network access on purpose: pip-audit has to reach the
+    # advisory database. The runtime service, which needs nothing, gets
+    # network_mode: none instead.
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  netplanner-data:

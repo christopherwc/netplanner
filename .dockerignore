@@ -1,0 +1,24 @@
+# Everything is excluded, then the build inputs are named back in.
+# A denylist silently ships whatever it has not heard of yet — a stray
+# .env, a database someone left in the tree, a new cache directory from
+# a tool adopted next month. An allowlist cannot.
+*
+
+# --- what the image is actually built from ---------------------------
+!pyproject.toml
+!uv.lock
+!README.md
+!netplanner/
+
+# --- needed by the ci target only ------------------------------------
+!tests/
+!.github/
+
+# --- re-excluded: these match the patterns above but are not inputs ---
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/*.db
+**/*.log

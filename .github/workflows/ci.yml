@@ -157,6 +157,31 @@ jobs:
             --requirement locked-requirements.txt \
             --progress-spinner off
 
+  image:
+    name: Container image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # Builds both targets and runs the gates inside the ci image, so a
+      # Dockerfile that no longer produces a working environment fails
+      # here rather than the first time someone tries to use it.
+      - name: Build the runtime image
+        run: docker build --target runtime -t netplanner:ci .
+      - name: Build the ci image
+        run: docker build --target ci -t netplanner-ci:ci .
+      - name: Run the gates inside the image
+        run: docker run --rm netplanner-ci:ci
+      # The runtime image should not carry the toolchain. If ruff is in
+      # it, something copied more than the virtualenv.
+      - name: Check the runtime image is not the ci image
+        run: |
+          if docker run --rm --entrypoint sh netplanner:ci -c 'command -v ruff'; then
+            echo "runtime image contains dev tooling" >&2
+            exit 1
+          fi
+
   package:
     name: Build and verify distributions
     runs-on: ubuntu-latest
@@ -198,13 +223,14 @@ jobs:
   ci-passed:
     name: CI passed
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test, startup, audit, package]
+    needs: [lint, typecheck, test, startup, audit, package, image]
     if: ${{ always() }}
     steps:
       - name: Verify every required job succeeded
         run: |
           echo "lint:      ${{ needs.lint.result }}"
           echo "typecheck: ${{ needs.typecheck.result }}"
+          echo "image:     ${{ needs.image.result }}"
           echo "test:     ${{ needs.test.result }}"
           echo "startup:  ${{ needs.startup.result }}"
           echo "audit:    ${{ needs.audit.result }}"

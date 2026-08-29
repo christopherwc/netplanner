@@ -96,3 +96,15 @@ that only lists wins is not worth reading.
   opening one means trusting whoever sent it to the same degree you trust
   any file they send you. The parser is bounded, which limits what a
   malformed file can cost, but it is not a sandbox.
+- **Container base images are pinned by tag, not digest.** The
+  `Dockerfile` names `python:3.12-slim-bookworm`, and a tag can be moved
+  by whoever controls it. Pin by digest with
+  `docker buildx imagetools inspect python:3.12-slim-bookworm` and
+  substitute the `sha256:` it prints. The `ghcr.io/astral-sh/uv` stage is
+  version-pinned but has the same gap.
+- **Running the GUI in a container requires granting your X server.**
+  `xhost +SI:localuser:$USER` is far narrower than the `xhost +local:`
+  most guides suggest, but X11 has no isolation between clients: anything
+  that reaches the server can read keystrokes and capture other windows.
+  Revoke it when finished, and prefer a distribution package for daily
+  use.
