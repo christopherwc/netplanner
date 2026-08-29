@@ -420,6 +420,72 @@ Tagging `vX.Y.Z` runs the same pipeline, verifies the tag matches the
 version in `pyproject.toml`, and publishes a GitHub release with the
 distributions and their checksums.
 
+## Docker
+
+Two images, for two jobs. Neither replaces installing NetPlanner
+normally — a desktop application is better served by a distribution
+package than by a container.
+
+### Running the gates
+
+The useful one. Reproduces CI exactly, with no display and nothing
+installed on the host:
+
+```bash
+docker compose run --rm ci
+```
+
+That runs `ruff check .`, `mypy netplanner`, and the test suite with the
+100% coverage gate — the same three commands the pipeline runs, so a
+green container means a green pipeline.
+
+### Running the GUI
+
+Works, with a caveat worth reading first.
+
+```bash
+xhost +SI:localuser:$USER          # grant your X server to your own account
+docker compose up netplanner
+xhost -SI:localuser:$USER          # revoke when finished
+```
+
+**The `xhost` line is the whole security question.** X11 has no
+meaningful isolation between clients: anything that can reach your X
+server can read your keystrokes and screenshot other windows. Granting
+it to a local account is much narrower than the `xhost +local:` you will
+find in most tutorials, which grants it to everything on the machine —
+but it is still a real grant, and it is why this is not the recommended
+way to run the application.
+
+On Wayland this goes through XWayland, which works but adds a layer.
+There is no native Wayland path here; Qt would need the compositor
+socket forwarded and the isolation story is different again.
+
+Plans and logs live in a named volume (`netplanner-data`) mounted at
+`/data`, so they survive the container.
+
+The container is hardened as far as the application allows: non-root
+(uid 1000), read-only root filesystem, all capabilities dropped,
+`no-new-privileges`, and no network at all — NetPlanner has no listener
+and makes no outbound request. A startup warning about `XDG_RUNTIME_DIR`
+is expected; Qt creates its own scratch directory under the `/tmp` tmpfs.
+
+### Building directly
+
+```bash
+docker build --target runtime -t netplanner .
+docker build --target ci      -t netplanner-ci .
+```
+
+The build is multi-stage: `uv sync --locked` installs into `/opt/venv` in
+a builder stage, and only that virtualenv crosses into the runtime image.
+No uv, no compilers, no test tree, no apt lists. Dependencies install in
+their own layer keyed on `uv.lock` alone, so editing application code
+does not re-resolve anything.
+
+`.dockerignore` is an allowlist — everything excluded, build inputs named
+back in. A denylist silently ships whatever it has not heard of yet.
+
 ## Security
 
 Full policy, threat model and known gaps: [SECURITY.md](SECURITY.md).
