@@ -438,12 +438,17 @@ The useful one. Reproduces CI exactly, with no display and nothing
 installed on the host:
 
 ```bash
-docker compose run --rm ci
+docker compose run --build --rm ci
 ```
 
 That runs `ruff check .`, `mypy netplanner`, and the test suite with the
 100% coverage gate — the same three commands the pipeline runs, so a
 green container means a green pipeline.
+
+**`--build` is not optional after you change anything.** `docker compose
+run` builds only when the image is missing, not when the sources it was
+built from have moved, so without it you get a silent rerun of the last
+image with no indication that is what happened.
 
 ### Running the GUI
 
@@ -482,6 +487,10 @@ is expected; Qt creates its own scratch directory under the `/tmp` tmpfs.
 docker build --target runtime -t netplanner .
 docker build --target ci      -t netplanner-ci .
 ```
+
+Both base images are pinned by digest, so a moved tag cannot change what
+gets built. Dependabot's `docker` ecosystem moves those digests weekly;
+a pin nobody updates is a frozen copy of whatever CVEs it shipped with.
 
 The build is multi-stage: `uv sync --locked` installs into `/opt/venv` in
 a builder stage, and only that virtualenv crosses into the runtime image.

@@ -73,6 +73,10 @@ deliberately — pinning without that is worse than not pinning, because
 stale pins miss security fixes. `pip-audit` runs against the exported
 lock on every push and weekly on a schedule, and CodeQL scans the source.
 
+Container base images are pinned by digest rather than tag, and
+Dependabot's `docker` ecosystem is what moves them — a digest nobody
+updates is a frozen copy of whatever CVEs it shipped with.
+
 GitHub Actions run with `contents: read`; only the release job is granted
 `contents: write`. Checkout runs with `persist-credentials: false`, so
 the workflow token is not left in `.git/config` where a later step could
@@ -96,12 +100,6 @@ that only lists wins is not worth reading.
   opening one means trusting whoever sent it to the same degree you trust
   any file they send you. The parser is bounded, which limits what a
   malformed file can cost, but it is not a sandbox.
-- **Container base images are pinned by tag, not digest.** The
-  `Dockerfile` names `python:3.12-slim-bookworm`, and a tag can be moved
-  by whoever controls it. Pin by digest with
-  `docker buildx imagetools inspect python:3.12-slim-bookworm` and
-  substitute the `sha256:` it prints. The `ghcr.io/astral-sh/uv` stage is
-  version-pinned but has the same gap.
 - **Running the GUI in a container requires granting your X server.**
   `xhost +SI:localuser:$USER` is far narrower than the `xhost +local:`
   most guides suggest, but X11 has no isolation between clients: anything
