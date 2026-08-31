@@ -47,6 +47,11 @@ memory before parsing. Nesting deep enough to exhaust the interpreter
 stack is reported as a malformed file rather than crashing the app.
 Attached configs are capped at 16 MiB on import.
 
+**Exporting a project warns first.** A `.netplan` carries attached
+configs verbatim, so the export names the devices holding one and asks
+before writing. Asked before the file dialog opens, so declining costs
+nothing.
+
 **Exports do not carry your filesystem.** A config remembers where it was
 imported from, which is useful locally and wrong in a file you send
 someone: `/home/you/clients/acme-bank/core-sw.cfg` describes your
@@ -89,9 +94,21 @@ read it. Tag names reach the shell through the environment rather than
 These are real and unfixed. They are listed because a security document
 that only lists wins is not worth reading.
 
-- **Secrets are stored in plaintext.** The database is owner-only, not
-  encrypted. Anyone with your account, your backups, or your disk has the
-  configs. If that matters for a given config, do not attach it.
+- **Attached configs are stored verbatim, and configs contain
+  credentials.** NetPlanner holds no secrets of its own — no accounts, no
+  API keys, nothing it generates. The exposure is entirely the device
+  configs you choose to attach: `ConfigFile.content` is a plain string,
+  copied in unchanged and written to `plans.db` and to any exported
+  `.netplan` as-is. A running-config routinely carries `enable secret`,
+  `snmp-server community`, type-7 passwords and IKE pre-shared keys, so a
+  plan with configs attached is a credential store protected by file
+  permissions and nothing else. If you attach none, nothing here applies
+  to you.
+
+  Exporting a project is the sharper edge, because that file is meant to
+  be sent to someone. The GUI names the affected devices and asks before
+  writing one, but the configs do travel with it by design — a plan that
+  lost them in transit would be broken.
 - **Actions are pinned by tag, not by digest.** `actions/checkout@v4`
   resolves through a mutable tag, so a compromised or moved tag would be
   picked up silently. Pinning by full commit SHA is the fix; see the

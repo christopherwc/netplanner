@@ -529,8 +529,16 @@ So:
   `.netplan` exports, because `/home/you/clients/acme-bank/core-sw.cfg`
   describes your client list rather than the network you documented.
 
-None of it encrypts anything. If a config is too sensitive to sit in
-plaintext under your home directory, don't attach it.
+**Exporting a project asks first.** A `.netplan` carries attached configs
+verbatim — that is the point of it — so the export names the devices
+holding one and warns before writing. The question comes before the file
+dialog, so declining costs nothing.
+
+None of it encrypts anything. NetPlanner holds no secrets of its own; the
+exposure is whatever is in the configs you attach, and a running-config
+routinely carries enable secrets and community strings. If a config is
+too sensitive to sit in plaintext under your home directory, don't attach
+it.
 
 ### Pinning actions by digest
 
@@ -551,5 +559,6 @@ Worth doing for every entry in `.github/workflows/` and
 
 - Database: `~/.local/share/netplanner/plans.db` (respects `XDG_DATA_HOME`)
 - JSON projects: any path you choose, `.netplan` extension by convention
+  (File → Export project… / Open project…)
 - `uv.lock`: the resolved dependency set with hashes — committed, and
   updated together with `pyproject.toml`
