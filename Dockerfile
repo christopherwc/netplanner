@@ -148,11 +148,15 @@ LABEL org.opencontainers.image.title="NetPlanner" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.documentation="https://github.com/christopherwc/netplanner#readme"
 
-# The xcb platform plugin, which is what actually puts a window on a
-# screen. Qt loads it by dlopen, so nothing links these at build time
-# and no import test finds them missing — the failure is at startup,
-# from Qt, saying only that it "could not load the Qt platform plugin".
-# libxcb-cursor in particular became mandatory in Qt 6.5.
+# The platform plugins that actually put a window on a screen: xcb for
+# an X session, wayland for a Wayland one. Qt loads whichever by dlopen,
+# so nothing links these at build time and no import test finds them
+# missing — the failure is at startup, from Qt, saying only that it
+# "could not load the Qt platform plugin". libxcb-cursor in particular
+# became mandatory in Qt 6.5.
+#
+# Both are installed because the image does not know which session it
+# will be run from, and the three wayland libraries are small.
 # hadolint ignore=DL3008
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
@@ -164,6 +168,9 @@ RUN apt-get update \
         libxcb-render0 \
         libxcb-shape0 \
         libxcb-util1 \
+        libwayland-client0 \
+        libwayland-cursor0 \
+        libwayland-egl1 \
     && rm -rf /var/lib/apt/lists/*
 
 # A fixed uid so a bind-mounted data directory has predictable ownership
@@ -200,16 +207,18 @@ VOLUME ["/data"]
 # unresolved soname as "not found", and needs no display to say so —
 # which is the whole point, since the build has none.
 RUN set -eu; \
-    plugin="$(find /opt/venv -name 'libqxcb.so' -print -quit)"; \
-    echo "checking $plugin"; \
-    missing="$(ldd "$plugin" || true)"; \
-    case "$missing" in \
-        *"not found"*) \
-            echo "$missing" >&2; \
-            echo "xcb platform plugin has unresolved libraries" >&2; \
-            exit 1 ;; \
-    esac; \
-    echo "xcb platform plugin resolves cleanly"
+    for name in libqxcb.so libqwayland.so; do \
+        plugin="$(find /opt/venv -name "$name" -print -quit)"; \
+        echo "checking $plugin"; \
+        missing="$(ldd "$plugin" || true)"; \
+        case "$missing" in \
+            *"not found"*) \
+                echo "$missing" >&2; \
+                echo "$name has unresolved libraries" >&2; \
+                exit 1 ;; \
+        esac; \
+    done; \
+    echo "both platform plugins resolve cleanly"
 
 USER netplanner
 WORKDIR /home/netplanner

@@ -117,7 +117,9 @@ that only lists wins is not worth reading.
   opening one means trusting whoever sent it to the same degree you trust
   any file they send you. The parser is bounded, which limits what a
   malformed file can cost, but it is not a sandbox.
-- **Running the GUI in a container requires granting your X server.**
+- **Running the GUI in a container over X11 requires granting your X
+  server.** This does not apply to the Wayland service, which shares a
+  single per-client compositor socket and grants nothing.
   `xhost +SI:localuser:$USER` is far narrower than the `xhost +local:`
   most guides suggest, but X11 has no isolation between clients: anything
   that reaches the server can read keystrokes and capture other windows.
