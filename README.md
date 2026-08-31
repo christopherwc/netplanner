@@ -479,6 +479,19 @@ echo $XDG_SESSION_TYPE
 docker compose up netplanner-wayland
 ```
 
+If the daemon needs `sudo`, name the two variables explicitly:
+
+```bash
+sudo XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" WAYLAND_DISPLAY="$WAYLAND_DISPLAY" \
+     docker compose up netplanner-wayland
+```
+
+`sudo -E` is not enough. sudoers resets the environment and deletes
+`XDG_RUNTIME_DIR` specifically, so `-E` leaves both variables blank and
+compose refuses to start. Assignments written before the command survive
+that; adding yourself to the `docker` group avoids the question entirely,
+at the cost of an account that is effectively root on the host.
+
 The compositor hands each client its own socket, so only that one socket
 is shared. Expect a warning that `XDG_RUNTIME_DIR` is not mode 0700: the
 root filesystem is read-only, so it points at the container's `/tmp`
@@ -489,7 +502,7 @@ tmpfs instead. Harmless.
 ```bash
 sudo pacman -S xorg-xhost           # Arch; xhost is not installed by default
 xhost +SI:localuser:$USER           # grant your X server to your own account
-docker compose up netplanner
+docker compose up netplanner        # sudo DISPLAY="$DISPLAY" ... if sudo is needed
 xhost -SI:localuser:$USER           # revoke when finished
 ```
 
