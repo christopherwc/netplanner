@@ -467,15 +467,34 @@ image with no indication that is what happened.
 
 ### Running the GUI
 
-Works, with a caveat worth reading first.
+Which service depends on your session:
 
 ```bash
-xhost +SI:localuser:$USER          # grant your X server to your own account
-docker compose up netplanner
-xhost -SI:localuser:$USER          # revoke when finished
+echo $XDG_SESSION_TYPE
 ```
 
-**The `xhost` line is the whole security question.** X11 has no
+**Wayland** — no grant to make, and nothing to revoke:
+
+```bash
+docker compose up netplanner-wayland
+```
+
+The compositor hands each client its own socket, so only that one socket
+is shared. Expect a warning that `XDG_RUNTIME_DIR` is not mode 0700: the
+root filesystem is read-only, so it points at the container's `/tmp`
+tmpfs instead. Harmless.
+
+**X11** — works, with a caveat worth reading first:
+
+```bash
+sudo pacman -S xorg-xhost           # Arch; xhost is not installed by default
+xhost +SI:localuser:$USER           # grant your X server to your own account
+docker compose up netplanner
+xhost -SI:localuser:$USER           # revoke when finished
+```
+
+**The `xhost` line is the whole security question, and it is why the
+Wayland path is preferred where it applies.** X11 has no
 meaningful isolation between clients: anything that can reach your X
 server can read your keystrokes and screenshot other windows. Granting
 it to a local account is much narrower than the `xhost +local:` you will
