@@ -19,6 +19,11 @@ from .vlan_panel import VlanPanel
 
 logger = logging.getLogger(__name__)
 
+# The extension is a convention rather than a requirement — the loader
+# reads any JSON in the right shape — so the filter offers it without
+# forcing it.
+PROJECT_FILTER = "NetPlanner projects (*.netplan);;All files (*)"
+
 
 class MainWindow(QMainWindow):
     def __init__(self, controller: AppController):
@@ -57,6 +62,9 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self._action("&New plan", QKeySequence.StandardKey.New, self._new_plan))
         file_menu.addAction(self._action("&Rename plan…", None, self._rename_plan))
         file_menu.addAction(self._action("&Save", QKeySequence.StandardKey.Save, self._save))
+        file_menu.addSeparator()
+        file_menu.addAction(self._action("&Open project…", None, self._import_project))
+        file_menu.addAction(self._action("E&xport project…", None, self._export_project))
         file_menu.addSeparator()
         file_menu.addAction(self._action("Export &PDF…", None, self._export_pdf))
         file_menu.addAction(self._action("Export P&NG…", None, self._export_png))
@@ -173,6 +181,55 @@ class MainWindow(QMainWindow):
             return
         text = "\n".join(f"[{i.severity.value}] {i.message}" for i in issues)
         QMessageBox.warning(self, "Validation issues", text)
+
+    def _import_project(self) -> None:
+        """Open a .netplan file, replacing the current plan."""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open project", "", PROJECT_FILTER
+        )
+        if not path:
+            return
+        self.controller.import_project(Path(path))
+        # Same refresh as _new_plan: the plan object was replaced, so
+        # the canvas, panels and title are all describing something that
+        # no longer exists.
+        self._refresh_all()
+
+    def _export_project(self) -> None:
+        """Write a .netplan file, after warning about attached configs."""
+        carriers = self.controller.plan.devices_carrying_configs()
+        if carriers and not self._confirm_config_disclosure(carriers):
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export project", "", PROJECT_FILTER
+        )
+        if path:
+            self.controller.export_project(Path(path))
+
+    def _confirm_config_disclosure(self, carriers: list[str]) -> bool:
+        """Ask before writing attached configs into a shareable file.
+
+        Asked before the file dialog rather than after, so answering no
+        costs nothing. The device names are listed because "this plan
+        has configs" is easy to wave through, while seeing core-sw named
+        is what makes someone remember what is in it.
+        """
+        shown = ", ".join(carriers[:5])
+        if len(carriers) > 5:
+            shown += f", and {len(carriers) - 5} more"
+        answer = QMessageBox.warning(
+            self,
+            "Attached configs travel with this file",
+            f"{len(carriers)} device(s) carry an attached config: {shown}.\n\n"
+            "Exported project files contain those configs verbatim, "
+            "including any enable secrets, SNMP community strings or "
+            "pre-shared keys in them.\n\n"
+            "Only send this file somewhere you would send the configs "
+            "themselves.",
+            QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Ok,
+            QMessageBox.StandardButton.Cancel,  # the safe answer is the default
+        )
+        return answer == QMessageBox.StandardButton.Ok
 
     def _export_pdf(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "Export PDF", "", "PDF files (*.pdf)")

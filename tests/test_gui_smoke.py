@@ -16,7 +16,7 @@ CI box without Qt doesn't report a false failure.
 from __future__ import annotations
 
 import os
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -358,3 +358,164 @@ def test_window_title_tracks_the_plan_name(app, controller):
     controller.rename_plan("HQ Campus")
     window._refresh_all()
     assert "HQ Campus" in window.windowTitle()
+
+
+# --------------------------------------------------- project import/export
+def _plan_with_a_config(controller):
+    from netplanner.domain.entities import ConfigFile, ConfigFormat
+
+    device = controller.add_device("core-sw", DeviceType.SWITCH, 0, 0)
+    device.configs.append(
+        ConfigFile(
+            filename="core-sw.cfg",
+            content="hostname core-sw\nsnmp-server community S3cr3t RO\n",
+            config_format=ConfigFormat.CISCO_IOS,
+        )
+    )
+    return device
+
+
+def test_a_plan_reports_which_devices_carry_configs(controller):
+    """What the export warning is built on. An attached-but-empty config
+    is not a disclosure, so it does not count."""
+    device = _plan_with_a_config(controller)
+    assert controller.plan.devices_carrying_configs() == ["core-sw"]
+
+    device.configs[0].content = "   \n  "
+    assert controller.plan.devices_carrying_configs() == []
+
+
+def test_a_project_round_trips_through_a_file(controller, tmp_path):
+    from netplanner.app.controller import AppController
+
+    _plan_with_a_config(controller)
+    path = tmp_path / "plan.netplan"
+    controller.export_project(path)
+
+    other = AppController(repository=MagicMock())
+    other.import_project(path)
+
+    assert [d.name for d in other.plan.devices] == ["core-sw"]
+    assert "snmp-server" in other.plan.devices[0].configs[0].content
+    assert not other.commands.can_undo  # history does not travel
+
+
+def test_exporting_a_plan_with_configs_asks_first(app, controller, tmp_path):
+    """The file dialog must not open until the question is answered, so
+    declining costs nothing."""
+    from PyQt6.QtWidgets import QFileDialog, QMessageBox
+
+    from netplanner.gui.main_window import MainWindow
+
+    _plan_with_a_config(controller)
+    window = MainWindow(controller)
+    target = tmp_path / "plan.netplan"
+
+    with patch.object(
+        QMessageBox, "warning", return_value=QMessageBox.StandardButton.Cancel
+    ) as asked, patch.object(QFileDialog, "getSaveFileName") as chooser:
+        window._export_project()
+
+    assert asked.called
+    assert not chooser.called  # declined before choosing a path
+    assert not target.exists()
+
+    with patch.object(
+        QMessageBox, "warning", return_value=QMessageBox.StandardButton.Ok
+    ), patch.object(QFileDialog, "getSaveFileName", return_value=(str(target), "")):
+        window._export_project()
+
+    assert target.exists()
+    window.deleteLater()
+
+
+def test_exporting_a_plan_with_no_configs_asks_nothing(app, controller, tmp_path):
+    """Nothing is being disclosed, so there is nothing to confirm."""
+    from PyQt6.QtWidgets import QFileDialog, QMessageBox
+
+    from netplanner.gui.main_window import MainWindow
+
+    controller.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    window = MainWindow(controller)
+    target = tmp_path / "bare.netplan"
+
+    with patch.object(QMessageBox, "warning") as asked, patch.object(
+        QFileDialog, "getSaveFileName", return_value=(str(target), "")
+    ):
+        window._export_project()
+
+    assert not asked.called
+    assert target.exists()
+    window.deleteLater()
+
+
+def test_the_warning_names_the_devices_and_caps_the_list(app, controller):
+    """Seeing core-sw named is what makes someone remember what is in
+    it; forty names would be scrolled past."""
+    from PyQt6.QtWidgets import QMessageBox
+
+    from netplanner.gui.main_window import MainWindow
+
+    window = MainWindow(controller)
+    with patch.object(
+        QMessageBox, "warning", return_value=QMessageBox.StandardButton.Ok
+    ) as asked:
+        window._confirm_config_disclosure([f"sw{n}" for n in range(8)])
+
+    body = asked.call_args[0][2]
+    assert "sw0, sw1, sw2, sw3, sw4, and 3 more" in body
+    assert "pre-shared keys" in body
+    window.deleteLater()
+
+
+def test_cancelling_the_open_dialog_leaves_the_plan_alone(app, controller):
+    from PyQt6.QtWidgets import QFileDialog
+
+    from netplanner.gui.main_window import MainWindow
+
+    controller.add_device("sw1", DeviceType.SWITCH, 0, 0)
+    window = MainWindow(controller)
+
+    with patch.object(QFileDialog, "getOpenFileName", return_value=("", "")):
+        window._import_project()
+
+    assert [d.name for d in controller.plan.devices] == ["sw1"]
+    window.deleteLater()
+
+
+def test_opening_a_project_replaces_the_plan_on_screen(app, controller, tmp_path):
+    from PyQt6.QtWidgets import QFileDialog
+
+    from netplanner.gui.main_window import MainWindow
+
+    _plan_with_a_config(controller)
+    path = tmp_path / "plan.netplan"
+    controller.export_project(path)
+
+    controller.new_plan("something else")
+    window = MainWindow(controller)
+    with patch.object(QFileDialog, "getOpenFileName", return_value=(str(path), "")):
+        window._import_project()
+
+    assert [d.name for d in controller.plan.devices] == ["core-sw"]
+    assert "core-sw" in window.windowTitle() or controller.plan.name
+    window.deleteLater()
+
+
+def test_cancelling_the_save_dialog_writes_nothing(app, controller):
+    """Accepting the disclosure warning is not the same as choosing a
+    path; backing out of the file dialog still has to write nothing."""
+    from PyQt6.QtWidgets import QFileDialog, QMessageBox
+
+    from netplanner.gui.main_window import MainWindow
+
+    _plan_with_a_config(controller)
+    window = MainWindow(controller)
+
+    with patch.object(
+        QMessageBox, "warning", return_value=QMessageBox.StandardButton.Ok
+    ), patch.object(QFileDialog, "getSaveFileName", return_value=("", "")) as chooser:
+        window._export_project()
+
+    assert chooser.called  # got as far as asking
+    window.deleteLater()

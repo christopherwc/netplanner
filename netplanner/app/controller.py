@@ -53,6 +53,7 @@ from netplanner.domain.model import NetworkPlan
 from netplanner.errors import ConfigImportError
 from netplanner.export.pdf_exporter import export_pdf
 from netplanner.export.png_exporter import export_png
+from netplanner.persistence.project_file import load_project, save_project
 from netplanner.persistence.repository import PlanRepository
 
 logger = logging.getLogger(__name__)
@@ -423,6 +424,29 @@ class AppController:
         self.plan = self.repository.load(plan_id)
         self.commands = CommandStack()
         self.vlan_filter = set()  # the loaded plan starts unfiltered
+
+    def export_project(self, path: Path) -> None:
+        """Write the plan to a portable .netplan file.
+
+        Configs travel with it. See NetworkPlan.devices_carrying_configs
+        for what that means and where the user is warned about it.
+        """
+        logger.info("Exporting project to %s", path)
+        save_project(self.plan, path)
+
+    def import_project(self, path: Path) -> None:
+        """Replace the current plan with one read from a .netplan file.
+
+        Destructive, like load(): the plan and its undo history are
+        replaced, not merged. The imported plan is written to the
+        database straight away, so it survives the next start rather
+        than existing only until the window closes.
+        """
+        logger.info("Importing project from %s", path)
+        self.plan = load_project(path)
+        self.commands = CommandStack()
+        self.vlan_filter = set()  # the imported plan starts unfiltered
+        self.repository.save(self.plan)
 
     # ---------------------------------------------------------------- export
     def export_to_pdf(self, path: Path) -> None:

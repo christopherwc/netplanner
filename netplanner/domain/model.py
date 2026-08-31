@@ -49,6 +49,24 @@ class NetworkPlan:
         return self.textboxes.get(textbox_id)
 
     # ------------------------------------------------------------------ devices
+    def devices_carrying_configs(self) -> list[str]:
+        """Names of devices holding a config with content in it.
+
+        Exported project files carry attached configs verbatim, by
+        design — a plan that lost them when mailed would be broken. That
+        makes the export a disclosure, because a running-config holds
+        enable secrets, community strings and PSKs. The GUI asks before
+        writing one, and this is what it asks about.
+
+        A config attached but left empty is not a disclosure, so the
+        check is on content rather than on the config existing.
+        """
+        return [
+            device.name
+            for device in self.devices
+            if any(config.content.strip() for config in device.configs)
+        ]
+
     def add_device(self, device: Device) -> Device:
         """Add a device as a graph node; returns it for chaining."""
         self.graph.add_node(device.id, device=device)
