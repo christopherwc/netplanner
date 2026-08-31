@@ -44,6 +44,11 @@ ENV PYTHONUNBUFFERED=1 \
 # has (zlib). Get it wrong and the failure is an ImportError naming a
 # soname, not anything that mentions Qt.
 #
+# This set is what the *offscreen* plugin needs, which is all the ci
+# stage ever loads. Displaying a window needs the xcb plugin and eight
+# more libraries; those are installed in the runtime stage, so the ci
+# image does not carry a display stack it never uses.
+#
 # Version-pinned installs are avoided on purpose: these are security-
 # updated system packages, and pinning them freezes out those updates.
 # hadolint ignore=DL3008
@@ -143,6 +148,24 @@ LABEL org.opencontainers.image.title="NetPlanner" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.documentation="https://github.com/christopherwc/netplanner#readme"
 
+# The xcb platform plugin, which is what actually puts a window on a
+# screen. Qt loads it by dlopen, so nothing links these at build time
+# and no import test finds them missing — the failure is at startup,
+# from Qt, saying only that it "could not load the Qt platform plugin".
+# libxcb-cursor in particular became mandatory in Qt 6.5.
+# hadolint ignore=DL3008
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y \
+        libxcb-cursor0 \
+        libxcb-icccm4 \
+        libxcb-image0 \
+        libxcb-keysyms1 \
+        libxcb-render-util0 \
+        libxcb-render0 \
+        libxcb-shape0 \
+        libxcb-util1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # A fixed uid so a bind-mounted data directory has predictable ownership
 # on the host. --system: this account exists to own a process, not to be
 # logged into, so it gets no password and no shell.
@@ -171,6 +194,22 @@ ENV PATH="/opt/venv/bin:${PATH}" \
 # exists owned by the right user before anything tries to write to it.
 RUN install -d -o netplanner -g netplanner -m 0700 /data /data/logs
 VOLUME ["/data"]
+
+# Every shared library the xcb plugin needs must resolve, checked here
+# rather than discovered by a user with no window. ldd reports an
+# unresolved soname as "not found", and needs no display to say so —
+# which is the whole point, since the build has none.
+RUN set -eu; \
+    plugin="$(find /opt/venv -name 'libqxcb.so' -print -quit)"; \
+    echo "checking $plugin"; \
+    missing="$(ldd "$plugin" || true)"; \
+    case "$missing" in \
+        *"not found"*) \
+            echo "$missing" >&2; \
+            echo "xcb platform plugin has unresolved libraries" >&2; \
+            exit 1 ;; \
+    esac; \
+    echo "xcb platform plugin resolves cleanly"
 
 USER netplanner
 WORKDIR /home/netplanner
