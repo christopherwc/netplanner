@@ -192,9 +192,18 @@ RUN groupadd --system --gid 1000 netplanner \
 # image.
 COPY --from=builder --chown=root:root /opt/venv /opt/venv
 
+# XDG_CACHE_HOME is set because HOME sits on the root filesystem, which
+# compose mounts read-only. Without it fontconfig cannot write
+# ~/.cache/fontconfig, reports "No writable cache directories" four
+# times at every start, and rescans every font on disk because it has
+# nowhere to remember them. Debian's fonts.conf resolves its cache
+# through <cachedir prefix="xdg">, so pointing that at the one writable
+# directory is enough. /tmp is a tmpfs, so the cache is rebuilt per run
+# — a moment's work on a dozen fonts, and no writable home needed.
 ENV PATH="/opt/venv/bin:${PATH}" \
     XDG_DATA_HOME=/data \
-    NETPLANNER_LOG_DIR=/data/logs
+    NETPLANNER_LOG_DIR=/data/logs \
+    XDG_CACHE_HOME=/tmp
 
 # The plan database and logs live here. Declared so a `docker run` with
 # no -v still keeps them out of the writable layer, and so the directory
