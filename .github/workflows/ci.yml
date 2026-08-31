@@ -173,14 +173,29 @@ jobs:
         run: docker build --target ci -t netplanner-ci:ci .
       - name: Run the gates inside the image
         run: docker run --rm netplanner-ci:ci
-      # The runtime image should not carry the toolchain. If ruff is in
-      # it, something copied more than the virtualenv.
-      - name: Check the runtime image is not the ci image
+      # The runtime image must not carry the toolchain. Checked for each
+      # tool rather than for ruff alone, because the failure this caught
+      # the first time was a whole --extra dev virtualenv copied across,
+      # not one stray binary.
+      - name: Check the runtime image carries no dev tooling
         run: |
-          if docker run --rm --entrypoint sh netplanner:ci -c 'command -v ruff'; then
-            echo "runtime image contains dev tooling" >&2
-            exit 1
-          fi
+          for tool in ruff mypy pytest twine pip-audit uv; do
+            if docker run --rm --entrypoint sh netplanner:ci \
+                 -c "command -v $tool" >/dev/null 2>&1; then
+              echo "runtime image contains $tool" >&2
+              exit 1
+            fi
+          done
+          echo "runtime image is clean of dev tooling"
+      # And it must still be able to run the application, which is the
+      # half a "does not contain X" check cannot tell you.
+      - name: Check the runtime image can still start
+        run: |
+          docker run --rm --entrypoint python netplanner:ci -c "\
+          import netplanner.main; \
+          from netplanner.app.controller import AppController; \
+          from netplanner.gui.main_window import MainWindow; \
+          print('runtime image imports the application')"
 
   package:
     name: Build and verify distributions

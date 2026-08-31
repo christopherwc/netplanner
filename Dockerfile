@@ -78,18 +78,24 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /build
 
+# Runtime dependencies only — no --extra dev. This stage is what the
+# runtime image copies its virtualenv from, and a virtualenv carrying
+# ruff, mypy and pytest is not a runtime environment however carefully
+# the rest of the image is trimmed. The ci stage adds them back for
+# itself.
+#
 # Dependencies first, without the source. This layer is keyed on the
 # lockfile alone, so editing application code does not re-resolve or
 # re-download a single package.
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-install-project --extra dev
+    uv sync --locked --no-install-project
 
 # Now the source, and the project itself on top of the cached deps.
 COPY netplanner/ ./netplanner/
 COPY README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-editable --extra dev
+    uv sync --locked --no-editable
 
 
 # ----------------------------------------------------------------- ci
@@ -99,6 +105,11 @@ FROM builder AS ci
 
 COPY tests/ ./tests/
 COPY .github/ ./.github/
+
+# The toolchain, layered onto the runtime environment rather than baked
+# into it. Everything below this line exists only in this stage.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-editable --extra dev
 
 # Importing Qt is the thing the system-library list exists to make
 # possible, so prove it at build time. A missing soname otherwise
@@ -140,8 +151,15 @@ RUN groupadd --system --gid 1000 netplanner \
         --home-dir /home/netplanner --create-home \
         --shell /usr/sbin/nologin netplanner
 
-# Only the virtualenv crosses over: no uv, no compilers, no apt lists,
-# and no test tree. Whatever is not here cannot be exploited here.
+# Only the virtualenv crosses over, and it comes from builder rather
+# than ci: no uv, no compilers, no apt lists, no test tree, and no
+# ruff/mypy/pytest. Whatever is not here cannot be exploited here.
+#
+# This is what the "runtime image is not the ci image" job in ci.yml
+# checks, and the check earned its place: the first version of this
+# Dockerfile installed --extra dev in builder, so the runtime image
+# shipped the whole toolchain inside an otherwise carefully trimmed
+# image.
 COPY --from=builder --chown=root:root /opt/venv /opt/venv
 
 ENV PATH="/opt/venv/bin:${PATH}" \

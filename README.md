@@ -492,9 +492,11 @@ Both base images are pinned by digest, so a moved tag cannot change what
 gets built. Dependabot's `docker` ecosystem moves those digests weekly;
 a pin nobody updates is a frozen copy of whatever CVEs it shipped with.
 
-The build is multi-stage: `uv sync --locked` installs into `/opt/venv` in
-a builder stage, and only that virtualenv crosses into the runtime image.
-No uv, no compilers, no test tree, no apt lists. Dependencies install in
+The build is multi-stage. The builder stage installs **runtime
+dependencies only** into `/opt/venv`, and that is what the runtime image
+copies. The `ci` stage layers `--extra dev` on top for itself, so ruff,
+mypy and pytest exist there and nowhere else. No uv, no compilers, no
+test tree, no apt lists. Dependencies install in
 their own layer keyed on `uv.lock` alone, so editing application code
 does not re-resolve anything.
 
