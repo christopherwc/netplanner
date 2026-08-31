@@ -33,18 +33,26 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
 # Qt links against these even though the PyQt6 wheels bundle Qt itself.
-# Without them the offscreen platform plugin refuses to load and every
-# GUI test fails with a bare "could not load the Qt platform plugin".
+# The list is not guesswork: it is what `objdump -p` reports as NEEDED
+# for libQt6Core/Gui/Widgets/DBus and the offscreen platform plugin,
+# minus what the wheels bundle (ICU) and what the base image already
+# has (zlib). Get it wrong and the failure is an ImportError naming a
+# soname, not anything that mentions Qt.
+#
 # Version-pinned installs are avoided on purpose: these are security-
 # updated system packages, and pinning them freezes out those updates.
 # hadolint ignore=DL3008
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
+        libglib2.0-0 \
         libegl1 \
         libgl1 \
+        libx11-6 \
         libxkbcommon-x11-0 \
         libdbus-1-3 \
         libfontconfig1 \
+        libfreetype6 \
+        libzstd1 \
         tini \
     && rm -rf /var/lib/apt/lists/*
 
@@ -85,6 +93,17 @@ FROM builder AS ci
 
 COPY tests/ ./tests/
 COPY .github/ ./.github/
+
+# Importing Qt is the thing the system-library list exists to make
+# possible, so prove it at build time. A missing soname otherwise
+# surfaces as six pytest collection errors naming a .so nobody
+# recognises, several minutes into a run.
+RUN /opt/venv/bin/python -c "\
+import PyQt6.QtWidgets, PyQt6.QtGui, PyQt6.QtCore; \
+from PyQt6.QtWidgets import QApplication; \
+import sys, os; os.environ['QT_QPA_PLATFORM']='offscreen'; \
+app = QApplication(sys.argv); \
+print('Qt platform:', app.platformName())"
 
 ENV PATH="/opt/venv/bin:${PATH}" \
     QT_QPA_PLATFORM=offscreen \

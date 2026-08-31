@@ -14,7 +14,10 @@ services:
       context: .
       target: runtime
     image: netplanner:local
-    init: true
+    # No `init: true`. The image already runs tini as its entrypoint;
+    # asking Compose for an init as well puts docker-init at pid 1 and
+    # demotes tini to an ordinary child, which is exactly the state it
+    # warns about ("Tini is not running as PID 1").
 
     environment:
       # Forwarded from the host. Wayland users: see the README — this
@@ -53,7 +56,6 @@ services:
       context: .
       target: ci
     image: netplanner-ci:local
-    init: true
     # Left with network access on purpose: pip-audit has to reach the
     # advisory database. The runtime service, which needs nothing, gets
     # network_mode: none instead.

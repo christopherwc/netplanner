@@ -255,14 +255,20 @@ Qt links against a handful of system libraries even though PyQt6 bundles
 Qt itself. Arch Linux:
 
 ```bash
-sudo pacman -S libglvnd libxkbcommon-x11 dbus fontconfig
+sudo pacman -S glib2 libglvnd libxkbcommon-x11 dbus fontconfig freetype2 zstd
 ```
 
 Debian/Ubuntu:
 
 ```bash
-sudo apt install libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3 libfontconfig1
+sudo apt install libglib2.0-0 libegl1 libgl1 libx11-6 libxkbcommon-x11-0 \
+                 libdbus-1-3 libfontconfig1 libfreetype6 libzstd1
 ```
+
+A desktop install has all of these already; the full list matters on a
+minimal system. It is what `objdump -p` reports as NEEDED for Qt's core
+libraries and the offscreen platform plugin, minus what the PyQt6 wheels
+bundle themselves (ICU).
 
 Then, from the repository root:
 
