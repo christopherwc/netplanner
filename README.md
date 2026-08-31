@@ -270,6 +270,21 @@ minimal system. It is what `objdump -p` reports as NEEDED for Qt's core
 libraries and the offscreen platform plugin, minus what the PyQt6 wheels
 bundle themselves (ICU).
 
+Showing a window needs the **xcb** plugin as well, which pulls in eight
+more `libxcb-*` libraries — `libxcb-cursor` has been mandatory since Qt
+6.5. Qt loads that plugin with `dlopen`, so a missing one produces
+"could not load the Qt platform plugin" and no other clue:
+
+```bash
+# Debian/Ubuntu, only needed for a GUI on a minimal system
+sudo apt install libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+                 libxcb-keysyms1 libxcb-render-util0 libxcb-render0 \
+                 libxcb-shape0 libxcb-util1
+# Arch
+sudo pacman -S xcb-util-cursor xcb-util-wm xcb-util-image \
+               xcb-util-keysyms xcb-util-renderutil xcb-util
+```
+
 Then, from the repository root:
 
 ```bash
@@ -499,6 +514,12 @@ mypy and pytest exist there and nowhere else. No uv, no compilers, no
 test tree, no apt lists. Dependencies install in
 their own layer keyed on `uv.lock` alone, so editing application code
 does not re-resolve anything.
+
+The runtime image carries the xcb display stack; the `ci` image does not,
+because it only ever loads the offscreen plugin. Both are checked at
+build time — the ci stage constructs a `QApplication`, and the runtime
+stage runs `ldd` over `libqxcb.so` and fails on any unresolved library,
+which needs no display to do.
 
 `.dockerignore` is an allowlist — everything excluded, build inputs named
 back in. A denylist silently ships whatever it has not heard of yet.
