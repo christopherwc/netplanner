@@ -19,11 +19,16 @@
 # served by a distribution package.
 
 # --------------------------------------------------------------- base
-# Digest pinning is the best practice here and is deliberately not done:
-# see "Known gaps" in README.md. Resolving a real digest needs registry
-# access, and a digest nobody verified is worse than an honest tag.
-ARG PYTHON_VERSION=3.12
-FROM python:${PYTHON_VERSION}-slim-bookworm AS base
+# Pinned by digest, not by tag. A tag is a name its owner can repoint at
+# different bytes; a digest is the bytes. This is the same argument the
+# Python dependencies are pinned under, and it has the same condition
+# attached: a digest only helps while something moves it, which is what
+# the docker ecosystem entry in dependabot.yml is for. The trailing
+# comment is how Dependabot knows which version it is looking at.
+#
+# There is no ARG for the version any more — a digest and a
+# substitutable tag cannot both be the source of truth.
+FROM python:3.12-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579 AS base
 
 # Fail the build on a pipe failure rather than silently continuing.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -62,8 +67,9 @@ FROM base AS builder
 
 # uv is copied from its own published image rather than curl-installed,
 # so the version is explicit and the download is not a build-time
-# network dependency that can change under us.
-COPY --from=ghcr.io/astral-sh/uv:0.12.7 /uv /uvx /usr/local/bin/
+# network dependency that can change under us. Digest-pinned for the
+# same reason as the base image.
+COPY --from=ghcr.io/astral-sh/uv:0.12.7@sha256:95f2aa1fe59274951cfe9b0cbc7972e879ff1004bc8945d130a32eb0dbd85945 /uv /uvx /usr/local/bin/
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
