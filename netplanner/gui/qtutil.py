@@ -18,6 +18,8 @@ So: check, and raise something that names what was missing.
 
 from __future__ import annotations
 
+from PyQt6.QtWidgets import QApplication
+
 
 def required[T](value: T | None, what: str) -> T:
     """Return `value`, or raise if Qt handed back None.
@@ -30,3 +32,18 @@ def required[T](value: T | None, what: str) -> T:
     if value is None:
         raise RuntimeError(f"Qt returned no {what}, which should not be possible here")
     return value
+
+
+def running_application() -> QApplication:
+    """The live QApplication, narrowed from QCoreApplication.instance().
+
+    QApplication.instance() is inherited from QCoreApplication and typed
+    accordingly, so callers get `QCoreApplication | None` back even
+    though this process only ever constructs a QApplication. An isinstance
+    check earns the narrower type instead of a cast that would silently
+    lie if that ever stopped being true.
+    """
+    app = QApplication.instance()
+    if not isinstance(app, QApplication):
+        raise RuntimeError("No QApplication instance is running")
+    return app

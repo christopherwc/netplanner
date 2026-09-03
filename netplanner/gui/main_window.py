@@ -6,15 +6,23 @@ import functools
 import logging
 from pathlib import Path
 
-from PyQt6.QtGui import QAction, QKeySequence
-from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMainWindow, QMessageBox
+from PyQt6.QtCore import QSettings
+from PyQt6.QtGui import QAction, QActionGroup, QKeySequence
+from PyQt6.QtWidgets import (
+    QFileDialog,
+    QInputDialog,
+    QMainWindow,
+    QMenu,
+    QMessageBox,
+)
 
 from netplanner.app.controller import AppController
 
 from .canvas import NetworkCanvas
 from .palette import EquipmentPalette
 from .panels import PropertiesPanel
-from .qtutil import required
+from .qtutil import required, running_application
+from .theme import Theme, apply_theme, capture_system_defaults, load_saved_theme, save_theme
 from .vlan_panel import VlanPanel
 
 logger = logging.getLogger(__name__)
@@ -26,9 +34,16 @@ PROJECT_FILTER = "NetPlanner projects (*.netplan);;All files (*)"
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, controller: AppController):
+    def __init__(self, controller: AppController, settings: QSettings | None = None):
         super().__init__()
         self.controller = controller
+        # `settings` lets tests inject a QSettings backed by a temp file
+        # instead of writing the theme choice into the real user config.
+        self._settings = settings
+        app = running_application()
+        self._system_defaults = capture_system_defaults(app)
+        self._theme = load_saved_theme(self._settings)
+        apply_theme(app, self._theme, self._system_defaults)
         self._update_title()
         self.resize(1200, 800)
 
@@ -85,6 +100,7 @@ class MainWindow(QMainWindow):
         details_action.setChecked(True)  # IPs, MACs, and type visible by default
         details_action.toggled.connect(self.canvas.set_show_details)
         view_menu.addAction(details_action)
+        self._build_theme_menu(view_menu)
 
         plan_menu = required(bar.addMenu("&Plan"), "Plan menu")
         plan_menu.addAction(self._action("&Auto layout", None, self._auto_layout))
@@ -125,6 +141,36 @@ class MainWindow(QMainWindow):
                 )
 
         return wrapper
+
+    def _build_theme_menu(self, view_menu: QMenu) -> None:
+        """View → Theme: System / Light / Dark, mutually exclusive."""
+        theme_menu = required(view_menu.addMenu("&Theme"), "Theme menu")
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        self._theme_actions: dict[Theme, QAction] = {}
+        for theme, label in (
+            (Theme.SYSTEM, "&System"),
+            (Theme.LIGHT, "&Light"),
+            (Theme.DARK, "&Dark"),
+        ):
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(theme is self._theme)
+            # Default arg binds the loop's current `theme`, not a late
+            # reference to it — plain closure would leave every action
+            # pointing at whichever value the loop ended on.
+            action.triggered.connect(
+                self._guarded(lambda checked=False, theme=theme: self._set_theme(theme))
+            )
+            group.addAction(action)
+            theme_menu.addAction(action)
+            self._theme_actions[theme] = action
+
+    def _set_theme(self, theme: Theme) -> None:
+        app = running_application()
+        apply_theme(app, theme, self._system_defaults)
+        save_theme(theme, self._settings)
+        self._theme = theme
 
     # --------------------------------------------------------------- handlers
     def _new_plan(self) -> None:
