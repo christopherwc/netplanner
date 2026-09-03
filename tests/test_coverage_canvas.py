@@ -961,3 +961,49 @@ def test_a_device_with_no_notes_paints_without_a_notes_block(app, controller):
         item.paint(painter, None)
     finally:
         painter.end()
+
+
+# ------------------------------------------------------------------- zoom
+def _view_scale(canvas) -> float:
+    return canvas.transform().m11()
+
+
+def test_zoom_in_and_out_are_exact_inverses(canvas):
+    """resetTransform() before each scale() keeps this pair reversible;
+    scaling the accumulated transform in place would drift instead."""
+    canvas.zoom_in()
+    canvas.zoom_out()
+    assert _view_scale(canvas) == pytest.approx(1.0)
+
+
+def test_zoom_in_increases_scale(canvas):
+    canvas.zoom_in()
+    assert _view_scale(canvas) > 1.0
+
+
+def test_zoom_out_decreases_scale(canvas):
+    canvas.zoom_out()
+    assert _view_scale(canvas) < 1.0
+
+
+def test_reset_zoom_returns_to_1x_after_repeated_zooming(canvas):
+    for _ in range(5):
+        canvas.zoom_in()
+    canvas.reset_zoom()
+    assert _view_scale(canvas) == pytest.approx(1.0)
+
+
+def test_zoom_in_is_clamped_at_the_maximum(canvas):
+    from netplanner.gui.canvas import MAX_ZOOM
+
+    for _ in range(50):
+        canvas.zoom_in()
+    assert _view_scale(canvas) == pytest.approx(MAX_ZOOM)
+
+
+def test_zoom_out_is_clamped_at_the_minimum(canvas):
+    from netplanner.gui.canvas import MIN_ZOOM
+
+    for _ in range(50):
+        canvas.zoom_out()
+    assert _view_scale(canvas) == pytest.approx(MIN_ZOOM)
