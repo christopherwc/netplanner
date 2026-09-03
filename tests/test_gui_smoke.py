@@ -519,3 +519,75 @@ def test_cancelling_the_save_dialog_writes_nothing(app, controller):
 
     assert chooser.called  # got as far as asking
     window.deleteLater()
+
+
+# --------------------------------------------------------------------- theme
+@pytest.fixture()
+def theme_settings(tmp_path):
+    """An .ini-backed QSettings under tmp_path, never the real user config."""
+    from PyQt6.QtCore import QSettings
+
+    store = QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    yield store
+    store.clear()
+
+
+def test_theme_menu_defaults_to_system_with_nothing_saved(app, controller, theme_settings):
+    from netplanner.gui.main_window import MainWindow
+    from netplanner.gui.theme import Theme
+
+    window = MainWindow(controller, settings=theme_settings)
+
+    assert set(window._theme_actions) == {Theme.SYSTEM, Theme.LIGHT, Theme.DARK}
+    assert window._theme_actions[Theme.SYSTEM].isChecked()
+    assert not window._theme_actions[Theme.LIGHT].isChecked()
+    assert not window._theme_actions[Theme.DARK].isChecked()
+    window.deleteLater()
+
+
+def test_picking_dark_applies_it_and_persists_the_choice(app, controller, theme_settings):
+    """restore_app_theme (conftest) undoes the palette change afterward,
+    so no manual cleanup is needed here even though this test mutates
+    the process-global QApplication palette."""
+    from netplanner.gui.main_window import MainWindow
+    from netplanner.gui.theme import Theme, load_saved_theme
+
+    window = MainWindow(controller, settings=theme_settings)
+    window._theme_actions[Theme.DARK].trigger()
+
+    assert window._theme == Theme.DARK
+    # Base is the color QGraphicsView paints the canvas with; a real
+    # dark palette must actually be dark there, not just "different".
+    assert QApplication.instance().palette().base().color().lightness() < 128
+    assert load_saved_theme(theme_settings) is Theme.DARK
+    window.deleteLater()
+
+
+def test_a_previously_saved_dark_theme_applies_on_startup(app, controller, theme_settings):
+    """The choice has to survive a restart: saving it in one window and
+    building a fresh one against the same settings must come up dark
+    without the user touching the menu again."""
+    from netplanner.gui.main_window import MainWindow
+    from netplanner.gui.theme import Theme, save_theme
+
+    save_theme(Theme.DARK, theme_settings)
+    window = MainWindow(controller, settings=theme_settings)
+
+    assert window._theme is Theme.DARK
+    assert window._theme_actions[Theme.DARK].isChecked()
+    assert QApplication.instance().palette().base().color().lightness() < 128
+    window.deleteLater()
+
+
+def test_switching_back_to_system_restores_the_original_palette(app, controller, theme_settings):
+    from netplanner.gui.main_window import MainWindow
+    from netplanner.gui.theme import Theme
+
+    original_base = QApplication.instance().palette().base().color()
+    window = MainWindow(controller, settings=theme_settings)
+    window._theme_actions[Theme.DARK].trigger()
+    window._theme_actions[Theme.SYSTEM].trigger()
+
+    assert window._theme == Theme.SYSTEM
+    assert QApplication.instance().palette().base().color() == original_base
+    window.deleteLater()
