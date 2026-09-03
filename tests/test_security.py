@@ -191,3 +191,28 @@ def test_a_missing_qt_object_raises_rather_than_vanishing():
     assert required("a menu bar", "menu bar") == "a menu bar"
     with pytest.raises(RuntimeError, match="Qt returned no menu bar"):
         required(None, "menu bar")
+
+
+def test_running_application_rejects_a_missing_or_wrong_type_instance(monkeypatch):
+    """QApplication.instance() is typed QCoreApplication | None because
+    it is inherited; this is the isinstance check standing in for that
+    narrowing, so both failure modes need direct coverage: no instance
+    at all, and an instance that is not actually a QApplication.
+
+    Patches the name inside qtutil's own module, not the QApplication
+    class itself — the class is the one real object every other module
+    (including this suite's own dispose_widgets fixture) shares, and
+    mutating it would leak into their teardown.
+    """
+    from netplanner.gui.qtutil import running_application
+
+    class _FakeApp:
+        instance = staticmethod(lambda: None)
+
+    monkeypatch.setattr("netplanner.gui.qtutil.QApplication", _FakeApp)
+    with pytest.raises(RuntimeError, match="No QApplication instance is running"):
+        running_application()
+
+    _FakeApp.instance = staticmethod(lambda: object())
+    with pytest.raises(RuntimeError, match="No QApplication instance is running"):
+        running_application()

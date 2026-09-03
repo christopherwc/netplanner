@@ -37,6 +37,7 @@ from netplanner.persistence.repository import PlanRepository
 
 try:  # the domain and persistence suites run without PyQt6 installed
     from PyQt6.QtCore import QEvent
+    from PyQt6.QtGui import QPalette
     from PyQt6.QtWidgets import QApplication
 except ImportError:  # pragma: no cover - PyQt6 is a hard dependency in CI
     QApplication = None
@@ -83,3 +84,25 @@ def dispose_widgets():
         widget.close()
         widget.deleteLater()
     QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
+@pytest.fixture(autouse=True)
+def restore_app_theme():
+    """Undo any QApplication style/palette change a test makes.
+
+    MainWindow applies the saved theme by calling QApplication.setStyle
+    and setPalette, which — unlike per-widget state — is process-global
+    and outlives the test that triggered it. Without this, one test
+    switching to dark mode would leak into every MainWindow built
+    afterward, including in unrelated test modules that share the same
+    QApplication instance (see the module docstring above).
+    """
+    application = QApplication.instance() if QApplication is not None else None
+    if application is None:
+        yield
+        return
+    style_name = application.style().objectName()
+    palette = QPalette(application.palette())
+    yield
+    application.setStyle(style_name)
+    application.setPalette(palette)
