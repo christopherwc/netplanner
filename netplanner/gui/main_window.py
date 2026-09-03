@@ -104,6 +104,16 @@ class MainWindow(QMainWindow):
         details_action.setChecked(True)  # IPs, MACs, and type visible by default
         details_action.toggled.connect(self.canvas.set_show_details)
         view_menu.addAction(details_action)
+        view_menu.addSeparator()
+        view_menu.addAction(
+            self._action("Zoom &In", QKeySequence.StandardKey.ZoomIn, self.canvas.zoom_in)
+        )
+        view_menu.addAction(
+            self._action("Zoom &Out", QKeySequence.StandardKey.ZoomOut, self.canvas.zoom_out)
+        )
+        view_menu.addAction(
+            self._action("&Reset Zoom", QKeySequence("Ctrl+0"), self.canvas.reset_zoom)
+        )
         self._build_theme_menu(view_menu)
 
         plan_menu = required(bar.addMenu("&Plan"), "Plan menu")

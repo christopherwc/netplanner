@@ -1304,11 +1304,17 @@ class PlanScene(QGraphicsScene):
             self.rebuild()
 
 
+ZOOM_STEP = 1.15
+MIN_ZOOM = 0.25
+MAX_ZOOM = 4.0
+
+
 class NetworkCanvas(QGraphicsView):
     """The scrollable, antialiased view wrapping PlanScene.
 
     Exposes the small API the main window uses: refresh(), set_tool(),
-    and set_show_details(); Esc resets the palette to select mode.
+    set_show_details(), and zoom_in()/zoom_out()/reset_zoom(); Esc
+    resets the palette to select mode.
     """
 
     def __init__(self, controller: AppController, parent=None):
@@ -1316,11 +1322,34 @@ class NetworkCanvas(QGraphicsView):
         super().__init__(self._scene, parent)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+        self._zoom_factor = 1.0
         self.refresh()
 
     def refresh(self) -> None:
         """Rebuild the scene after external changes (load, undo, layout...)."""
         self._scene.rebuild()
+
+    def zoom_in(self) -> None:
+        self._apply_zoom(self._zoom_factor * ZOOM_STEP)
+
+    def zoom_out(self) -> None:
+        self._apply_zoom(self._zoom_factor / ZOOM_STEP)
+
+    def reset_zoom(self) -> None:
+        self._apply_zoom(1.0)
+
+    def _apply_zoom(self, factor: float) -> None:
+        """Clamp and apply a zoom factor, replacing any prior scale.
+
+        resetTransform() first rather than scaling the current
+        transform incrementally: repeated in-place scale() calls
+        accumulate floating-point drift, so a clamped absolute factor
+        keeps zoom_in()/zoom_out() reversible pairs exact.
+        """
+        factor = max(MIN_ZOOM, min(MAX_ZOOM, factor))
+        self.resetTransform()
+        self.scale(factor, factor)
+        self._zoom_factor = factor
 
     def set_show_details(self, on: bool) -> None:
         """Toggle sectioned cards (IPs, MACs, type) vs compact nodes."""
