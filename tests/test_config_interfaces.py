@@ -221,6 +221,162 @@ def test_mikrotik_repeated_interface_keeps_the_last_address():
     assert parsed == [ParsedInterface(name="ether1", ip_address="10.0.0.2/24")]
 
 
+# ------------------------------------------------- MikroTik: VLAN membership
+MIKROTIK_BRIDGE_VLAN_CONFIG = """
+# 2024-01-01 00:00:00 by RouterOS 7.10
+/interface bridge
+add name=bridge1 vlan-filtering=yes
+/interface bridge port
+add bridge=bridge1 interface=ether1 pvid=10
+add bridge=bridge1 interface=ether2
+add bridge=bridge1 interface=ether3
+/interface bridge vlan
+add bridge=bridge1 tagged=ether2,ether3 vlan-ids=10
+add bridge=bridge1 tagged=ether2,ether3 vlan-ids=20
+add bridge=bridge1 untagged=ether1 vlan-ids=10
+/ip address
+add address=192.168.1.1/24 interface=ether1
+"""
+
+
+def test_mikrotik_bridge_vlan_tagged_ports_become_trunk():
+    parsed = {
+        p.name: p for p in parse_interfaces(MIKROTIK_BRIDGE_VLAN_CONFIG, ConfigFormat.MIKROTIK)
+    }
+    assert parsed["ether2"].vlan_mode is VlanMode.TRUNK
+    assert parsed["ether2"].trunk_vlans == (10, 20)
+    assert parsed["ether3"].trunk_vlans == (10, 20)
+
+
+def test_mikrotik_bridge_vlan_untagged_port_becomes_access():
+    parsed = {
+        p.name: p for p in parse_interfaces(MIKROTIK_BRIDGE_VLAN_CONFIG, ConfigFormat.MIKROTIK)
+    }
+    assert parsed["ether1"].vlan_mode is VlanMode.ACCESS
+    assert parsed["ether1"].access_vlan == 10
+
+
+def test_mikrotik_ip_address_and_vlan_membership_merge_on_the_same_port():
+    """ether1 gets both its IP (from /ip address) and its VLAN
+    membership (from /interface bridge vlan) on the same
+    ParsedInterface, even though those come from unrelated sections."""
+    parsed = {
+        p.name: p for p in parse_interfaces(MIKROTIK_BRIDGE_VLAN_CONFIG, ConfigFormat.MIKROTIK)
+    }
+    assert parsed["ether1"].ip_address == "192.168.1.1/24"
+    assert parsed["ether1"].access_vlan == 10
+
+
+def test_mikrotik_pvid_without_bridge_vlan_block_is_a_fallback_access_vlan():
+    """A simple config that sets pvid but never defines /interface
+    bridge vlan at all still yields an access VLAN — not every RouterOS
+    config uses full VLAN filtering."""
+    config = "/interface bridge port\nadd bridge=bridge1 interface=ether5 pvid=30\n"
+    parsed = parse_interfaces(config, ConfigFormat.MIKROTIK)
+    assert parsed == [ParsedInterface(name="ether5", vlan_mode=VlanMode.ACCESS, access_vlan=30)]
+
+
+def test_mikrotik_bridge_vlan_untagged_overrides_a_different_pvid():
+    """/interface bridge vlan's untagged= is the more specific,
+    authoritative source; a bare pvid is only a fallback for ports it
+    doesn't cover."""
+    config = (
+        "/interface bridge port\n"
+        "add bridge=bridge1 interface=ether1 pvid=99\n"
+        "/interface bridge vlan\n"
+        "add bridge=bridge1 untagged=ether1 vlan-ids=10\n"
+    )
+    parsed = parse_interfaces(config, ConfigFormat.MIKROTIK)
+    assert parsed == [ParsedInterface(name="ether1", vlan_mode=VlanMode.ACCESS, access_vlan=10)]
+
+
+def test_mikrotik_bridge_vlan_ids_accepts_range_syntax():
+    config = "/interface bridge vlan\nadd bridge=bridge1 tagged=ether2 vlan-ids=10-12\n"
+    parsed = parse_interfaces(config, ConfigFormat.MIKROTIK)
+    assert parsed == [
+        ParsedInterface(name="ether2", vlan_mode=VlanMode.TRUNK, trunk_vlans=(10, 11, 12))
+    ]
+
+
+def test_mikrotik_vlan_subinterface_marks_its_parent_as_trunk():
+    """/interface vlan creates a new interface for tagged traffic on
+    one VLAN over a parent port — which makes the parent itself a
+    trunk member for that VLAN, even though nothing in the config
+    literally says "trunk"."""
+    config = (
+        "/interface vlan\n"
+        "add name=vlan10-ether1 vlan-id=10 interface=ether1\n"
+        "add name=vlan20-ether1 vlan-id=20 interface=ether1\n"
+        "/ip address\n"
+        "add address=10.0.10.1/24 interface=vlan10-ether1\n"
+        "add address=10.0.20.1/24 interface=vlan20-ether1\n"
+    )
+    parsed = {p.name: p for p in parse_interfaces(config, ConfigFormat.MIKROTIK)}
+    assert parsed["ether1"].vlan_mode is VlanMode.TRUNK
+    assert parsed["ether1"].trunk_vlans == (10, 20)
+    assert parsed["ether1"].ip_address is None
+    # the VLAN sub-interfaces themselves are separate named interfaces
+    # with their own IPs, and no VLAN membership of their own
+    assert parsed["vlan10-ether1"].ip_address == "10.0.10.1/24"
+    assert parsed["vlan10-ether1"].vlan_mode is None
+
+
+def test_mikrotik_bridge_port_without_pvid_or_vlan_membership_has_no_vlan_info():
+    config = "/interface bridge port\nadd bridge=bridge1 interface=ether9\n"
+    parsed = parse_interfaces(config, ConfigFormat.MIKROTIK)
+    assert parsed == [ParsedInterface(name="ether9")]
+
+
+def test_mikrotik_non_numeric_pvid_is_ignored():
+    """"default" (RouterOS's actual literal value when pvid is left at
+    its default) isn't a VLAN number, but the port itself is still
+    recorded as seen — same as any other bridge port with no pvid."""
+    config = "/interface bridge port\nadd bridge=bridge1 interface=ether1 pvid=default\n"
+    assert parse_interfaces(config, ConfigFormat.MIKROTIK) == [ParsedInterface(name="ether1")]
+
+
+def test_mikrotik_vlan_ids_field_missing_on_a_tagged_line_tags_nothing():
+    config = "/interface bridge vlan\nadd bridge=bridge1 tagged=ether2\n"
+    parsed = parse_interfaces(config, ConfigFormat.MIKROTIK)
+    # the port is still "seen" (order-tracked) but carries no VLAN info
+    assert parsed == [ParsedInterface(name="ether2")]
+
+
+def test_mirror_mikrotik_vlan_membership_onto_existing_interfaces():
+    """End-to-end: a bridge-VLAN-filtering config mirrored onto a
+    device's default MikroTik-style ports."""
+    existing = [Interface(name="ether1"), Interface(name="ether2"), Interface(name="ether3")]
+    parsed = parse_interfaces(MIKROTIK_BRIDGE_VLAN_CONFIG, ConfigFormat.MIKROTIK)
+    result = {i.name: i for i in mirror_interfaces(existing, parsed)}
+    assert result["ether1"].vlan_mode is VlanMode.ACCESS
+    assert result["ether1"].access_vlan == 10
+    assert result["ether1"].ip_address == "192.168.1.1/24"
+    assert result["ether2"].vlan_mode is VlanMode.TRUNK
+    assert result["ether2"].trunk_vlans == [10, 20]
+
+
+def test_mikrotik_non_add_set_command_under_a_path_is_ignored():
+    config = "/interface bridge port\nremove [find interface=ether9]\n"
+    assert parse_interfaces(config, ConfigFormat.MIKROTIK) == []
+
+
+def test_mikrotik_bridge_port_line_without_an_interface_field_is_ignored():
+    config = "/interface bridge port\nadd bridge=bridge1 pvid=10\n"
+    assert parse_interfaces(config, ConfigFormat.MIKROTIK) == []
+
+
+def test_mikrotik_untagged_without_vlan_ids_still_records_the_port():
+    """untagged= names a port but the line carries no vlan-ids= to
+    assign — the port is still seen, just with no access VLAN."""
+    config = "/interface bridge vlan\nadd bridge=bridge1 untagged=ether1\n"
+    assert parse_interfaces(config, ConfigFormat.MIKROTIK) == [ParsedInterface(name="ether1")]
+
+
+def test_mikrotik_vlan_subinterface_without_a_numeric_vlan_id_is_ignored():
+    config = "/interface vlan\nadd name=vlan-x interface=ether1 vlan-id=not-a-number\n"
+    assert parse_interfaces(config, ConfigFormat.MIKROTIK) == []
+
+
 # ------------------------------------------------------------------- Ubiquiti
 def test_ubiquiti_set_style_flat_commands():
     config = (

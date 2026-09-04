@@ -686,10 +686,10 @@ class _ConfigsTab(QWidget):
         remove_btn.clicked.connect(self._remove_selected)
         sync_btn = QPushButton("Sync interfaces from this…")
         sync_btn.setToolTip(
-            "Read this config's interface names, IP addresses, and (Cisco "
-            "only) VLAN membership, and apply them to the Interfaces tab. "
-            "Matched by interface name; interfaces the config doesn't "
-            "mention are left alone."
+            "Read this config's interface names, IP addresses, and VLAN "
+            "membership (Cisco and MikroTik) and apply them to the "
+            "Interfaces tab. Matched by interface name; interfaces the "
+            "config doesn't mention are left alone."
         )
         sync_btn.clicked.connect(self._sync_interfaces_from_selected)
         for btn in (import_btn, view_btn, rename_btn, export_btn, remove_btn, sync_btn):
