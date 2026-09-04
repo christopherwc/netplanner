@@ -169,14 +169,13 @@ def test_typed_default_interfaces():
     assert any(i.max_speed_mbps is None for i in ap.interfaces)
 
 
-def test_interface_rates_persist():
-    from pathlib import Path
+def test_interface_rates_persist(tmp_path):
 
     from netplanner.domain.entities import Device, Interface
     from netplanner.domain.model import NetworkPlan
     from netplanner.persistence.repository import PlanRepository
 
-    repo = PlanRepository(db_path=Path("/tmp/iface_rates.db"))
+    repo = PlanRepository(db_path=tmp_path / "iface_rates.db")
     plan = NetworkPlan("typed")
     plan.add_device(Device(
         name="core",
@@ -204,8 +203,7 @@ def test_macs_default_to_all_zeros():
     assert all(m == "00:00:00:00:00:00" for m in macs)
 
 
-def test_macs_persist_and_legacy_payloads_get_placeholder():
-    from pathlib import Path
+def test_macs_persist_and_legacy_payloads_get_placeholder(tmp_path):
 
     from netplanner.domain.entities import Device, Interface
     from netplanner.domain.model import NetworkPlan
@@ -215,7 +213,7 @@ def test_macs_persist_and_legacy_payloads_get_placeholder():
         _device_to_dict,
     )
 
-    repo = PlanRepository(db_path=Path("/tmp/mac_test.db"))
+    repo = PlanRepository(db_path=tmp_path / "mac_test.db")
     plan = NetworkPlan("macs")
     dev = Device(name="rtr1", device_type=DeviceType.ROUTER,
                  interfaces=[Interface(name="Gig0/0", mac_address="02:AA:BB:CC:DD:EE")])
@@ -265,14 +263,13 @@ def test_device_properties_editable_and_undoable():
     assert d.device_model == "Cisco ISR 4331"
 
 
-def test_device_properties_persist():
-    from pathlib import Path
+def test_device_properties_persist(tmp_path):
 
     from netplanner.domain.entities import Device
     from netplanner.domain.model import NetworkPlan
     from netplanner.persistence.repository import PlanRepository
 
-    repo = PlanRepository(db_path=Path("/tmp/props_test.db"))
+    repo = PlanRepository(db_path=tmp_path / "props_test.db")
     plan = NetworkPlan("props")
     plan.add_device(Device(
         name="core",
@@ -382,14 +379,13 @@ def test_empty_trunk_flagged_by_validation():
     assert any("trunk with no VLANs" in i.message for i in issues)
 
 
-def test_vlan_fields_persist_through_sqlite():
-    from pathlib import Path
+def test_vlan_fields_persist_through_sqlite(tmp_path):
 
     from netplanner.domain.entities import Device, Interface, VlanMode
     from netplanner.domain.model import NetworkPlan
     from netplanner.persistence.repository import PlanRepository
 
-    repo = PlanRepository(db_path=Path("/tmp/vlan_test.db"))
+    repo = PlanRepository(db_path=tmp_path / "vlan_test.db")
     plan = NetworkPlan("vlans")
     plan.add_device(Device(
         name="sw1",
@@ -411,8 +407,7 @@ def test_vlan_fields_persist_through_sqlite():
     assert by_name["Ten0/1"].trunk_vlans == [10, 20, 30]
 
 
-def test_vlan_fields_persist_through_netplan_json():
-    from pathlib import Path
+def test_vlan_fields_persist_through_netplan_json(tmp_path):
 
     from netplanner.domain.entities import Device, Interface, VlanMode
     from netplanner.domain.model import NetworkPlan
@@ -423,8 +418,8 @@ def test_vlan_fields_persist_through_netplan_json():
         name="sw1", device_type=DeviceType.SWITCH, native_vlan=42,
         interfaces=[Interface(name="Ten0/1", vlan_mode=VlanMode.TRUNK, trunk_vlans=[5, 15])],
     ))
-    save_project(plan, Path("/tmp/vlan_test.netplan"))
-    loaded = load_project(Path("/tmp/vlan_test.netplan"))
+    save_project(plan, tmp_path / "vlan_test.netplan")
+    loaded = load_project(tmp_path / "vlan_test.netplan")
     dev = loaded.devices[0]
     assert dev.native_vlan == 42
     assert dev.interfaces[0].trunk_vlans == [5, 15]
@@ -526,14 +521,13 @@ def test_planned_card_keeps_type_color_and_is_striped():
     assert card.stripe_colors == [STRIPE_PLANNED]  # one color -> uniform gray hatch
 
 
-def test_status_persists_through_sqlite():
-    from pathlib import Path
+def test_status_persists_through_sqlite(tmp_path):
 
     from netplanner.domain.entities import Device, DeviceStatus
     from netplanner.domain.model import NetworkPlan
     from netplanner.persistence.repository import PlanRepository
 
-    repo = PlanRepository(db_path=Path("/tmp/status_test.db"))
+    repo = PlanRepository(db_path=tmp_path / "status_test.db")
     plan = NetworkPlan("status")
     plan.add_device(Device(name="sw1", device_type=DeviceType.SWITCH, status=DeviceStatus.BROKEN))
     plan.add_device(Device(name="sw2", device_type=DeviceType.SWITCH, status=DeviceStatus.PLANNED))
@@ -544,8 +538,7 @@ def test_status_persists_through_sqlite():
     assert by_name["sw2"].status == DeviceStatus.PLANNED
 
 
-def test_status_persists_through_netplan_json():
-    from pathlib import Path
+def test_status_persists_through_netplan_json(tmp_path):
 
     from netplanner.domain.entities import Device, DeviceStatus
     from netplanner.domain.model import NetworkPlan
@@ -553,8 +546,8 @@ def test_status_persists_through_netplan_json():
 
     plan = NetworkPlan("status json")
     plan.add_device(Device(name="sw1", device_type=DeviceType.SWITCH, status=DeviceStatus.PLANNED))
-    save_project(plan, Path("/tmp/status_test.netplan"))
-    loaded = load_project(Path("/tmp/status_test.netplan"))
+    save_project(plan, tmp_path / "status_test.netplan")
+    loaded = load_project(tmp_path / "status_test.netplan")
     assert loaded.devices[0].status == DeviceStatus.PLANNED
 
 
@@ -637,14 +630,13 @@ def test_status_change_is_single_undo_step():
     assert d.device_model == ""
 
 
-def test_status_survives_full_controller_save_load_cycle():
-    from pathlib import Path
+def test_status_survives_full_controller_save_load_cycle(tmp_path):
 
     from netplanner.app.controller import AppController
     from netplanner.domain.entities import DeviceStatus
     from netplanner.persistence.repository import PlanRepository
 
-    repo = PlanRepository(db_path=Path("/tmp/status_cycle.db"))
+    repo = PlanRepository(db_path=tmp_path / "status_cycle.db")
     ctrl = AppController(repository=repo)
     d = ctrl.add_device("sw1", DeviceType.SWITCH, 0, 0)
     ctrl.edit_device_properties(
@@ -899,15 +891,14 @@ def test_links_for_device_reports_both_directions():
     assert len(ctrl.links_for_device(b.id)) == 1  # and found from the 'b' end
 
 
-def test_delete_device_then_save_load_round_trip():
+def test_delete_device_then_save_load_round_trip(tmp_path):
     """Deletions must actually persist, not reappear after a reload."""
-    from pathlib import Path
 
     from netplanner.app.controller import AppController
     from netplanner.domain.entities import LinkType
     from netplanner.persistence.repository import PlanRepository
 
-    repo = PlanRepository(db_path=Path("/tmp/delete_test.db"))
+    repo = PlanRepository(db_path=tmp_path / "delete_test.db")
     ctrl = AppController(repository=repo)
     a = ctrl.add_device("rtr1", DeviceType.ROUTER, 0, 0)
     b = ctrl.add_device("sw1", DeviceType.SWITCH, 400, 0)

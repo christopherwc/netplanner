@@ -1,0 +1,105 @@
+# NetPlanner via Compose.
+#
+#   docker compose run --rm ci          run the gates
+#   docker compose up netplanner-wayland    on a Wayland session
+#   docker compose up netplanner            on an X session
+#
+# Check which you have with `echo $XDG_SESSION_TYPE`. Prefer the wayland
+# service where it applies: it needs no access grant at all, because a
+# Wayland compositor hands out a per-client socket instead of the shared,
+# unisolated one X gives every client. The X service needs
+# `xhost +SI:localuser:$USER` first, which is a real grant — see
+# "Running the GUI" in README.md before using it.
+
+services:
+  netplanner:
+    build:
+      context: .
+      target: runtime
+    image: netplanner:local
+    # No `init: true`. The image already runs tini as its entrypoint;
+    # asking Compose for an init as well puts docker-init at pid 1 and
+    # demotes tini to an ordinary child, which is exactly the state it
+    # warns about ("Tini is not running as PID 1").
+
+    environment:
+      # Forwarded from the host. Wayland users: see the README — this
+      # path runs through XWayland.
+      DISPLAY: ${DISPLAY:?DISPLAY is not set; the GUI needs a display}
+      QT_X11_NO_MITSHM: "1"
+
+    volumes:
+      # The X socket, read-only: the container needs to talk to the
+      # display, not to modify how the host offers it.
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      # Plans and logs, kept on the host so they outlive the container.
+      - netplanner-data:/data
+
+    # --- hardening ---------------------------------------------------
+    # The application writes only to /data, so everything else can be
+    # immutable. Qt still needs scratch space, and with no XDG_RUNTIME_DIR
+    # set it creates /tmp/runtime-netplanner itself — which is why /tmp is
+    # a tmpfs and why the "XDG_RUNTIME_DIR not set" warning on startup is
+    # expected rather than a fault.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # No ports, and no network at all. NetPlanner has no listener and
+    # makes no outbound request, and X11 here goes over the mounted unix
+    # socket rather than TCP. If DISPLAY names a host (`host:0`) instead
+    # of a socket (`:0`), drop this line — that path does need the network.
+    network_mode: none
+
+  # Native Wayland: no X server, no XWayland, and nothing to grant or
+  # revoke. Differs from the X service only in which socket it mounts
+  # and which plugin Qt is told to load.
+  netplanner-wayland:
+    build:
+      context: .
+      target: runtime
+    image: netplanner:local
+
+    environment:
+      QT_QPA_PLATFORM: wayland
+      # Pointed at the tmpfs, not at /run/user/1000. The root filesystem
+      # is read-only and a bind-mount's parent directory is created
+      # root-owned, so /run/user/1000 would exist and be unwritable —
+      # and Qt needs XDG_RUNTIME_DIR writable. Expect a warning that it
+      # is not mode 0700; the socket still works.
+      XDG_RUNTIME_DIR: /tmp
+      WAYLAND_DISPLAY: ${WAYLAND_DISPLAY:?WAYLAND_DISPLAY is not set; this is not a Wayland session}
+
+    volumes:
+      # One socket, not the whole runtime directory: the compositor gives
+      # each client its own, so this shares exactly what the application
+      # needs and nothing else about the session. The host socket is
+      # owned by uid 1000, which is the uid inside the image too.
+      - ${XDG_RUNTIME_DIR}/${WAYLAND_DISPLAY}:/tmp/${WAYLAND_DISPLAY}
+      - netplanner-data:/data
+
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    network_mode: none
+
+  ci:
+    build:
+      context: .
+      target: ci
+    image: netplanner-ci:local
+    # Left with network access on purpose: pip-audit has to reach the
+    # advisory database. The runtime service, which needs nothing, gets
+    # network_mode: none instead.
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  netplanner-data:

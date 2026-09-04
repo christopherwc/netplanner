@@ -97,8 +97,10 @@ class ConfigHighlighter(QSyntaxHighlighter):
             fmt.setFontItalic(True)
         return fmt
 
-    def highlightBlock(self, text: str) -> None:
+    def highlightBlock(self, text: str | None) -> None:
         """Called by Qt for each visible line."""
+        if text is None:
+            return
         stripped = text.lstrip()
 
         # A comment line is styled as a whole and nothing else applies.
@@ -190,6 +192,10 @@ class ConfigTextView(QPlainTextEdit):
         bottom = top + self.blockBoundingRect(block).height()
 
         while block.isValid() and top <= event.rect().bottom():
+            # Qt repaints only the damaged rectangle, and a block above
+            # it still arrives here from firstVisibleBlock(). Stepping
+            # over it rather than numbering it is what keeps the gutter
+            # aligned with the text during a partial repaint.
             if block.isVisible() and bottom >= event.rect().top():
                 painter.drawText(
                     0, int(top), self._gutter.width() - 6, self.fontMetrics().height(),

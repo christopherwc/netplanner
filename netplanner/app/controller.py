@@ -53,9 +53,16 @@ from netplanner.domain.model import NetworkPlan
 from netplanner.errors import ConfigImportError
 from netplanner.export.pdf_exporter import export_pdf
 from netplanner.export.png_exporter import export_png
+from netplanner.persistence.project_file import load_project, save_project
 from netplanner.persistence.repository import PlanRepository
 
 logger = logging.getLogger(__name__)
+
+# A device running-config is kilobytes; the largest realistic export —
+# a chassis switch with full ACLs — is low single-digit megabytes. The
+# content is held in memory and copied into every undo snapshot, so the
+# ceiling is deliberately close to reality rather than generous.
+MAX_CONFIG_BYTES = 16 * 1024 * 1024
 
 
 class AppController:
@@ -272,8 +279,19 @@ class AppController:
         Decoded as UTF-8 with replacement so a stray non-UTF-8 byte in a
         vendor export can't raise; the format is guessed from the
         contents and can be overridden in the dialog.
+
+        Size is checked before the read, because the content is held in
+        memory, copied into every undo snapshot, and written into the
+        plan. A running-config is kilobytes; anything at the limit is a
+        file picked by mistake, and saying so beats an OOM.
         """
         try:
+            size = path.stat().st_size
+            if size > MAX_CONFIG_BYTES:
+                raise ConfigImportError(
+                    f"Config file {path} is {size} bytes, over the "
+                    f"{MAX_CONFIG_BYTES}-byte limit for an attached config"
+                )
             raw = path.read_bytes()
         except OSError as exc:
             logger.exception("Config import failed reading %s", path)
@@ -395,8 +413,7 @@ class AppController:
         """Start a fresh plan, discarding the current one and its history."""
         self.plan = NetworkPlan(name=name)
         self.commands = CommandStack()
-        # Active VLAN highlight; exports mirror what the canvas shows.
-        self.vlan_filter: set[int] = set()
+        self.vlan_filter = set()  # a fresh plan carries no highlight
 
     def save(self) -> None:
         """Persist the current plan to the SQLite database."""
@@ -406,8 +423,30 @@ class AppController:
         """Load a stored plan by id; resets undo history."""
         self.plan = self.repository.load(plan_id)
         self.commands = CommandStack()
-        # Active VLAN highlight; exports mirror what the canvas shows.
-        self.vlan_filter: set[int] = set()
+        self.vlan_filter = set()  # the loaded plan starts unfiltered
+
+    def export_project(self, path: Path) -> None:
+        """Write the plan to a portable .netplan file.
+
+        Configs travel with it. See NetworkPlan.devices_carrying_configs
+        for what that means and where the user is warned about it.
+        """
+        logger.info("Exporting project to %s", path)
+        save_project(self.plan, path)
+
+    def import_project(self, path: Path) -> None:
+        """Replace the current plan with one read from a .netplan file.
+
+        Destructive, like load(): the plan and its undo history are
+        replaced, not merged. The imported plan is written to the
+        database straight away, so it survives the next start rather
+        than existing only until the window closes.
+        """
+        logger.info("Importing project from %s", path)
+        self.plan = load_project(path)
+        self.commands = CommandStack()
+        self.vlan_filter = set()  # the imported plan starts unfiltered
+        self.repository.save(self.plan)
 
     # ---------------------------------------------------------------- export
     def export_to_pdf(self, path: Path) -> None:

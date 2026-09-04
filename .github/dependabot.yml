@@ -30,3 +30,17 @@ updates:
         patterns: ["*"]
     commit-message:
       prefix: "ci"
+
+  # Base images. Pinned by digest, so these PRs are the only way a base
+  # image ever picks up a security update — a digest that nobody moves
+  # is a frozen copy of whatever CVEs it shipped with.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      base-images:
+        patterns: ["*"]
+    commit-message:
+      prefix: "build"

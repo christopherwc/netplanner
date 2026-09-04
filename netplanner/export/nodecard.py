@@ -140,8 +140,9 @@ def _wrap_notes(notes: str) -> list[str]:
             current = word
         else:
             current = candidate
-    if current:
-        lines.append(current)
+    # Unconditional: an empty `words` returned above, so the loop ran at
+    # least once and every branch of it leaves `current` holding a word.
+    lines.append(current)
 
     if len(lines) > NOTES_MAX_LINES:
         visible = lines[:NOTES_MAX_LINES]

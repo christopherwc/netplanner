@@ -177,6 +177,32 @@ equipment, cable it up port-by-port, and export the result.
   Viewing is deliberately read-only: a stored config documents what the
   hardware actually runs, and silently editing it would let the plan
   drift from reality. Re-import to update one.
+- **Sync interfaces from a config** — in the **Configs** tab, select an
+  attached file and click **Sync interfaces from this…** to read its
+  interface names, IP addresses, and (Cisco and MikroTik) VLAN
+  access/trunk membership, and apply them to the **Interfaces** tab.
+  Matched by interface name — a running-config's full name
+  (`GigabitEthernet0/1`) matches NetPlanner's own abbreviated defaults
+  (`Gig0/1`) without renaming either side, so it works against real
+  device output out of the box. An interface the config doesn't
+  mention is left alone; one the config mentions but the device
+  doesn't have is added. MAC address and port speed are never
+  touched — only what the config actually states.
+
+  **Cisco IOS**: IP addressing (`ip address`) and VLANs
+  (`switchport access vlan` / `switchport mode trunk` +
+  `switchport trunk allowed vlan`, including `10-12,20` range syntax).
+  **MikroTik RouterOS**: IP addressing (`/ip address`) and VLANs from
+  either bridge VLAN filtering (`/interface bridge vlan`'s
+  tagged/untagged port lists, with a bare `pvid` as fallback) or VLAN
+  sub-interfaces (`/interface vlan`, which also marks the parent port
+  as a trunk member). **Ubiquiti/VyOS**: IP addressing only — its
+  `vif` sub-interfaces don't map onto a single access/trunk choice per
+  port. Plain-text configs have no interface syntax to sync.
+
+  Applied to the dialog's working copy, not committed directly — it
+  becomes part of the same single undo step as everything else edited
+  in that dialog session, and Cancel discards it like any other edit.
 - **VLANs per interface** — every interface has its own VLAN
   configuration, set from the **Interfaces** tab of *Edit properties…*:
   - **Access mode** (default): the interface carries a single VLAN,
@@ -219,6 +245,20 @@ equipment, cable it up port-by-port, and export the result.
   (backed by numpy/scipy, which are project dependencies; if they're
   ever missing the layout degrades to a simple circle instead of
   crashing).
+- **Zoom** — *View → Zoom In / Zoom Out / Reset Zoom* (`Ctrl+=`,
+  `Ctrl+-`, `Ctrl+0`), clamped to 25%–400% so the diagram can't be
+  scaled into an unreadable extreme. Each step resets the view's
+  transform rather than compounding it, so zooming in and back out
+  returns to exactly where you started.
+- **Theme** — *View → Theme*: **System** (default — matches whatever
+  your desktop hands the app, unchanged from before this existed),
+  **Light**, or **Dark**. Light and Dark force a consistent palette via
+  Qt's Fusion style regardless of your desktop theme; the choice
+  persists across restarts.
+- **Recent projects** — *File → Open Recent* lists the last 5 opened
+  `.netplan` files, most recent first, rebuilt fresh each time you open
+  the menu. An entry for a file that's been moved or deleted quietly
+  drops off the list instead of erroring when clicked.
 - **Persistence** — plans are saved to SQLite
   (`~/.local/share/netplanner/plans.db`); portable `.netplan` JSON
   import/export is also available.
@@ -255,13 +295,34 @@ Qt links against a handful of system libraries even though PyQt6 bundles
 Qt itself. Arch Linux:
 
 ```bash
-sudo pacman -S libglvnd libxkbcommon-x11 dbus fontconfig
+sudo pacman -S glib2 libglvnd libxkbcommon-x11 dbus fontconfig freetype2 zstd
 ```
 
 Debian/Ubuntu:
 
 ```bash
-sudo apt install libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3 libfontconfig1
+sudo apt install libglib2.0-0 libegl1 libgl1 libx11-6 libxkbcommon-x11-0 \
+                 libdbus-1-3 libfontconfig1 libfreetype6 libzstd1
+```
+
+A desktop install has all of these already; the full list matters on a
+minimal system. It is what `objdump -p` reports as NEEDED for Qt's core
+libraries and the offscreen platform plugin, minus what the PyQt6 wheels
+bundle themselves (ICU).
+
+Showing a window needs the **xcb** plugin as well, which pulls in eight
+more `libxcb-*` libraries — `libxcb-cursor` has been mandatory since Qt
+6.5. Qt loads that plugin with `dlopen`, so a missing one produces
+"could not load the Qt platform plugin" and no other clue:
+
+```bash
+# Debian/Ubuntu, only needed for a GUI on a minimal system
+sudo apt install libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+                 libxcb-keysyms1 libxcb-render-util0 libxcb-render0 \
+                 libxcb-shape0 libxcb-util1
+# Arch
+sudo pacman -S xcb-util-cursor xcb-util-wm xcb-util-image \
+               xcb-util-keysyms xcb-util-renderutil xcb-util
 ```
 
 Then, from the repository root:
@@ -365,8 +426,16 @@ uv run netplanner
 6. Each device card lists every port with its IP, MAC, and VLAN —
    uncheck **View → Show device details** if you prefer compact nodes.
 7. **File → Export PDF…** for a shareable diagram.
+8. **View → Theme** to force Light or Dark regardless of your desktop
+   setting, and **View → Zoom In/Out** (or **Ctrl+=** / **Ctrl+-**) once
+   the diagram grows past one screen.
+9. Got a real running-config for `sw1`? *Edit properties…* → **Configs**
+   → **Import config…**, select it, then **Sync interfaces from
+   this…** to pull its IPs and VLANs onto the ports you just laid out.
 
-Esc always returns to Select/Move mode.
+Esc always returns to Select/Move mode. **File → Open Recent** remembers
+the last 5 projects you opened, so the next session starts one click
+from where you left off.
 
 ## Test
 
@@ -381,13 +450,21 @@ To run what CI runs:
 
 ```bash
 uv sync --locked --extra dev                           # exactly what CI installs
-uv run ruff check .                                    # lint
+uv run ruff check .                                    # lint (incl. bandit rules)
+uv run mypy netplanner                                 # types
 uv run pytest --cov=netplanner --cov-fail-under=100    # tests + coverage gate
 uv run python .github/scripts/startup_smoke.py         # launches the app, quits itself
 ```
 
-Coverage is at 100% of lines and the gate enforces it, so new code needs
-tests to merge. Warnings are errors (`filterwarnings = ["error"]`), which
+Coverage is at 100% of lines **and branches**, and the gate enforces
+both, so new code needs tests to merge. Branch coverage is the half that
+catches an untested guard: a line gate is satisfied the first time an
+`if` runs, whichever way it went.
+
+Nothing is excluded — there is no `# pragma: no cover` anywhere in the
+package. A pragma is a claim that a line cannot run, and it is worth as
+much as the reasoning behind it, which is to say it should be a test or
+a deletion instead. Warnings are errors (`filterwarnings = ["error"]`), which
 is how a deprecation in PyQt6 or SQLAlchemy announces itself on the weekly
 scheduled run rather than on launch day.
 
@@ -399,22 +476,211 @@ a schedule, and is called by the release workflow:
 | Job | What it guards |
 | --- | --- |
 | Lint | ruff, reported as inline annotations on the diff |
-| Type check | mypy — advisory today, see the note in the workflow |
-| Tests | Python 3.12–3.14, gated at 100% line coverage |
+| Type check | mypy, blocking — zero errors on `netplanner/` |
+| Tests | Python 3.12–3.14, gated at 100% line and branch coverage |
 | Startup smoke | launches the real entry point; catches import errors a green suite misses |
 | Dependency audit | pip-audit against the dependencies exported from `uv.lock` |
-| Package | `uv build`, installs the wheel clean, checks the console script |
+| Container image | builds and hardening-checks both Docker images (see below) |
+| Build and verify distributions | `uv build`, installs the wheel clean, checks the console script |
+| CI passed | aggregate gate — fails if any job above failed or was cancelled; this is the one branch protection requires |
 
 Every job installs with `uv sync --locked`, so a lockfile that disagrees
 with `pyproject.toml` fails the run rather than resolving around it.
+
+`.github/workflows/codeql.yml` runs separately (push/PR to `main`, plus
+weekly) and is not part of the `CI passed` gate; results land in the
+repo's Security tab rather than blocking a merge.
 
 Tagging `vX.Y.Z` runs the same pipeline, verifies the tag matches the
 version in `pyproject.toml`, and publishes a GitHub release with the
 distributions and their checksums.
 
+## Docker
+
+Two images, for two jobs. Neither replaces installing NetPlanner
+normally — a desktop application is better served by a distribution
+package than by a container.
+
+### Running the gates
+
+The useful one. Reproduces CI exactly, with no display and nothing
+installed on the host:
+
+```bash
+docker compose run --build --rm ci
+```
+
+That runs `ruff check .`, `mypy netplanner`, and the test suite with the
+100% coverage gate — the same three commands the pipeline runs, so a
+green container means a green pipeline.
+
+**`--build` is not optional after you change anything.** `docker compose
+run` builds only when the image is missing, not when the sources it was
+built from have moved, so without it you get a silent rerun of the last
+image with no indication that is what happened.
+
+### Running the GUI
+
+Which service depends on your session:
+
+```bash
+echo $XDG_SESSION_TYPE
+```
+
+**Wayland** — no grant to make, and nothing to revoke:
+
+```bash
+docker compose up netplanner-wayland
+```
+
+If the daemon needs `sudo`, name the two variables explicitly:
+
+```bash
+sudo XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" WAYLAND_DISPLAY="$WAYLAND_DISPLAY" \
+     docker compose up netplanner-wayland
+```
+
+`sudo -E` is not enough. sudoers resets the environment and deletes
+`XDG_RUNTIME_DIR` specifically, so `-E` leaves both variables blank and
+compose refuses to start. Assignments written before the command survive
+that; adding yourself to the `docker` group avoids the question entirely,
+at the cost of an account that is effectively root on the host.
+
+The compositor hands each client its own socket, so only that one socket
+is shared. Expect a warning that `XDG_RUNTIME_DIR` is not mode 0700: the
+root filesystem is read-only, so it points at the container's `/tmp`
+tmpfs instead. Harmless.
+
+**X11** — works, with a caveat worth reading first:
+
+```bash
+sudo pacman -S xorg-xhost           # Arch; xhost is not installed by default
+xhost +SI:localuser:$USER           # grant your X server to your own account
+docker compose up netplanner        # sudo DISPLAY="$DISPLAY" ... if sudo is needed
+xhost -SI:localuser:$USER           # revoke when finished
+```
+
+**The `xhost` line is the whole security question, and it is why the
+Wayland path is preferred where it applies.** X11 has no
+meaningful isolation between clients: anything that can reach your X
+server can read your keystrokes and screenshot other windows. Granting
+it to a local account is much narrower than the `xhost +local:` you will
+find in most tutorials, which grants it to everything on the machine —
+but it is still a real grant, and it is why this is not the recommended
+way to run the application.
+
+On Wayland this goes through XWayland, which works but adds a layer.
+There is no native Wayland path here; Qt would need the compositor
+socket forwarded and the isolation story is different again.
+
+Plans and logs live in a named volume (`netplanner-data`) mounted at
+`/data`, so they survive the container.
+
+The container is hardened as far as the application allows: non-root
+(uid 1000), read-only root filesystem, all capabilities dropped,
+`no-new-privileges`, and no network at all — NetPlanner has no listener
+and makes no outbound request. A startup warning about `XDG_RUNTIME_DIR`
+is expected; Qt creates its own scratch directory under the `/tmp` tmpfs.
+
+### Building directly
+
+```bash
+docker build --target runtime -t netplanner .
+docker build --target ci      -t netplanner-ci .
+```
+
+Both base images are pinned by digest, so a moved tag cannot change what
+gets built. Dependabot's `docker` ecosystem moves those digests weekly;
+a pin nobody updates is a frozen copy of whatever CVEs it shipped with.
+
+The build is multi-stage. The builder stage installs **runtime
+dependencies only** into `/opt/venv`, and that is what the runtime image
+copies. The `ci` stage layers `--extra dev` on top for itself, so ruff,
+mypy and pytest exist there and nowhere else. No uv, no compilers, no
+test tree, no apt lists. Dependencies install in
+their own layer keyed on `uv.lock` alone, so editing application code
+does not re-resolve anything.
+
+The runtime image carries the xcb display stack; the `ci` image does not,
+because it only ever loads the offscreen plugin. Both are checked at
+build time — the ci stage constructs a `QApplication`, and the runtime
+stage runs `ldd` over `libqxcb.so` and fails on any unresolved library,
+which needs no display to do.
+
+`.dockerignore` is an allowlist — everything excluded, build inputs named
+back in. A denylist silently ships whatever it has not heard of yet.
+
+## Security
+
+Full policy, threat model and known gaps: [SECURITY.md](SECURITY.md).
+Report vulnerabilities through the
+[security advisory form](https://github.com/christopherwc/netplanner/security/advisories/new),
+not a public issue.
+
+The short version of why any of this applies to a diagramming tool: a
+plan stores attached device configs verbatim, and a running-config
+contains enable secrets, community strings and PSKs — so the database is
+a credential store whether or not it was meant to be one. And `.netplan`
+files are made to be mailed to colleagues, so the loader is handling
+untrusted input even though nothing about the workflow feels like it.
+
+So:
+
+- **Plans and logs are owner-only** (`0700` directories, `0600` files).
+  The default umask would leave both readable by every account on the
+  machine. A filesystem that cannot honour a mode logs a warning and
+  carries on rather than refusing to start.
+- **Project files are bounded on load** — 64 MiB, and nesting too deep
+  for the parser is reported as a malformed file rather than crashing
+  the app. Attached configs are capped at 16 MiB.
+- **Exports don't carry your filesystem.** A config remembers where it
+  was imported from; that path is kept locally and stripped from
+  `.netplan` exports, because `/home/you/clients/acme-bank/core-sw.cfg`
+  describes your client list rather than the network you documented.
+
+**Exporting a project asks first.** A `.netplan` carries attached configs
+verbatim — that is the point of it — so the export names the devices
+holding one and warns before writing. The question comes before the file
+dialog, so declining costs nothing.
+
+None of it encrypts anything. NetPlanner holds no secrets of its own; the
+exposure is whatever is in the configs you attach, and a running-config
+routinely carries enable secrets and community strings. If a config is
+too sensitive to sit in plaintext under your home directory, don't attach
+it.
+
+### Pinning actions by digest
+
+One gap worth closing when convenient. Workflows reference actions by
+tag (`actions/checkout@v4`), and a tag can be moved. Pinning by commit
+SHA makes that immutable, and Dependabot still updates SHA pins as long
+as the version stays in a trailing comment:
+
+```bash
+gh api repos/actions/checkout/git/ref/tags/v4 --jq '.object.sha'
+# then: uses: actions/checkout@<sha>  # v4
+```
+
+Worth doing for every entry in `.github/workflows/` and
+`.github/actions/setup/action.yml`.
+
+## Environment variables
+
+| Variable | Purpose |
+| --- | --- |
+| `XDG_DATA_HOME` | Base directory for the plans database and (unless overridden) logs. Default `~/.local/share`. |
+| `NETPLANNER_LOG_DIR` | Overrides the log directory. Default `$XDG_DATA_HOME/netplanner/logs`; mainly for tests. |
+| `NETPLANNER_LOG_LEVEL` | Console log verbosity: `DEBUG`, `INFO`, `WARNING` (default), `ERROR`. The log *file* always captures `DEBUG` and up regardless. |
+| `NETPLANNER_SETTINGS_PATH` | Overrides the preferences file (theme, recent projects). Default `~/.config/NetPlanner/NetPlanner.conf`; mainly for tests. |
+
 ## Project files
 
 - Database: `~/.local/share/netplanner/plans.db` (respects `XDG_DATA_HOME`)
 - JSON projects: any path you choose, `.netplan` extension by convention
+  (File → Export project… / Open project…)
+- Preferences: `~/.config/NetPlanner/NetPlanner.conf` — theme choice and
+  the Open Recent list (see above to override the path). Unlike the
+  database and log directory, this file is **not** owner-restricted —
+  see [SECURITY.md](SECURITY.md).
 - `uv.lock`: the resolved dependency set with hashes — committed, and
   updated together with `pyproject.toml`

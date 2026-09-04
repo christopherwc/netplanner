@@ -62,9 +62,21 @@ target-version = "py312"
 [tool.ruff.lint]
 # Deliberately curated rather than "everything": these are the families
 # that catch real defects (F), stale imports and dead names (F401/F841),
-# outdated idioms (UP), likely bugs (B), and keep import order stable
-# across machines (I). Style-only opinions are left out.
-select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "PIE", "RUF"]
+# outdated idioms (UP), likely bugs (B), keep import order stable across
+# machines (I), and flag the patterns bandit looks for (S) — eval, weak
+# hashes, shelling out, hardcoded temp paths. Style-only opinions are
+# left out.
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "PIE", "RUF", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+# S101 flags `assert`, which is the point of a test. The rule exists
+# because an assert in shipped code vanishes under `python -O`; that
+# reasoning does not reach a test suite, which is never run that way.
+#
+# Everything else in S applies to the tests as much as to the package —
+# S108 (hardcoded /tmp paths) was a real finding here, and is why this
+# is an ignore for one rule rather than for the whole directory.
+"tests/*" = ["S101"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"
@@ -79,12 +91,18 @@ filterwarnings = ["error"]
 
 [tool.coverage.run]
 source = ["netplanner"]
+# Branch coverage as well as line. A line gate alone passes a guard
+# whose false side has never run, which is how every `if device:` in
+# the command stack shipped untested: the line executed on the true
+# path every time and the guard itself was never exercised.
+branch = true
 
 [tool.coverage.report]
 show_missing = true
-# The suite covers every line; anything less means new code arrived
-# without tests. Branch coverage is 99% and is not gated yet — the
-# remainder is mostly loop-exit arcs.
+# Every line and every branch, with nothing excluded: there is not a
+# single `# pragma: no cover` or `# pragma: no branch` in the package.
+# A pragma is a claim that a line cannot run, and the claims here were
+# wrong often enough that the rule is now to test the path or delete it.
 fail_under = 100
 
 [tool.mypy]

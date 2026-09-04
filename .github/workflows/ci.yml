@@ -40,6 +40,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup
       # --output-format=github turns findings into inline PR annotations
       # on the offending line instead of a wall of log text.
@@ -47,27 +49,19 @@ jobs:
         run: uv run ruff check --output-format=github .
 
   typecheck:
-    name: Type check (mypy, advisory)
+    name: Type check (mypy)
     runs-on: ubuntu-latest
-    # Non-blocking on purpose: mypy currently reports 68 errors, ~36 of
-    # them Qt accessors typed as Optional (menuBar(), statusBar()) that
-    # are never None in practice. The job exists to stop the count
-    # growing and to make it visible; flip continue-on-error to false
-    # once it reaches zero.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup
+      # Blocking. mypy reports zero errors on netplanner/, so this is a
+      # ratchet rather than a report: a new Optional read through, or a
+      # signature that no longer matches the Qt base class it overrides,
+      # fails the run instead of being appended to a list nobody reads.
       - name: Run mypy
-        run: |
-          uv run mypy netplanner | tee mypy.txt || true
-          {
-            echo "### mypy (advisory)"
-            echo ""
-            echo '```'
-            tail -n 20 mypy.txt
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: uv run mypy netplanner
 
   test:
     name: Tests (Python ${{ matrix.python-version }})
@@ -78,6 +72,8 @@ jobs:
         python-version: ["3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: ./.github/actions/setup
         with:
@@ -119,6 +115,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       # Installs the built package, not an editable checkout: this job
       # is about what a user gets from `pip install netplanner`.
       - uses: ./.github/actions/setup
@@ -141,6 +139,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/setup
       # Audited from uv.lock rather than a hand-kept requirements file,
       # so what is scanned is exactly what gets installed. Exported at
@@ -157,11 +157,53 @@ jobs:
             --requirement locked-requirements.txt \
             --progress-spinner off
 
+  image:
+    name: Container image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # Builds both targets and runs the gates inside the ci image, so a
+      # Dockerfile that no longer produces a working environment fails
+      # here rather than the first time someone tries to use it.
+      - name: Build the runtime image
+        run: docker build --target runtime -t netplanner:ci .
+      - name: Build the ci image
+        run: docker build --target ci -t netplanner-ci:ci .
+      - name: Run the gates inside the image
+        run: docker run --rm netplanner-ci:ci
+      # The runtime image must not carry the toolchain. Checked for each
+      # tool rather than for ruff alone, because the failure this caught
+      # the first time was a whole --extra dev virtualenv copied across,
+      # not one stray binary.
+      - name: Check the runtime image carries no dev tooling
+        run: |
+          for tool in ruff mypy pytest twine pip-audit uv; do
+            if docker run --rm --entrypoint sh netplanner:ci \
+                 -c "command -v $tool" >/dev/null 2>&1; then
+              echo "runtime image contains $tool" >&2
+              exit 1
+            fi
+          done
+          echo "runtime image is clean of dev tooling"
+      # And it must still be able to run the application, which is the
+      # half a "does not contain X" check cannot tell you.
+      - name: Check the runtime image can still start
+        run: |
+          docker run --rm --entrypoint python netplanner:ci -c "\
+          import netplanner.main; \
+          from netplanner.app.controller import AppController; \
+          from netplanner.gui.main_window import MainWindow; \
+          print('runtime image imports the application')"
+
   package:
     name: Build and verify distributions
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       # Qt libraries are needed even here: the verification step below
       # imports netplanner.gui out of the installed wheel.
       - uses: ./.github/actions/setup
@@ -196,12 +238,14 @@ jobs:
   ci-passed:
     name: CI passed
     runs-on: ubuntu-latest
-    needs: [lint, test, startup, audit, package]
+    needs: [lint, typecheck, test, startup, audit, package, image]
     if: ${{ always() }}
     steps:
       - name: Verify every required job succeeded
         run: |
-          echo "lint:     ${{ needs.lint.result }}"
+          echo "lint:      ${{ needs.lint.result }}"
+          echo "typecheck: ${{ needs.typecheck.result }}"
+          echo "image:     ${{ needs.image.result }}"
           echo "test:     ${{ needs.test.result }}"
           echo "startup:  ${{ needs.startup.result }}"
           echo "audit:    ${{ needs.audit.result }}"

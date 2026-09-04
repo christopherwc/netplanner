@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import ClassVar
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QDoubleValidator
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from netplanner.domain.config_interfaces import ParsedInterface, mirror_interfaces, parse_interfaces
 from netplanner.domain.entities import (
     DEFAULT_MAX_SPEED_MBPS,
     GBPS,
@@ -53,6 +54,7 @@ from netplanner.domain.entities import (
 from netplanner.errors import ConfigImportError
 from netplanner.export.styles import link_style_for
 from netplanner.gui.config_viewer import ConfigViewerDialog
+from netplanner.gui.qtutil import required
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +176,7 @@ class _SpeedEdit(QLineEdit):
             return None
         try:
             value = float(text)
-        except ValueError:  # pragma: no cover - the validator blocks these
+        except ValueError:
             return None
         mbps = round(value * unit)
         return mbps if mbps >= 1 else None
@@ -223,6 +225,7 @@ class DevicePropertiesDialog(QDialog):
 
         self._configs = _ConfigsTab(device)
         tabs.addTab(self._configs, f"Configs ({len(device.configs)})")
+        self._configs.sync_requested.connect(self._sync_interfaces_from_config)
 
         box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -252,6 +255,32 @@ class DevicePropertiesDialog(QDialog):
 
     def result_configs(self) -> list[ConfigFile]:
         return self._configs.result_configs()
+
+    # -------------------------------------------------------------- syncing
+    def _sync_interfaces_from_config(self, config: ConfigFile) -> None:
+        """Parse the config picked in the Configs tab and merge its
+        interface data into the Interfaces tab's working copy.
+
+        Applied to the dialog's in-memory state, not committed via the
+        controller — so it becomes part of the single undo step OK
+        already produces for this dialog, and Cancel discards it along
+        with every other edit.
+        """
+        parsed = parse_interfaces(config.content, config.config_format)
+        if not parsed:
+            QMessageBox.information(
+                self,
+                "Sync interfaces",
+                f"No interface configuration was recognized in '{config.filename}'.",
+            )
+            return
+        touched = self._interfaces.apply_parsed_interfaces(parsed)
+        plural = "s" if touched != 1 else ""
+        QMessageBox.information(
+            self,
+            "Sync interfaces",
+            f"Synced {touched} interface{plural} from '{config.filename}'.",
+        )
 
 
 class _GeneralTab(QWidget):
@@ -319,7 +348,7 @@ class _InterfacesTab(QWidget):
 
         self.table = QTableWidget(0, len(_COLUMN_LABELS))
         self.table.setHorizontalHeaderLabels(_COLUMN_LABELS)
-        self.table.horizontalHeader().setStretchLastSection(True)
+        required(self.table.horizontalHeader(), "table header").setStretchLastSection(True)
         layout.addWidget(self.table)
 
         for iface in device.interfaces:
@@ -439,7 +468,7 @@ class _InterfacesTab(QWidget):
         for row in range(self.table.rowCount()):
             if self.table.cellWidget(row, column) is widget:
                 return row
-        return -1  # pragma: no cover - a removed row's widget is destroyed
+        return -1
 
     def _remove_selected(self) -> None:
         rows = sorted({i.row() for i in self.table.selectedIndexes()}, reverse=True)
@@ -456,9 +485,12 @@ class _InterfacesTab(QWidget):
         thousandth of its rate for the price of one dropdown.
         """
         row = self._row_of(unit_combo, COL_UNIT)
-        if row < 0:  # pragma: no cover - defensive
+        if row < 0:
             return
         speed_edit = self.table.cellWidget(row, COL_MAX_SPEED)
+        # Always a _SpeedEdit: _append_row is the only thing that fills
+        # this column. The check is a type narrowing for the lines
+        # below, not a case that occurs.
         if isinstance(speed_edit, _SpeedEdit):
             mbps = speed_edit.mbps(unit_combo.previous_unit())
             speed_edit.set_mbps(mbps, unit_combo.unit())
@@ -470,19 +502,19 @@ class _InterfacesTab(QWidget):
         """The maximum this row's port states for itself, in Mbps."""
         speed_edit = self.table.cellWidget(row, COL_MAX_SPEED)
         unit_combo = self.table.cellWidget(row, COL_UNIT)
-        if not isinstance(speed_edit, _SpeedEdit):  # pragma: no cover - defensive
+        if not isinstance(speed_edit, _SpeedEdit):
             return None
         unit = unit_combo.unit() if isinstance(unit_combo, _UnitCombo) else GBPS
         return speed_edit.mbps(unit)
 
     def _refresh_negotiated(self, row: int) -> None:
         """Redraw one row's negotiated figure from the current inputs."""
-        if row < 0:  # pragma: no cover - defensive
+        if row < 0:
             return
         item = self.table.item(row, COL_NEGOTIATED)
         unit_combo = self.table.cellWidget(row, COL_UNIT)
         name_item = self.table.item(row, COL_NAME)
-        if item is None or name_item is None:  # pragma: no cover - defensive
+        if item is None or name_item is None:
             return
 
         iface_id = name_item.data(Qt.ItemDataRole.UserRole)
@@ -517,7 +549,12 @@ class _InterfacesTab(QWidget):
             vlans_item = self.table.item(row, COL_VLANS)
             vlan_mode_combo = self.table.cellWidget(row, COL_VLAN_MODE)
 
-            name = (name_item.text() if name_item else "").strip()
+            # Skipped outright rather than read through a ternary: a row
+            # with no name cell is not a port, and returning early is
+            # also what lets the id below be read without a second guard.
+            if name_item is None:
+                continue
+            name = name_item.text().strip()
             if not name:
                 continue
             ip = (ip_item.text() if ip_item else "").strip() or None
@@ -531,19 +568,45 @@ class _InterfacesTab(QWidget):
             access_vlan, trunk_vlans = _parse_vlans(vlan_mode, vlans_text)
             iface_id = name_item.data(Qt.ItemDataRole.UserRole)
 
-            kwargs = {
-                "name": name,
-                "max_speed_mbps": self._row_rate_mbps(row),
-                "ip_address": ip,
-                "mac_address": mac,
-                "vlan_mode": vlan_mode,
-                "access_vlan": access_vlan,
-                "trunk_vlans": trunk_vlans,
-            }
+            # Built directly rather than splatted from a dict: a dict
+            # of mixed value types has no per-key type, so **kwargs
+            # discards every field's type on the way into Interface.
+            interface = Interface(
+                name=name,
+                max_speed_mbps=self._row_rate_mbps(row),
+                ip_address=ip,
+                mac_address=mac,
+                vlan_mode=vlan_mode,
+                access_vlan=access_vlan,
+                trunk_vlans=trunk_vlans,
+            )
+            # An id only exists for a row that came from a saved port;
+            # a row the user just added gets the one Interface made.
             if iface_id:
-                kwargs["id"] = iface_id
-            result.append(Interface(**kwargs))
+                interface.id = iface_id
+            result.append(interface)
         return result
+
+    def apply_parsed_interfaces(self, parsed: list[ParsedInterface]) -> int:
+        """Merge parsed config values into the table (Sync from the
+        Configs tab): a matching row's IP/VLAN cells are overwritten,
+        an unmatched parsed interface becomes a new row. Rebuilds the
+        table from result_interfaces() + mirror_interfaces() rather
+        than patching cells in place, so this stays in lockstep with
+        the exact same matching and merge rules a headless caller gets
+        from config_interfaces directly. Returns how many parsed
+        interfaces were applied (matched or added).
+        """
+        mirrored = mirror_interfaces(self.result_interfaces(), parsed)
+        self.table.setRowCount(0)
+        for iface in mirrored:
+            self._append_row(
+                iface.name, iface.max_speed_mbps, iface.ip_address or "",
+                iface.mac_address, iface.vlan_mode, _vlans_to_text(iface),
+                iface.id,
+            )
+        return len(parsed)
+
 
 def _vlans_to_text(iface: Interface) -> str:
     """Render an interface's VLAN membership for the editable text cell."""
@@ -587,6 +650,12 @@ class _ConfigsTab(QWidget):
     configs with it and remains readable on another machine.
     """
 
+    # Emitted with the selected ConfigFile when "Sync interfaces" is
+    # clicked. This tab only has a Device reference, not the sibling
+    # Interfaces tab, so the merge itself happens in
+    # DevicePropertiesDialog, which owns both.
+    sync_requested = pyqtSignal(object)
+
     def __init__(self, device: Device, parent=None):
         super().__init__(parent)
         self.device = device
@@ -597,7 +666,7 @@ class _ConfigsTab(QWidget):
 
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(["File name", "Format", "Size"])
-        self.table.horizontalHeader().setStretchLastSection(True)
+        required(self.table.horizontalHeader(), "table header").setStretchLastSection(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         # Double-clicking a row opens the viewer rather than editing in place.
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -615,7 +684,15 @@ class _ConfigsTab(QWidget):
         export_btn.clicked.connect(self._export_selected)
         remove_btn = QPushButton("Remove")
         remove_btn.clicked.connect(self._remove_selected)
-        for btn in (import_btn, view_btn, rename_btn, export_btn, remove_btn):
+        sync_btn = QPushButton("Sync interfaces from this…")
+        sync_btn.setToolTip(
+            "Read this config's interface names, IP addresses, and VLAN "
+            "membership (Cisco and MikroTik) and apply them to the "
+            "Interfaces tab. Matched by interface name; interfaces the "
+            "config doesn't mention are left alone."
+        )
+        sync_btn.clicked.connect(self._sync_interfaces_from_selected)
+        for btn in (import_btn, view_btn, rename_btn, export_btn, remove_btn, sync_btn):
             buttons_row.addWidget(btn)
         buttons_row.addStretch()
         layout.addLayout(buttons_row)
@@ -723,6 +800,12 @@ class _ConfigsTab(QWidget):
         if confirm is QMessageBox.StandardButton.Yes:
             del self._configs[index]
             self._refresh_table()
+
+    def _sync_interfaces_from_selected(self) -> None:
+        index = self._selected_index()
+        if index < 0:
+            return
+        self.sync_requested.emit(self._configs[index])
 
     def result_configs(self) -> list[ConfigFile]:
         return list(self._configs)

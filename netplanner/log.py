@@ -38,10 +38,17 @@ import logging.handlers
 import os
 from pathlib import Path
 
+from netplanner.permissions import (
+    PRIVATE_DIR_MODE,
+    PRIVATE_FILE_MODE,
+    restrict_to_owner,
+)
+
 LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s: %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 MAX_BYTES = 1_000_000  # rotate at ~1 MB
 BACKUP_COUNT = 3       # keep netplanner.log.1 … .3
+
 
 _ROOT_LOGGER_NAME = "netplanner"
 
@@ -88,7 +95,8 @@ def setup_logging(
     # stop the application from starting — that would invert priorities.
     directory = log_dir or default_log_dir()
     try:
-        directory.mkdir(parents=True, exist_ok=True)
+        directory.mkdir(parents=True, exist_ok=True, mode=PRIVATE_DIR_MODE)
+        restrict_to_owner(directory, PRIVATE_DIR_MODE)
         file_handler = logging.handlers.RotatingFileHandler(
             directory / "netplanner.log",
             maxBytes=MAX_BYTES,
@@ -97,6 +105,7 @@ def setup_logging(
         )
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(formatter)
+        restrict_to_owner(directory / "netplanner.log", PRIVATE_FILE_MODE)
         logger.addHandler(file_handler)
     except OSError as exc:
         logger.warning("Log file unavailable (%s); logging to console only", exc)

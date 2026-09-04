@@ -187,8 +187,10 @@ class TextBox:
                     current = word
                 else:
                     current = candidate
-            if current:
-                lines.append(current)
+            # Unconditional: the paragraph was checked non-blank above,
+            # so its word loop ran at least once and every branch of that
+            # loop leaves `current` holding a word.
+            lines.append(current)
         return lines or [""]
 
     @property
