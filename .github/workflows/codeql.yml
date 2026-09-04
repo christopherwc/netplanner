@@ -24,8 +24,8 @@ jobs:
       actions: read
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: github/codeql-action/init@v3
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
         with:
           languages: python
           # security-extended adds rules beyond the default set; on a
@@ -33,6 +33,6 @@ jobs:
           # unsafe deserialization in the project-file and config-import
           # paths, which take untrusted files as input.
           queries: security-extended
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4
         with:
           category: "/language:python"
