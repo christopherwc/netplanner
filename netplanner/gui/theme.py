@@ -23,6 +23,7 @@ from PyQt6.QtCore import QSettings
 from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QApplication
 
+from .app_settings import default_settings
 from .qtutil import required
 
 _SETTINGS_KEY = "ui/theme"
@@ -113,10 +114,6 @@ def apply_theme(app: QApplication, theme: Theme, defaults: SystemDefaults) -> No
         app.setPalette(defaults.palette)
 
 
-def _default_settings() -> QSettings:
-    return QSettings("NetPlanner", "NetPlanner")
-
-
 def load_saved_theme(settings: QSettings | None = None) -> Theme:
     """The theme saved from a previous run, defaulting to System.
 
@@ -124,7 +121,7 @@ def load_saved_theme(settings: QSettings | None = None) -> Theme:
     file from a future version, or hand-edited — falls back to System
     rather than raising during startup.
     """
-    store = settings if settings is not None else _default_settings()
+    store = settings if settings is not None else default_settings()
     raw = store.value(_SETTINGS_KEY, Theme.SYSTEM.value)
     try:
         return Theme(raw)
@@ -133,5 +130,5 @@ def load_saved_theme(settings: QSettings | None = None) -> Theme:
 
 
 def save_theme(theme: Theme, settings: QSettings | None = None) -> None:
-    store = settings if settings is not None else _default_settings()
+    store = settings if settings is not None else default_settings()
     store.setValue(_SETTINGS_KEY, theme.value)
