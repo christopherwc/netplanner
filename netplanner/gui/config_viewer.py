@@ -42,7 +42,7 @@ STRING_COLOR = "#b02a37"
 GUTTER_BG = "#f4f4f6"
 GUTTER_FG = "#9aa0a6"
 
-# Leading keywords worth emphasising per vendor. These are the words that
+# Leading keywords worth emphasizing per vendor. These are the words that
 # start a stanza, so highlighting them makes the block structure of a long
 # config scannable without parsing it properly.
 _KEYWORDS: dict[ConfigFormat, tuple[str, ...]] = {
@@ -113,7 +113,7 @@ class ConfigHighlighter(QSyntaxHighlighter):
             if match:
                 self.setFormat(match.start(1), len(match.group(1)), self._keyword_fmt)
 
-        # MikroTik configs are organised by /path headers rather than indentation.
+        # MikroTik configs are organized by /path headers rather than indentation.
         if self.config_format is ConfigFormat.MIKROTIK:
             path = _MIKROTIK_PATH_RE.match(text)
             if path:

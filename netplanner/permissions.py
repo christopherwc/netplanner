@@ -35,7 +35,7 @@ def restrict_to_owner(path: Path, mode: int) -> None:
     """Narrow a path to its owner, warning rather than failing.
 
     Filesystems without POSIX permissions — a FAT stick, some network
-    mounts — cannot honour this. Refusing to start there would trade a
+    mounts — cannot honor this. Refusing to start there would trade a
     real confidentiality gain for a total loss of function, so the
     failure is logged instead: the weaker posture becomes visible rather
     than silently assumed.

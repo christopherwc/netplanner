@@ -224,7 +224,7 @@ class AppController:
         )
 
     def edit_site(self, site_id: str, name: str, notes: str, color: str) -> None:
-        """Update a site's name, notes and colour (one undo step)."""
+        """Update a site's name, notes and color (one undo step)."""
         self.commands.push(EditSiteCommand(self.plan, site_id, name, notes, color))
 
     def delete_site(self, site_id: str) -> None:
@@ -450,9 +450,9 @@ class AppController:
 
     # ---------------------------------------------------------------- export
     def export_to_pdf(self, path: Path) -> None:
-        """Render the plan to a single-page PDF, honouring the VLAN filter."""
+        """Render the plan to a single-page PDF, honoring the VLAN filter."""
         export_pdf(self.plan, path, self.vlan_filter)
 
     def export_to_png(self, path: Path) -> None:
-        """Render the plan to an antialiased PNG, honouring the VLAN filter."""
+        """Render the plan to an antialiased PNG, honoring the VLAN filter."""
         export_png(self.plan, path, self.vlan_filter)

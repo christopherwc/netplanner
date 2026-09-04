@@ -74,14 +74,14 @@ def card_exit_point(
 ) -> tuple[float, float]:
     """Point just outside a card's edge, along the line toward (tx, ty).
 
-    Link lines run centre-to-centre and are drawn beneath cards, so a
+    Link lines run center-to-center and are drawn beneath cards, so a
     port label placed at a fixed fraction along the line (25% / 75%)
     disappears under the card whenever the two devices are close
     together or the cards are tall. Anchoring to the card's boundary
     instead means the label always sits in open space next to the
     device it belongs to, regardless of link length.
 
-    Solves for where the ray from the card centre crosses the
+    Solves for where the ray from the card center crosses the
     axis-aligned card rectangle, then steps `gap` further along it.
     """
     dx, dy = tx - cx, ty - cy
@@ -109,7 +109,7 @@ def lift_above_line(
 ) -> tuple[float, float]:
     """Move a point off a line, perpendicular, toward the top of the page.
 
-    Labels centred on a cable sit *on* it, so the line strikes through
+    Labels centered on a cable sit *on* it, so the line strikes through
     the text. Offsetting perpendicular keeps the label associated with
     its cable while leaving the cable unbroken. Of the two perpendicular
     directions the upward one is chosen so labels read consistently
@@ -138,11 +138,11 @@ def label_anchor(
     gap: float = 6.0,
     lift: float = 0.0,
 ) -> tuple[float, float]:
-    """Centre point for a port label that clears the card entirely.
+    """Center point for a port label that clears the card entirely.
 
-    card_exit_point() lands on the card's boundary, so a label centred
+    card_exit_point() lands on the card's boundary, so a label centered
     there still has half its width inside the card. This pushes the
-    centre further along the link direction by the label's own
+    center further along the link direction by the label's own
     half-extent, so the whole label sits in open space. `lift` then
     raises it clear of the cable itself.
     """

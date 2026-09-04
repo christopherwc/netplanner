@@ -1,13 +1,13 @@
 """VLAN color assignment and membership queries.
 
 Lives in the export layer, like styles.py, so the canvas, the PDF
-exporter and the PNG exporter all colour a given VLAN identically — a
-VLAN's colour is a property of the diagram, not of one renderer.
+exporter and the PNG exporter all color a given VLAN identically — a
+VLAN's color is a property of the diagram, not of one renderer.
 
-Colours are derived from the VLAN id rather than from the order VLANs
-happen to appear in a plan. That means VLAN 20 is the same colour today,
+Colors are derived from the VLAN id rather than from the order VLANs
+happen to appear in a plan. That means VLAN 20 is the same color today,
 tomorrow, in a colleague's copy of the plan, and in an exported PDF; an
-order-based assignment would silently recolour the whole diagram as soon
+order-based assignment would silently recolor the whole diagram as soon
 as someone deleted a device.
 """
 
@@ -19,7 +19,7 @@ from netplanner.domain.entities import VlanMode
 from netplanner.domain.model import NetworkPlan
 
 # Distinguishable hues that stay legible as a small chip and as text.
-# Deliberately avoids the device-type fills and link colours so a VLAN
+# Deliberately avoids the device-type fills and link colors so a VLAN
 # chip is never confused with a media type.
 VLAN_PALETTE: tuple[str, ...] = (
     "#1a73e8",  # blue
@@ -43,7 +43,7 @@ MUTED_TEXT = "#9aa0a6"
 
 
 def vlan_color(vlan_id: int) -> str:
-    """Stable colour for a VLAN id.
+    """Stable color for a VLAN id.
 
     Uses modulo over the palette, so ids beyond the palette length wrap.
     Collisions are possible in plans with more than len(VLAN_PALETTE)

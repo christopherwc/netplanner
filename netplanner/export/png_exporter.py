@@ -95,7 +95,7 @@ def _export_png_impl(scene, path: Path) -> None:
         left, top = s.x * SCALE, s.y * SCALE + off
         right, bottom = left + s.width * SCALE, top + s.height * SCALE
         # Pillow has no alpha on plain fills, so blend toward the page
-        # colour for the tint, matching the canvas's translucent look.
+        # color for the tint, matching the canvas's translucent look.
         draw.rounded_rectangle(
             (left, top, right, bottom), radius=8 * SCALE,
             fill=_blend(s.color, DIAGRAM_BG, 0.08),
@@ -141,7 +141,7 @@ def _export_png_impl(scene, path: Path) -> None:
 
         # Background + border
         # Dim devices excluded by an active VLAN filter. Pillow has no
-        # alpha on a plain fill here, so blend the card colour toward the
+        # alpha on a plain fill here, so blend the card color toward the
         # page background instead — visually equivalent at this opacity.
         if card.matches_filter:
             card_fill, card_stroke = card.fill, card.stroke
@@ -380,7 +380,7 @@ def _blend(color: str, toward: str, amount: float) -> tuple[int, int, int]:
         value = value.lstrip("#")
         # Spelled out rather than built by a generator: a comprehension
         # produces tuple[int, ...], which is the wrong shape for a
-        # colour and would let a four-channel value through unnoticed.
+        # color and would let a four-channel value through unnoticed.
         return (
             int(value[0:2], 16),
             int(value[2:4], 16),

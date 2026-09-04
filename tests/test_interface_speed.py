@@ -404,7 +404,7 @@ def test_a_rate_typed_into_the_table_reaches_the_link(app):
 
 def test_opening_and_accepting_the_dialog_does_not_move_the_rate(app):
     """Regression. A port's rate used to be re-derived from a media name
-    on every open, so a port labelled "1000" had its stored figure
+    on every open, so a port labeled "1000" had its stored figure
     multiplied by a thousand each time the dialog was accepted."""
     from netplanner.gui.dialogs import DevicePropertiesDialog
 

@@ -81,7 +81,7 @@ def test_the_log_and_its_directory_are_owner_only(tmp_path):
 
 
 def test_a_filesystem_that_cannot_chmod_warns_instead_of_failing(tmp_path, caplog):
-    """A FAT stick or some network mounts cannot honour a mode. Refusing
+    """A FAT stick or some network mounts cannot honor a mode. Refusing
     to start there would trade confidentiality for total loss of
     function, so the weaker posture is logged rather than assumed."""
     missing = tmp_path / "not-there"
