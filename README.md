@@ -177,6 +177,32 @@ equipment, cable it up port-by-port, and export the result.
   Viewing is deliberately read-only: a stored config documents what the
   hardware actually runs, and silently editing it would let the plan
   drift from reality. Re-import to update one.
+- **Sync interfaces from a config** — in the **Configs** tab, select an
+  attached file and click **Sync interfaces from this…** to read its
+  interface names, IP addresses, and (Cisco and MikroTik) VLAN
+  access/trunk membership, and apply them to the **Interfaces** tab.
+  Matched by interface name — a running-config's full name
+  (`GigabitEthernet0/1`) matches NetPlanner's own abbreviated defaults
+  (`Gig0/1`) without renaming either side, so it works against real
+  device output out of the box. An interface the config doesn't
+  mention is left alone; one the config mentions but the device
+  doesn't have is added. MAC address and port speed are never
+  touched — only what the config actually states.
+
+  **Cisco IOS**: IP addressing (`ip address`) and VLANs
+  (`switchport access vlan` / `switchport mode trunk` +
+  `switchport trunk allowed vlan`, including `10-12,20` range syntax).
+  **MikroTik RouterOS**: IP addressing (`/ip address`) and VLANs from
+  either bridge VLAN filtering (`/interface bridge vlan`'s
+  tagged/untagged port lists, with a bare `pvid` as fallback) or VLAN
+  sub-interfaces (`/interface vlan`, which also marks the parent port
+  as a trunk member). **Ubiquiti/VyOS**: IP addressing only — its
+  `vif` sub-interfaces don't map onto a single access/trunk choice per
+  port. Plain-text configs have no interface syntax to sync.
+
+  Applied to the dialog's working copy, not committed directly — it
+  becomes part of the same single undo step as everything else edited
+  in that dialog session, and Cancel discards it like any other edit.
 - **VLANs per interface** — every interface has its own VLAN
   configuration, set from the **Interfaces** tab of *Edit properties…*:
   - **Access mode** (default): the interface carries a single VLAN,
@@ -403,6 +429,9 @@ uv run netplanner
 8. **View → Theme** to force Light or Dark regardless of your desktop
    setting, and **View → Zoom In/Out** (or **Ctrl+=** / **Ctrl+-**) once
    the diagram grows past one screen.
+9. Got a real running-config for `sw1`? *Edit properties…* → **Configs**
+   → **Import config…**, select it, then **Sync interfaces from
+   this…** to pull its IPs and VLANs onto the ports you just laid out.
 
 Esc always returns to Select/Move mode. **File → Open Recent** remembers
 the last 5 projects you opened, so the next session starts one click
