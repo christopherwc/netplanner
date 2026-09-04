@@ -591,3 +591,65 @@ def test_switching_back_to_system_restores_the_original_palette(app, controller,
     assert window._theme == Theme.SYSTEM
     assert QApplication.instance().palette().base().color() == original_base
     window.deleteLater()
+
+
+# --------------------------------------------------------------- recent files
+@pytest.fixture()
+def recent_settings(tmp_path):
+    """An .ini-backed QSettings under tmp_path, never the real user config."""
+    from PyQt6.QtCore import QSettings
+
+    store = QSettings(str(tmp_path / "recent.ini"), QSettings.Format.IniFormat)
+    yield store
+    store.clear()
+
+
+def test_open_recent_shows_a_disabled_placeholder_when_empty(app, controller, recent_settings):
+    from netplanner.gui.main_window import MainWindow
+
+    window = MainWindow(controller, settings=recent_settings)
+    window._populate_recent_menu()
+
+    actions = window._recent_menu.actions()
+    assert len(actions) == 1
+    assert not actions[0].isEnabled()
+    window.deleteLater()
+
+
+def test_opening_a_project_adds_it_to_open_recent(app, controller, recent_settings, tmp_path):
+    from PyQt6.QtWidgets import QFileDialog
+
+    from netplanner.gui.main_window import MainWindow
+
+    _plan_with_a_config(controller)
+    path = tmp_path / "plan.netplan"
+    controller.export_project(path)
+    controller.new_plan("something else")
+
+    window = MainWindow(controller, settings=recent_settings)
+    with patch.object(QFileDialog, "getOpenFileName", return_value=(str(path), "")):
+        window._import_project()
+    window._populate_recent_menu()
+
+    labels = [a.text() for a in window._recent_menu.actions()]
+    assert labels == [str(path.resolve())]
+    window.deleteLater()
+
+
+def test_clicking_a_recent_entry_reopens_that_project(app, controller, recent_settings, tmp_path):
+    from netplanner.gui.main_window import MainWindow
+    from netplanner.gui.recent_files import add_recent_file
+
+    _plan_with_a_config(controller)
+    path = tmp_path / "plan.netplan"
+    controller.export_project(path)
+    add_recent_file(path, recent_settings)
+
+    controller.new_plan("something else")
+    window = MainWindow(controller, settings=recent_settings)
+    window._populate_recent_menu()
+
+    window._recent_menu.actions()[0].trigger()
+
+    assert [d.name for d in controller.plan.devices] == ["core-sw"]
+    window.deleteLater()

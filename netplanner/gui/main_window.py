@@ -22,6 +22,7 @@ from .canvas import NetworkCanvas
 from .palette import EquipmentPalette
 from .panels import PropertiesPanel
 from .qtutil import required, running_application
+from .recent_files import add_recent_file, load_recent_files
 from .theme import Theme, apply_theme, capture_system_defaults, load_saved_theme, save_theme
 from .vlan_panel import VlanPanel
 
@@ -79,6 +80,9 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self._action("&Save", QKeySequence.StandardKey.Save, self._save))
         file_menu.addSeparator()
         file_menu.addAction(self._action("&Open project…", None, self._import_project))
+        recent_menu = required(file_menu.addMenu("Open &Recent"), "Open Recent menu")
+        recent_menu.aboutToShow.connect(self._populate_recent_menu)
+        self._recent_menu = recent_menu
         file_menu.addAction(self._action("E&xport project…", None, self._export_project))
         file_menu.addSeparator()
         file_menu.addAction(self._action("Export &PDF…", None, self._export_pdf))
@@ -182,6 +186,25 @@ class MainWindow(QMainWindow):
         save_theme(theme, self._settings)
         self._theme = theme
 
+    def _populate_recent_menu(self) -> None:
+        """Rebuild Open Recent right before it's shown, from the current
+        saved list — connected to aboutToShow instead of maintained
+        incrementally, so it never goes stale between menu openings."""
+        self._recent_menu.clear()
+        paths = load_recent_files(self._settings)
+        if not paths:
+            empty = QAction("(No recent projects)", self)
+            empty.setEnabled(False)
+            self._recent_menu.addAction(empty)
+            return
+        for path in paths:
+            action = QAction(str(path), self)
+            # Default arg binds this iteration's `path`; see _build_theme_menu.
+            action.triggered.connect(
+                self._guarded(lambda checked=False, path=path: self._open_project_path(path))
+            )
+            self._recent_menu.addAction(action)
+
     # --------------------------------------------------------------- handlers
     def _new_plan(self) -> None:
         self.controller.new_plan()
@@ -245,7 +268,17 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return
-        self.controller.import_project(Path(path))
+        self._open_project_path(Path(path))
+
+    def _open_project_path(self, path: Path) -> None:
+        """Import `path`, replacing the current plan, and remember it.
+
+        Shared by the file dialog and by clicking an Open Recent entry,
+        so both record the choice in the recent-projects list the same
+        way.
+        """
+        self.controller.import_project(path)
+        add_recent_file(path, self._settings)
         # Same refresh as _new_plan: the plan object was replaced, so
         # the canvas, panels and title are all describing something that
         # no longer exists.
