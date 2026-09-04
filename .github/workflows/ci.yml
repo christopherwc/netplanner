@@ -81,14 +81,31 @@ jobs:
 
       # --cov-fail-under=100 is the gate: the suite covers every line
       # today, so a drop means new code arrived without tests.
+      #
+      # Retries exactly once, and only on exit 139 (SIGSEGV). This is a
+      # known, non-deterministic PyQt6/CPython reference-cycle GC race
+      # (see tests/conftest.py and PR #16) that crashes inside
+      # MainWindow._build_menus at a different line each time -- not a
+      # real assertion failure, so retrying it once doesn't mask an
+      # actual bug. Any other exit code, including a second 139, fails
+      # the job for real; the retry is logged so a recurring crash stays
+      # visible instead of quietly disappearing.
       - name: Run tests
         run: |
-          uv run pytest \
-            --cov=netplanner \
-            --cov-report=term-missing \
-            --cov-report=xml \
-            --cov-fail-under=100 \
-            --junitxml=junit-${{ matrix.python-version }}.xml
+          run_tests() {
+            uv run pytest \
+              --cov=netplanner \
+              --cov-report=term-missing \
+              --cov-report=xml \
+              --cov-fail-under=100 \
+              --junitxml=junit-${{ matrix.python-version }}.xml
+          }
+          run_tests; status=$?
+          if [ "$status" -eq 139 ]; then
+            echo "::warning::pytest crashed with SIGSEGV (exit 139), a known PyQt6/CPython GC race (see tests/conftest.py); retrying once"
+            run_tests; status=$?
+          fi
+          exit "$status"
 
       - name: Coverage summary
         if: ${{ always() && matrix.python-version == '3.12' }}
@@ -171,8 +188,16 @@ jobs:
         run: docker build --target runtime -t netplanner:ci .
       - name: Build the ci image
         run: docker build --target ci -t netplanner-ci:ci .
+      # Same retry-on-SIGSEGV as the "Run tests" step above -- this runs
+      # the identical pytest suite, and has hit the same crash.
       - name: Run the gates inside the image
-        run: docker run --rm netplanner-ci:ci
+        run: |
+          docker run --rm netplanner-ci:ci; status=$?
+          if [ "$status" -eq 139 ]; then
+            echo "::warning::gates crashed with SIGSEGV (exit 139), a known PyQt6/CPython GC race (see tests/conftest.py); retrying once"
+            docker run --rm netplanner-ci:ci; status=$?
+          fi
+          exit "$status"
       # The runtime image must not carry the toolchain. Checked for each
       # tool rather than for ruff alone, because the failure this caught
       # the first time was a whole --extra dev virtualenv copied across,
