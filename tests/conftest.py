@@ -44,6 +44,32 @@ except ImportError:  # pragma: no cover - PyQt6 is a hard dependency in CI
 
 
 @pytest.fixture(autouse=True)
+def isolate_default_qsettings(tmp_path, monkeypatch):
+    """Redirect the app's default QSettings store off the real
+    ~/.config/NetPlanner, to a fresh file for every test.
+
+    MainWindow falls back to that default store whenever a caller
+    doesn't inject one — its `settings` constructor param defaults to
+    None — and several tests build a MainWindow that way and then
+    exercise a path that writes through it (importing a project
+    records it in the recent-files list).
+
+    Setting NETPLANNER_SETTINGS_PATH (see app_settings.py), not
+    QSettings.setPath(): Qt resolves and caches the default store's
+    path the first time any QSettings("NetPlanner", "NetPlanner") is
+    constructed anywhere in the process, and ignores setPath() calls
+    after that — so redirecting that way only ever affects whichever
+    test happens to run first, not each test in turn. An explicit path
+    read fresh on every call sidesteps that cache.
+    """
+    if QApplication is None:
+        yield
+        return
+    monkeypatch.setenv("NETPLANNER_SETTINGS_PATH", str(tmp_path / "netplanner-settings.ini"))
+    yield
+
+
+@pytest.fixture(autouse=True)
 def close_repositories(monkeypatch):
     """Dispose every engine opened during a test, in reverse order."""
     opened: list[PlanRepository] = []
