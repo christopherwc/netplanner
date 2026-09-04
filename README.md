@@ -177,6 +177,32 @@ equipment, cable it up port-by-port, and export the result.
   Viewing is deliberately read-only: a stored config documents what the
   hardware actually runs, and silently editing it would let the plan
   drift from reality. Re-import to update one.
+- **Sync interfaces from a config** — in the **Configs** tab, select an
+  attached file and click **Sync interfaces from this…** to read its
+  interface names, IP addresses, and (Cisco and MikroTik) VLAN
+  access/trunk membership, and apply them to the **Interfaces** tab.
+  Matched by interface name — a running-config's full name
+  (`GigabitEthernet0/1`) matches NetPlanner's own abbreviated defaults
+  (`Gig0/1`) without renaming either side, so it works against real
+  device output out of the box. An interface the config doesn't
+  mention is left alone; one the config mentions but the device
+  doesn't have is added. MAC address and port speed are never
+  touched — only what the config actually states.
+
+  **Cisco IOS**: IP addressing (`ip address`) and VLANs
+  (`switchport access vlan` / `switchport mode trunk` +
+  `switchport trunk allowed vlan`, including `10-12,20` range syntax).
+  **MikroTik RouterOS**: IP addressing (`/ip address`) and VLANs from
+  either bridge VLAN filtering (`/interface bridge vlan`'s
+  tagged/untagged port lists, with a bare `pvid` as fallback) or VLAN
+  sub-interfaces (`/interface vlan`, which also marks the parent port
+  as a trunk member). **Ubiquiti/VyOS**: IP addressing only — its
+  `vif` sub-interfaces don't map onto a single access/trunk choice per
+  port. Plain-text configs have no interface syntax to sync.
+
+  Applied to the dialog's working copy, not committed directly — it
+  becomes part of the same single undo step as everything else edited
+  in that dialog session, and Cancel discards it like any other edit.
 - **VLANs per interface** — every interface has its own VLAN
   configuration, set from the **Interfaces** tab of *Edit properties…*:
   - **Access mode** (default): the interface carries a single VLAN,
@@ -219,6 +245,20 @@ equipment, cable it up port-by-port, and export the result.
   (backed by numpy/scipy, which are project dependencies; if they're
   ever missing the layout degrades to a simple circle instead of
   crashing).
+- **Zoom** — *View → Zoom In / Zoom Out / Reset Zoom* (`Ctrl+=`,
+  `Ctrl+-`, `Ctrl+0`), clamped to 25%–400% so the diagram can't be
+  scaled into an unreadable extreme. Each step resets the view's
+  transform rather than compounding it, so zooming in and back out
+  returns to exactly where you started.
+- **Theme** — *View → Theme*: **System** (default — matches whatever
+  your desktop hands the app, unchanged from before this existed),
+  **Light**, or **Dark**. Light and Dark force a consistent palette via
+  Qt's Fusion style regardless of your desktop theme; the choice
+  persists across restarts.
+- **Recent projects** — *File → Open Recent* lists the last 5 opened
+  `.netplan` files, most recent first, rebuilt fresh each time you open
+  the menu. An entry for a file that's been moved or deleted quietly
+  drops off the list instead of erroring when clicked.
 - **Persistence** — plans are saved to SQLite
   (`~/.local/share/netplanner/plans.db`); portable `.netplan` JSON
   import/export is also available.
@@ -386,8 +426,16 @@ uv run netplanner
 6. Each device card lists every port with its IP, MAC, and VLAN —
    uncheck **View → Show device details** if you prefer compact nodes.
 7. **File → Export PDF…** for a shareable diagram.
+8. **View → Theme** to force Light or Dark regardless of your desktop
+   setting, and **View → Zoom In/Out** (or **Ctrl+=** / **Ctrl+-**) once
+   the diagram grows past one screen.
+9. Got a real running-config for `sw1`? *Edit properties…* → **Configs**
+   → **Import config…**, select it, then **Sync interfaces from
+   this…** to pull its IPs and VLANs onto the ports you just laid out.
 
-Esc always returns to Select/Move mode.
+Esc always returns to Select/Move mode. **File → Open Recent** remembers
+the last 5 projects you opened, so the next session starts one click
+from where you left off.
 
 ## Test
 
@@ -432,10 +480,16 @@ a schedule, and is called by the release workflow:
 | Tests | Python 3.12–3.14, gated at 100% line and branch coverage |
 | Startup smoke | launches the real entry point; catches import errors a green suite misses |
 | Dependency audit | pip-audit against the dependencies exported from `uv.lock` |
-| Package | `uv build`, installs the wheel clean, checks the console script |
+| Container image | builds and hardening-checks both Docker images (see below) |
+| Build and verify distributions | `uv build`, installs the wheel clean, checks the console script |
+| CI passed | aggregate gate — fails if any job above failed or was cancelled; this is the one branch protection requires |
 
 Every job installs with `uv sync --locked`, so a lockfile that disagrees
 with `pyproject.toml` fails the run rather than resolving around it.
+
+`.github/workflows/codeql.yml` runs separately (push/PR to `main`, plus
+weekly) and is not part of the `CI passed` gate; results land in the
+repo's Security tab rather than blocking a merge.
 
 Tagging `vX.Y.Z` runs the same pipeline, verifies the tag matches the
 version in `pyproject.toml`, and publishes a GitHub release with the
@@ -610,10 +664,23 @@ gh api repos/actions/checkout/git/ref/tags/v4 --jq '.object.sha'
 Worth doing for every entry in `.github/workflows/` and
 `.github/actions/setup/action.yml`.
 
+## Environment variables
+
+| Variable | Purpose |
+| --- | --- |
+| `XDG_DATA_HOME` | Base directory for the plans database and (unless overridden) logs. Default `~/.local/share`. |
+| `NETPLANNER_LOG_DIR` | Overrides the log directory. Default `$XDG_DATA_HOME/netplanner/logs`; mainly for tests. |
+| `NETPLANNER_LOG_LEVEL` | Console log verbosity: `DEBUG`, `INFO`, `WARNING` (default), `ERROR`. The log *file* always captures `DEBUG` and up regardless. |
+| `NETPLANNER_SETTINGS_PATH` | Overrides the preferences file (theme, recent projects). Default `~/.config/NetPlanner/NetPlanner.conf`; mainly for tests. |
+
 ## Project files
 
 - Database: `~/.local/share/netplanner/plans.db` (respects `XDG_DATA_HOME`)
 - JSON projects: any path you choose, `.netplan` extension by convention
   (File → Export project… / Open project…)
+- Preferences: `~/.config/NetPlanner/NetPlanner.conf` — theme choice and
+  the Open Recent list (see above to override the path). Unlike the
+  database and log directory, this file is **not** owner-restricted —
+  see [SECURITY.md](SECURITY.md).
 - `uv.lock`: the resolved dependency set with hashes — committed, and
   updated together with `pyproject.toml`

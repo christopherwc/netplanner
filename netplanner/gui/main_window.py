@@ -6,15 +6,24 @@ import functools
 import logging
 from pathlib import Path
 
-from PyQt6.QtGui import QAction, QKeySequence
-from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMainWindow, QMessageBox
+from PyQt6.QtCore import QSettings
+from PyQt6.QtGui import QAction, QActionGroup, QKeySequence
+from PyQt6.QtWidgets import (
+    QFileDialog,
+    QInputDialog,
+    QMainWindow,
+    QMenu,
+    QMessageBox,
+)
 
 from netplanner.app.controller import AppController
 
 from .canvas import NetworkCanvas
 from .palette import EquipmentPalette
 from .panels import PropertiesPanel
-from .qtutil import required
+from .qtutil import required, running_application
+from .recent_files import add_recent_file, load_recent_files
+from .theme import Theme, apply_theme, capture_system_defaults, load_saved_theme, save_theme
 from .vlan_panel import VlanPanel
 
 logger = logging.getLogger(__name__)
@@ -26,9 +35,16 @@ PROJECT_FILTER = "NetPlanner projects (*.netplan);;All files (*)"
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, controller: AppController):
+    def __init__(self, controller: AppController, settings: QSettings | None = None):
         super().__init__()
         self.controller = controller
+        # `settings` lets tests inject a QSettings backed by a temp file
+        # instead of writing the theme choice into the real user config.
+        self._settings = settings
+        app = running_application()
+        self._system_defaults = capture_system_defaults(app)
+        self._theme = load_saved_theme(self._settings)
+        apply_theme(app, self._theme, self._system_defaults)
         self._update_title()
         self.resize(1200, 800)
 
@@ -64,6 +80,9 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self._action("&Save", QKeySequence.StandardKey.Save, self._save))
         file_menu.addSeparator()
         file_menu.addAction(self._action("&Open project…", None, self._import_project))
+        recent_menu = required(file_menu.addMenu("Open &Recent"), "Open Recent menu")
+        recent_menu.aboutToShow.connect(self._populate_recent_menu)
+        self._recent_menu = recent_menu
         file_menu.addAction(self._action("E&xport project…", None, self._export_project))
         file_menu.addSeparator()
         file_menu.addAction(self._action("Export &PDF…", None, self._export_pdf))
@@ -85,6 +104,17 @@ class MainWindow(QMainWindow):
         details_action.setChecked(True)  # IPs, MACs, and type visible by default
         details_action.toggled.connect(self.canvas.set_show_details)
         view_menu.addAction(details_action)
+        view_menu.addSeparator()
+        view_menu.addAction(
+            self._action("Zoom &In", QKeySequence.StandardKey.ZoomIn, self.canvas.zoom_in)
+        )
+        view_menu.addAction(
+            self._action("Zoom &Out", QKeySequence.StandardKey.ZoomOut, self.canvas.zoom_out)
+        )
+        view_menu.addAction(
+            self._action("&Reset Zoom", QKeySequence("Ctrl+0"), self.canvas.reset_zoom)
+        )
+        self._build_theme_menu(view_menu)
 
         plan_menu = required(bar.addMenu("&Plan"), "Plan menu")
         plan_menu.addAction(self._action("&Auto layout", None, self._auto_layout))
@@ -125,6 +155,55 @@ class MainWindow(QMainWindow):
                 )
 
         return wrapper
+
+    def _build_theme_menu(self, view_menu: QMenu) -> None:
+        """View → Theme: System / Light / Dark, mutually exclusive."""
+        theme_menu = required(view_menu.addMenu("&Theme"), "Theme menu")
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        self._theme_actions: dict[Theme, QAction] = {}
+        for theme, label in (
+            (Theme.SYSTEM, "&System"),
+            (Theme.LIGHT, "&Light"),
+            (Theme.DARK, "&Dark"),
+        ):
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(theme is self._theme)
+            # Default arg binds the loop's current `theme`, not a late
+            # reference to it — plain closure would leave every action
+            # pointing at whichever value the loop ended on.
+            action.triggered.connect(
+                self._guarded(lambda checked=False, theme=theme: self._set_theme(theme))
+            )
+            group.addAction(action)
+            theme_menu.addAction(action)
+            self._theme_actions[theme] = action
+
+    def _set_theme(self, theme: Theme) -> None:
+        app = running_application()
+        apply_theme(app, theme, self._system_defaults)
+        save_theme(theme, self._settings)
+        self._theme = theme
+
+    def _populate_recent_menu(self) -> None:
+        """Rebuild Open Recent right before it's shown, from the current
+        saved list — connected to aboutToShow instead of maintained
+        incrementally, so it never goes stale between menu openings."""
+        self._recent_menu.clear()
+        paths = load_recent_files(self._settings)
+        if not paths:
+            empty = QAction("(No recent projects)", self)
+            empty.setEnabled(False)
+            self._recent_menu.addAction(empty)
+            return
+        for path in paths:
+            action = QAction(str(path), self)
+            # Default arg binds this iteration's `path`; see _build_theme_menu.
+            action.triggered.connect(
+                self._guarded(lambda checked=False, path=path: self._open_project_path(path))
+            )
+            self._recent_menu.addAction(action)
 
     # --------------------------------------------------------------- handlers
     def _new_plan(self) -> None:
@@ -189,7 +268,17 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return
-        self.controller.import_project(Path(path))
+        self._open_project_path(Path(path))
+
+    def _open_project_path(self, path: Path) -> None:
+        """Import `path`, replacing the current plan, and remember it.
+
+        Shared by the file dialog and by clicking an Open Recent entry,
+        so both record the choice in the recent-projects list the same
+        way.
+        """
+        self.controller.import_project(path)
+        add_recent_file(path, self._settings)
         # Same refresh as _new_plan: the plan object was replaced, so
         # the canvas, panels and title are all describing something that
         # no longer exists.
