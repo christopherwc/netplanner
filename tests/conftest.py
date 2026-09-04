@@ -50,6 +50,16 @@ so it can run in the middle of a *different* MainWindow's
 promised was reentrant. This is a documented category of PyQt/PySide
 bug (Qt's own tracker: PYSIDE-1919; multiple incidents in pyqtgraph),
 not something specific to this file.
+
+disable_automatic_gc and dispose_widgets below (PR #16) are a
+mitigation, not a fix: they reduce the odds of the collector running at
+an unsafe moment, but the crash recurred repeatedly afterward, on
+Python 3.13 and 3.14, in the "Tests" and "Container image" CI jobs
+alike — never on 3.12, and never reproduced locally. Since it is a
+non-deterministic native crash rather than a real assertion failure,
+.github/workflows/ci.yml retries the pytest invocation once, but only
+on exit 139 (SIGSEGV) specifically, so an actual test failure is never
+silently masked.
 """
 
 from __future__ import annotations
