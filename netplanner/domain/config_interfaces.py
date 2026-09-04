@@ -9,10 +9,11 @@ Three things this deliberately does not do:
   describe the physical port, not what a config says about it, and a
   config rarely states either in a form worth trusting over what's
   already on the diagram.
-- Guess at VLAN semantics for MikroTik or Ubiquiti. Cisco's
-  access/trunk split maps directly onto VlanMode; RouterOS's bridge
-  VLAN filtering and VyOS/EdgeOS's vif sub-interfaces don't, so only
-  Cisco IOS syncs VLAN membership. All three vendors sync IP
+- Guess at VLAN semantics for Ubiquiti. VyOS/EdgeOS's vif
+  sub-interfaces don't map onto a single access/trunk choice per
+  port the way Cisco's switchport model or RouterOS's bridge VLAN
+  filtering do, so Ubiquiti syncs IP addressing only. Cisco IOS and
+  MikroTik both sync VLAN membership; all three vendors sync IP
   addressing, which is unambiguous everywhere.
 
 Nothing here raises on malformed input: a line that doesn't match a
@@ -258,13 +259,42 @@ def _cidr_from_netmask(address: str, netmask: str) -> str | None:
 # RouterOS export scripts set a "current path" with a `/path` line and
 # then list `add`/`set` commands under it until the next `/path` line —
 # so tracking the most recent `/...` line is enough context to know
-# which `add address=... interface=...` lines are IP addressing.
+# what an `add`/`set` command is even talking about.
+#
+# VLAN membership comes from whichever of two independent, commonly
+# used RouterOS features the config actually has:
+#
+# - Bridge VLAN filtering: `/interface bridge port` gives each port a
+#   pvid (its untagged/access VLAN); `/interface bridge vlan` lists,
+#   per VLAN, which ports carry it `tagged` (trunk membership) and
+#   which carry it `untagged` (access membership, overriding pvid for
+#   that VLAN specifically). A port tagged for any VLAN is treated as
+#   TRUNK — VlanMode has no "trunk with a native VLAN" state distinct
+#   from plain trunk, matching how Cisco sync already collapses that
+#   same distinction.
+# - VLAN sub-interfaces: `/interface vlan add vlan-id=N interface=P`
+#   creates a new named interface for tagged traffic on VLAN N over
+#   parent P — which also means P itself carries N tagged, i.e. P is
+#   a TRUNK member for N, even though the RouterOS config never says
+#   "trunk" anywhere.
+#
+# A port matching neither feature but seen only via a bare pvid is
+# still worth recording as ACCESS — simple configs often skip bridge
+# VLAN filtering entirely and rely on pvid alone.
 _MIKROTIK_PATH_RE = re.compile(r"^/(\S.*)$")
 _MIKROTIK_KV_RE = re.compile(r'([\w-]+)=("[^"]*"|\S+)')
 
 
 def _parse_mikrotik(content: str) -> list[ParsedInterface]:
-    by_name: dict[str, ParsedInterface] = {}
+    ip_by_name: dict[str, str] = {}
+    trunk_vlans_by_name: dict[str, set[int]] = {}
+    access_vlan_by_name: dict[str, int] = {}
+    pvid_by_name: dict[str, int] = {}
+    order: dict[str, None] = {}  # insertion-ordered "seen interface names"
+
+    def note(name: str) -> None:
+        order.setdefault(name, None)
+
     current_path = ""
     for raw_line in content.splitlines():
         line = raw_line.strip()
@@ -274,14 +304,66 @@ def _parse_mikrotik(content: str) -> list[ParsedInterface]:
         if path_match:
             current_path = path_match.group(1).strip().lower()
             continue
-        if current_path != "ip address" or not line.startswith(("add", "set")):
+        if not line.startswith(("add", "set")):
             continue
         fields = {k: v.strip('"') for k, v in _MIKROTIK_KV_RE.findall(line)}
-        name = fields.get("interface")
-        address = fields.get("address")
-        if name and address:
-            by_name[name] = ParsedInterface(name=name, ip_address=address)
-    return list(by_name.values())
+
+        if current_path == "ip address":
+            name, address = fields.get("interface"), fields.get("address")
+            if name and address:
+                ip_by_name[name] = address
+                note(name)
+        elif current_path == "interface bridge port":
+            name, pvid = fields.get("interface"), fields.get("pvid")
+            if name:
+                # Bridge membership alone is worth recording — like a
+                # Cisco `interface X` stanza with nothing else in it —
+                # even when there's no pvid to say anything about VLANs.
+                note(name)
+                if pvid and pvid.isdigit():
+                    pvid_by_name[name] = int(pvid)
+        elif current_path == "interface bridge vlan":
+            vlan_ids = _parse_vlan_ranges(fields.get("vlan-ids", ""))
+            for port in _split_port_list(fields.get("tagged", "")):
+                trunk_vlans_by_name.setdefault(port, set()).update(vlan_ids)
+                note(port)
+            for port in _split_port_list(fields.get("untagged", "")):
+                if vlan_ids:
+                    access_vlan_by_name[port] = vlan_ids[0]
+                note(port)
+        elif current_path == "interface vlan":
+            parent, vlan_id = fields.get("interface"), fields.get("vlan-id")
+            if parent and vlan_id and vlan_id.isdigit():
+                trunk_vlans_by_name.setdefault(parent, set()).add(int(vlan_id))
+                note(parent)
+
+    result: list[ParsedInterface] = []
+    for name in order:
+        trunk_vlans = trunk_vlans_by_name.get(name)
+        if trunk_vlans:
+            vlan_mode, access_vlan = VlanMode.TRUNK, None
+        elif name in access_vlan_by_name:
+            vlan_mode, access_vlan = VlanMode.ACCESS, access_vlan_by_name[name]
+        elif name in pvid_by_name:
+            vlan_mode, access_vlan = VlanMode.ACCESS, pvid_by_name[name]
+        else:
+            vlan_mode, access_vlan = None, None
+        result.append(
+            ParsedInterface(
+                name=name,
+                ip_address=ip_by_name.get(name),
+                vlan_mode=vlan_mode,
+                access_vlan=access_vlan,
+                trunk_vlans=tuple(sorted(trunk_vlans)) if trunk_vlans else (),
+            )
+        )
+    return result
+
+
+def _split_port_list(raw: str) -> list[str]:
+    """RouterOS lists ports in tagged=/untagged= as a bare comma list,
+    e.g. "ether2,ether3" — no ranges or quoting, unlike vlan-ids."""
+    return [p for p in raw.split(",") if p]
 
 
 # ------------------------------------------------------------------- Ubiquiti
