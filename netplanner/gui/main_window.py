@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import weakref
 from pathlib import Path
 
 from PyQt6.QtCore import QSettings
@@ -75,27 +76,43 @@ class MainWindow(QMainWindow):
         bar = required(self.menuBar(), "menu bar")
 
         file_menu = required(bar.addMenu("&File"), "File menu")
-        file_menu.addAction(self._action("&New plan", QKeySequence.StandardKey.New, self._new_plan))
-        file_menu.addAction(self._action("&Rename plan…", None, self._rename_plan))
-        file_menu.addAction(self._action("&Save", QKeySequence.StandardKey.Save, self._save))
+        file_menu.addAction(self._action(
+            "&New plan", QKeySequence.StandardKey.New, self._weak_call("_new_plan")
+        ))
+        file_menu.addAction(self._action("&Rename plan…", None, self._weak_call("_rename_plan")))
+        file_menu.addAction(self._action(
+            "&Save", QKeySequence.StandardKey.Save, self._weak_call("_save")
+        ))
         file_menu.addSeparator()
-        file_menu.addAction(self._action("&Open project…", None, self._import_project))
+        file_menu.addAction(self._action(
+            "&Open project…", None, self._weak_call("_import_project")
+        ))
         recent_menu = required(file_menu.addMenu("Open &Recent"), "Open Recent menu")
-        recent_menu.aboutToShow.connect(self._populate_recent_menu)
+        recent_menu.aboutToShow.connect(self._weak_call("_populate_recent_menu"))
         self._recent_menu = recent_menu
-        file_menu.addAction(self._action("E&xport project…", None, self._export_project))
+        file_menu.addAction(self._action(
+            "E&xport project…", None, self._weak_call("_export_project")
+        ))
         file_menu.addSeparator()
-        file_menu.addAction(self._action("Export &PDF…", None, self._export_pdf))
-        file_menu.addAction(self._action("Export P&NG…", None, self._export_png))
+        file_menu.addAction(self._action("Export &PDF…", None, self._weak_call("_export_pdf")))
+        file_menu.addAction(self._action("Export P&NG…", None, self._weak_call("_export_png")))
         file_menu.addSeparator()
-        file_menu.addAction(self._action("&Quit", QKeySequence.StandardKey.Quit, self.close))
+        file_menu.addAction(self._action(
+            "&Quit", QKeySequence.StandardKey.Quit, self._weak_call("close")
+        ))
 
         edit_menu = required(bar.addMenu("&Edit"), "Edit menu")
-        edit_menu.addAction(self._action("&Undo", QKeySequence.StandardKey.Undo, self._undo))
-        edit_menu.addAction(self._action("&Redo", QKeySequence.StandardKey.Redo, self._redo))
+        edit_menu.addAction(self._action(
+            "&Undo", QKeySequence.StandardKey.Undo, self._weak_call("_undo")
+        ))
+        edit_menu.addAction(self._action(
+            "&Redo", QKeySequence.StandardKey.Redo, self._weak_call("_redo")
+        ))
         edit_menu.addSeparator()
         edit_menu.addAction(
-            self._action("&Delete selected", QKeySequence.StandardKey.Delete, self._delete)
+            self._action(
+                "&Delete selected", QKeySequence.StandardKey.Delete, self._weak_call("_delete")
+            )
         )
 
         view_menu = required(bar.addMenu("&View"), "View menu")
@@ -117,8 +134,8 @@ class MainWindow(QMainWindow):
         self._build_theme_menu(view_menu)
 
         plan_menu = required(bar.addMenu("&Plan"), "Plan menu")
-        plan_menu.addAction(self._action("&Auto layout", None, self._auto_layout))
-        plan_menu.addAction(self._action("&Validate", None, self._validate))
+        plan_menu.addAction(self._action("&Auto layout", None, self._weak_call("_auto_layout")))
+        plan_menu.addAction(self._action("&Validate", None, self._weak_call("_validate")))
 
     def _action(self, text: str, shortcut, slot) -> QAction:
         """Build a menu action whose slot is wrapped in _guarded.
@@ -133,8 +150,44 @@ class MainWindow(QMainWindow):
         action.triggered.connect(self._guarded(slot))
         return action
 
+    def _weak_call(self, method_name: str, *args):
+        """A callable that dispatches to getattr(self, method_name)(*args)
+        without holding a strong reference to self.
+
+        Every menu action passes its handler through here (when the
+        handler is a method of this window rather than, say, the
+        canvas) rather than a plain bound method like self._new_plan.
+        PyQt's connection bookkeeping keeps whatever is passed to
+        connect() alive for as long as the connection exists, and this
+        window holds its own QActions back, transitively, through its
+        menu bar -- so a bound method (or a lambda closing over self)
+        here would complete that into a genuine Python-level reference
+        cycle. That is the documented, confirmed-recurring cause of an
+        intermittent segfault inside _build_menus, when CPython's
+        cyclic garbage collector runs at exactly the wrong moment
+        inside a C extension call (see tests/conftest.py and issue
+        #23). Resolving self through a weakref each time this runs
+        means the connection never keeps the window alive, so the
+        cycle this bug depends on never forms.
+        """
+        weak_self = weakref.ref(self)
+
+        def call(*_args, **_kwargs):
+            window = weak_self()
+            return None if window is None else getattr(window, method_name)(*args)
+
+        call.__name__ = method_name
+        return call
+
     def _guarded(self, slot):
-        """Wrap a slot so exceptions become an error dialog, not a crash."""
+        """Wrap a slot so exceptions become an error dialog, not a crash.
+
+        Holds `self` only through a weakref, for the same reason
+        _weak_call does: this wrapper is itself kept alive by a
+        QAction's connection, and a direct closure over self here would
+        be its own reference cycle regardless of what `slot` is.
+        """
+        weak_self = weakref.ref(self)
 
         @functools.wraps(slot)
         def wrapper(*args, **kwargs):
@@ -148,7 +201,7 @@ class MainWindow(QMainWindow):
                 from netplanner.log import log_file_path
 
                 QMessageBox.critical(
-                    self,
+                    weak_self(),  # None is a valid (parentless) QWidget parent
                     "Error",
                     f"That action failed:\n\n{type(exc).__name__}: {exc}\n\n"
                     f"Details were written to:\n{log_file_path()}",
@@ -170,12 +223,7 @@ class MainWindow(QMainWindow):
             action = QAction(label, self)
             action.setCheckable(True)
             action.setChecked(theme is self._theme)
-            # Default arg binds the loop's current `theme`, not a late
-            # reference to it — plain closure would leave every action
-            # pointing at whichever value the loop ended on.
-            action.triggered.connect(
-                self._guarded(lambda checked=False, theme=theme: self._set_theme(theme))
-            )
+            action.triggered.connect(self._guarded(self._weak_call("_set_theme", theme)))
             group.addAction(action)
             theme_menu.addAction(action)
             self._theme_actions[theme] = action
@@ -199,10 +247,7 @@ class MainWindow(QMainWindow):
             return
         for path in paths:
             action = QAction(str(path), self)
-            # Default arg binds this iteration's `path`; see _build_theme_menu.
-            action.triggered.connect(
-                self._guarded(lambda checked=False, path=path: self._open_project_path(path))
-            )
+            action.triggered.connect(self._guarded(self._weak_call("_open_project_path", path)))
             self._recent_menu.addAction(action)
 
     # --------------------------------------------------------------- handlers

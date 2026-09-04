@@ -60,6 +60,19 @@ non-deterministic native crash rather than a real assertion failure,
 .github/workflows/ci.yml retries the pytest invocation once, but only
 on exit 139 (SIGSEGV) specifically, so an actual test failure is never
 silently masked.
+
+The actual fix (issue #23): MainWindow._weak_call and the reworked
+_guarded in main_window.py resolve `self` through a weakref instead of
+a closure, for every menu action. That was the specific cycle diagnosed
+above, and breaking it is verifiable directly, unlike the mitigation —
+with automatic GC left disabled and no manual gc.collect() at all, a
+MainWindow is now freed by refcounting alone the moment its last strong
+reference drops (confirmed with weakref + gc.get_referrers before and
+after: the unfixed code held 33 direct referrers to a closed, deleteLater'd
+window even through an explicit gc.collect(); the fixed code holds zero).
+disable_automatic_gc and the retry stay in place regardless, as
+defense in depth against any other reference cycle elsewhere in the GUI
+layer that hasn't been (and may never be) individually diagnosed.
 """
 
 from __future__ import annotations

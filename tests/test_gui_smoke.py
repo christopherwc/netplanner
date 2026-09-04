@@ -15,7 +15,9 @@ CI box without Qt doesn't report a false failure.
 
 from __future__ import annotations
 
+import gc
 import os
+import weakref
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -653,3 +655,59 @@ def test_clicking_a_recent_entry_reopens_that_project(app, controller, recent_se
 
     assert [d.name for d in controller.plan.devices] == ["core-sw"]
     window.deleteLater()
+
+
+# --------------------------------------------------------- reference cycles
+def test_main_window_has_no_reference_cycle_back_to_itself(app, controller):
+    """Regression (issue #23): every QAction built in _build_menus used
+    to close over `self` (a bound method or a lambda), and PyQt's
+    connection bookkeeping kept that closure alive; MainWindow,
+    transitively through its own menu bar, held the QAction back. That
+    reference cycle needed CPython's cyclic collector to free a closed
+    window -- and the collector running mid-construction of a
+    *different* window, inside a C extension call Qt never promised was
+    reentrant, was the confirmed cause of an intermittent CI segfault
+    inside _build_menus.
+
+    disable_automatic_gc (conftest.py) disables the collector for the
+    whole session, so a lingering cycle here would not show up as a
+    failure -- it would just leak, silently, until dispose_widgets'
+    explicit gc.collect() cleans it up after this test returns. Checking
+    before that runs is the only way to prove refcounting alone is
+    enough: no reference cycle remains for the collector to have to
+    find.
+    """
+    from netplanner.gui.main_window import MainWindow
+    from netplanner.gui.theme import Theme
+
+    assert not gc.isenabled()  # disable_automatic_gc (conftest.py) must be in effect
+    window = MainWindow(controller)
+    ref = weakref.ref(window)
+
+    # Exercise the paths most implicated: an ordinary window._action
+    # slot, the per-theme lambda replacement, and the per-path Open
+    # Recent lambda replacement -- all three used to close over self.
+    window._theme_actions[Theme.DARK].trigger()
+    window._populate_recent_menu()
+
+    window.close()
+    window.deleteLater()
+    app.processEvents()
+    del window
+
+    assert ref() is None, "MainWindow survived teardown by refcounting alone"
+
+
+def test_weak_call_is_a_noop_once_the_window_is_gone(app, controller):
+    """A _weak_call callable must not resurrect or crash on a dead
+    window -- e.g. a queued Qt event firing after close()."""
+    from netplanner.gui.main_window import MainWindow
+
+    window = MainWindow(controller)
+    call = window._weak_call("_new_plan")
+    window.close()
+    window.deleteLater()
+    app.processEvents()
+    del window
+
+    assert call() is None
