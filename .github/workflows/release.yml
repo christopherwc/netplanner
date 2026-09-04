@@ -26,7 +26,7 @@ jobs:
     permissions:
       contents: write # required to create the release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
@@ -36,7 +36,7 @@ jobs:
           # including anything a build dependency runs.
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           version: "0.12.7"
           enable-cache: true
