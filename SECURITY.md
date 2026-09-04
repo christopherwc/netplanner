@@ -41,6 +41,14 @@ directory covers them. A filesystem that cannot honour a mode — a FAT
 stick, some network mounts — logs a warning and continues, so the weaker
 posture is visible rather than silently assumed.
 
+This does **not** cover `~/.config/NetPlanner/NetPlanner.conf` (theme
+choice, recent-projects list), which Qt's `QSettings` creates under the
+ordinary umask. It carries no secrets, but the recent-projects list is
+absolute paths to `.netplan` files you've opened, which can leak a
+client or project name through its directory structure the same way an
+unstripped config path could — see the exports note below and "Known
+gaps."
+
 **Loading a project file is bounded.** A `.netplan` is capped at 64 MiB
 and read only after its size is checked, since the whole file is held in
 memory before parsing. Nesting deep enough to exhaust the interpreter
@@ -109,6 +117,14 @@ that only lists wins is not worth reading.
   be sent to someone. The GUI names the affected devices and asks before
   writing one, but the configs do travel with it by design — a plan that
   lost them in transit would be broken.
+- **The preferences file is not owner-restricted.**
+  `~/.config/NetPlanner/NetPlanner.conf` (theme, recent-projects list) is
+  created under the process umask like any other application's config,
+  not `0600` like the database and log. It holds no credentials, but the
+  recent-projects list is absolute filesystem paths to `.netplan` files
+  you've opened — on a shared machine with a permissive umask, another
+  account could read those paths, the same class of exposure the
+  path-stripping in project exports exists to avoid.
 - **Actions are pinned by tag, not by digest.** `actions/checkout@v4`
   resolves through a mutable tag, so a compromised or moved tag would be
   picked up silently. Pinning by full commit SHA is the fix; see the
