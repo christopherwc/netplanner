@@ -60,8 +60,8 @@ NOTES_MAX_LINES = 3     # notes are capped and truncated with an ellipsis
 PAD = 6.0
 MAX_IFACE_BLOCKS = 6    # cap so many-port switches stay readable
 NOTES_CHARS_PER_LINE = 30  # rough wrap width for the notes section
-MAX_VLAN_CHIPS = 6      # colour chips drawn per interface before truncating
-VLAN_CHIP_W = 5.0       # width of one VLAN colour chip
+MAX_VLAN_CHIPS = 6      # color chips drawn per interface before truncating
+VLAN_CHIP_W = 5.0       # width of one VLAN color chip
 VLAN_CHIP_H = 5.0
 VLAN_CHIP_GAP = 1.5
 
@@ -79,7 +79,7 @@ STRIPE_ALPHA = 0.45                 # stripe opacity, so card text stays readabl
 
 @dataclass
 class IfaceBlock:
-    """One interface's three display lines, plus its VLAN colouring."""
+    """One interface's three display lines, plus its VLAN coloring."""
 
     top: str    # "eth0  10.0.1.1/24" (IP omitted when unset)
     mac: str    # "00:00:00:00:00:00"
@@ -157,7 +157,7 @@ def build_card(device: Device, vlan_filter: set[int] | None = None) -> NodeCard:
     `vlan_filter` drives VLAN highlighting: when it is non-empty, every
     interface and the card itself are marked as matching or not, and the
     renderers dim the non-matching ones. Sizing is unaffected, so
-    toggling a filter never re-flows the diagram — only its colouring
+    toggling a filter never re-flows the diagram — only its coloring
     changes, which keeps positions stable while a user explores VLANs.
     """
     from .styles import style_for  # local import avoids a cycle at module load

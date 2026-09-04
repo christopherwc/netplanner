@@ -69,13 +69,13 @@ equipment, cable it up port-by-port, and export the result.
 - **Sites** — click **▭ Site** under *Annotations*, then click the
   canvas to drop a location box. Sites sit **behind** everything else
   and mark where equipment physically lives — a room, rack, building,
-  or closet. Each has a coloured header with its **name** and a
+  or closet. Each has a colored header with its **name** and a
   **notes** section shown right on the box (address, rack numbers,
   access instructions, contacts).
 
   Drag the body to move a site; drag the **bottom-right corner** to
   resize it. Double-click (or right-click → *Edit site…*) to change the
-  name, notes, and colour. Sites render on the canvas and in both
+  name, notes, and color. Sites render on the canvas and in both
   exports, and the exported page grows to include them.
 
   Membership is **positional**: a device belongs to whichever site its
@@ -100,20 +100,20 @@ equipment, cable it up port-by-port, and export the result.
   removes them. Use them to label regions ("DMZ", "Rack 3"), record
   caveats, or mark planned changes.
 - **VLAN highlighting** — the **VLANs** dock lists every VLAN in the
-  plan with a colour swatch, its name (from the VLAN catalog, if set),
+  plan with a color swatch, its name (from the VLAN catalog, if set),
   and where it appears — e.g. *"3 device(s) · 6 access, 2 trunk, native
-  on 1"*. Every interface on every card shows a small colour chip per
+  on 1"*. Every interface on every card shows a small color chip per
   VLAN it carries, so membership is scannable without reading numbers.
 
   Tick one or more VLANs to **highlight** them: matching devices and
-  interfaces keep full colour, everything else dims to gray. Untick to
+  interfaces keep full color, everything else dims to gray. Untick to
   return to the normal view. *Select all* / *Clear* toggle the whole
-  list at once. Highlighting only recolours — card sizes and device
+  list at once. Highlighting only recolors — card sizes and device
   positions never shift, so the diagram stays stable while you explore.
 
-  A VLAN's colour comes from its ID, not from the order VLANs appear,
-  so VLAN 20 is the same colour in every plan, every session, and every
-  export. Exports honour the active filter, so a filtered PDF or PNG
+  A VLAN's color comes from its ID, not from the order VLANs appear,
+  so VLAN 20 is the same color in every plan, every session, and every
+  export. Exports honor the active filter, so a filtered PDF or PNG
   shows exactly what was on screen — useful for handing someone a
   "here's just VLAN 30" diagram.
 - **Link labels and speed** — double-click a cable (or right-click →
@@ -131,7 +131,7 @@ equipment, cable it up port-by-port, and export the result.
   **Links derive their speed from the ports they connect**, taking the
   *slower* of the two interfaces: patch a 10 Gbps port into a 1 Gbps
   port and the link records 1 Gbps, because that's what it actually
-  carries. A port whose rate is not known is skipped in favour of the
+  carries. A port whose rate is not known is skipped in favor of the
   end that has one; a link between two such ports is left unset for you
   to fill in.
 
@@ -482,7 +482,7 @@ a schedule, and is called by the release workflow:
 | Dependency audit | pip-audit against the dependencies exported from `uv.lock` |
 | Container image | builds and hardening-checks both Docker images (see below) |
 | Build and verify distributions | `uv build`, installs the wheel clean, checks the console script |
-| CI passed | aggregate gate — fails if any job above failed or was cancelled; this is the one branch protection requires |
+| CI passed | aggregate gate — fails if any job above failed or was canceled; this is the one branch protection requires |
 
 Every job installs with `uv sync --locked`, so a lockfile that disagrees
 with `pyproject.toml` fails the run rather than resolving around it.
@@ -628,7 +628,7 @@ So:
 
 - **Plans and logs are owner-only** (`0700` directories, `0600` files).
   The default umask would leave both readable by every account on the
-  machine. A filesystem that cannot honour a mode logs a warning and
+  machine. A filesystem that cannot honor a mode logs a warning and
   carries on rather than refusing to start.
 - **Project files are bounded on load** — 64 MiB, and nesting too deep
   for the parser is reported as a malformed file rather than crashing

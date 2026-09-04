@@ -1073,7 +1073,7 @@ class LinkPropertiesDialog(QDialog):
 
 
 class SiteDialog(QDialog):
-    """Edit a site box: its name, notes, and colour."""
+    """Edit a site box: its name, notes, and color."""
 
     # Same hues as the text box palette, so annotations and sites read
     # as one visual family.
@@ -1104,7 +1104,7 @@ class SiteDialog(QDialog):
             self.color_combo.addItem(name, value)
         values = [v for _, v in self.COLOR_CHOICES]
         self.color_combo.setCurrentIndex(values.index(site.color) if site.color in values else 0)
-        form.addRow("Colour:", self.color_combo)
+        form.addRow("Color:", self.color_combo)
 
         layout.addLayout(form)
 

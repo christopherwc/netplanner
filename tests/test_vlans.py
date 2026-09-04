@@ -1,4 +1,4 @@
-"""Tests for VLAN colouring, usage queries, and highlight filtering."""
+"""Tests for VLAN coloring, usage queries, and highlight filtering."""
 
 import pytest
 
@@ -31,7 +31,7 @@ def plan() -> NetworkPlan:
     return plan
 
 
-# ------------------------------------------------------------------ colours
+# ------------------------------------------------------------------ colors
 def test_vlan_color_is_stable_for_an_id():
     from netplanner.export.vlans import vlan_color
 
@@ -53,8 +53,8 @@ def test_vlan_color_wraps_beyond_palette():
 
 
 def test_vlan_color_does_not_depend_on_plan_contents(plan):
-    """Colour comes from the id, not from ordering — deleting a device
-    must never recolour the rest of the diagram."""
+    """Color comes from the id, not from ordering — deleting a device
+    must never recolor the rest of the diagram."""
     from netplanner.export.vlans import plan_vlan_usage
 
     before = {u.vlan_id: u.color for u in plan_vlan_usage(plan)}

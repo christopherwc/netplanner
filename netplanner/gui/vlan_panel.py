@@ -1,6 +1,6 @@
 """Dockable VLAN legend and filter.
 
-Lists every VLAN in use across the plan with its colour swatch, name,
+Lists every VLAN in use across the plan with its color swatch, name,
 and a summary of where it appears. Ticking VLANs highlights their
 members on the canvas and dims everything else; with nothing ticked the
 diagram renders normally.
@@ -29,7 +29,7 @@ from netplanner.app.controller import AppController
 from netplanner.export.vlans import VlanUsage, plan_vlan_usage
 from netplanner.gui.qtutil import required
 
-SWATCH = 12  # px square colour chip in the legend
+SWATCH = 12  # px square color chip in the legend
 
 
 class VlanPanel(QDockWidget):

@@ -11,9 +11,9 @@ Please include what you did, what happened, and what you expected. A
 can attach — strip any real secrets from it first.
 
 This is a personal project with one maintainer, so there is no response
-SLA. Expect an acknowledgement within a week or so.
+SLA. Expect an acknowledgment within a week or so.
 
-## What NetPlanner is, for threat-modelling purposes
+## What NetPlanner is, for threat-modeling purposes
 
 A single-user desktop application. It has no network listener, no server,
 no authentication, and no multi-user model. It runs with the privileges
@@ -37,7 +37,7 @@ created `0700`/`0600`, as are the log directory and `netplanner.log`. The
 default umask would leave both readable by every account on the machine.
 The directory mode carries most of the weight: SQLite writes journal and
 WAL files alongside the database under its own umask, and a private
-directory covers them. A filesystem that cannot honour a mode — a FAT
+directory covers them. A filesystem that cannot honor a mode — a FAT
 stick, some network mounts — logs a warning and continues, so the weaker
 posture is visible rather than silently assumed.
 
@@ -73,7 +73,7 @@ content is never treated as markup or as anything executable.
 
 **No dynamic execution anywhere.** No `eval`, `exec`, `pickle`,
 `subprocess`, or shell invocation. Database access is through the
-SQLAlchemy ORM, so plan and device names are parameterised rather than
+SQLAlchemy ORM, so plan and device names are parameterized rather than
 interpolated. Identifiers come from `uuid4`.
 
 ## Supply chain
