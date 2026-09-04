@@ -234,7 +234,7 @@ def test_point_along():
 
 
 def test_label_anchor_degenerate_direction():
-    # Target coincides with the centre: fall back to the exit point.
+    # Target coincides with the center: fall back to the exit point.
     ex_ey = label_anchor(0, 0, 0, 0, 50, 30, 40, 10)
     assert len(ex_ey) == 2  # falls back to the raw exit point
 

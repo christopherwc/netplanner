@@ -1343,11 +1343,11 @@ def test_textshape_carries_width_for_its_panel():
     assert build_scene(plan).texts[0].width == 340
 
 
-# ----------------------------------------------------------- port labelling
+# ----------------------------------------------------------- port labeling
 def test_card_exit_point_lands_on_the_card_boundary():
     from netplanner.export.geometry import card_exit_point
 
-    # Card 190x300 centred at the origin, link heading right.
+    # Card 190x300 centered at the origin, link heading right.
     x, y = card_exit_point(0, 0, 500, 0, 95, 150, gap=0)
     assert (round(x), round(y)) == (95, 0)
     # Heading down: the vertical edge is nearer.
@@ -1371,7 +1371,7 @@ def test_card_exit_point_handles_coincident_points():
 
 def test_label_anchor_clears_the_card_entirely():
     """Regression: port labels were placed at a fixed 25%/75% along a
-    centre-to-centre line, which lands inside the card whenever two
+    center-to-center line, which lands inside the card whenever two
     devices sit close together — the label vanished under the card."""
     from netplanner.export.geometry import label_anchor
 

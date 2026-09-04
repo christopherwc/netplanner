@@ -185,7 +185,7 @@ def test_configs_tab_import_view_rename_export_remove(app, device, tmp_path):
     with patch("netplanner.gui.config_viewer.ConfigViewerDialog.exec", return_value=0):
         tab._view_selected()
 
-    # Rename accepted, then cancelled.
+    # Rename accepted, then canceled.
     with patch(
         "netplanner.gui.dialogs.QInputDialog.getText", return_value=("new.cfg", True)
     ):
@@ -211,7 +211,7 @@ def test_configs_tab_import_view_rename_export_remove(app, device, tmp_path):
     with patch(
         "netplanner.gui.dialogs.QFileDialog.getSaveFileName", return_value=("", "")
     ):
-        tab._export_selected()  # user cancelled: nothing written
+        tab._export_selected()  # user canceled: nothing written
     blocked = tmp_path / "blocked"
     blocked.mkdir()
     with patch(

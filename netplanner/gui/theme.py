@@ -5,7 +5,7 @@ the desktop theme engine hand it over — the only appearance NetPlanner
 had before this module existed. Light and Dark both force the Fusion
 style, because native styles on several platforms silently ignore
 QPalette overrides for some widgets; Fusion is the one style that
-reliably honours every role set below.
+reliably honors every role set below.
 
 Switching back to System has to restore what was there before, and
 there is no Qt API to ask for that after the fact — once a palette is

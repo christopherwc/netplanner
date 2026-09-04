@@ -425,7 +425,7 @@ def test_site_context_menu_edit_and_delete(populated, scene):
     with patch.object(
         QMenu, "exec", lambda self, *a: pick_action(self, "Edit site…")
     ), patch(f"{CANVAS_NS}.SiteDialog.exec", return_value=0):
-        item.contextMenuEvent(ctx_event())  # cancelled edit: no change
+        item.contextMenuEvent(ctx_event())  # canceled edit: no change
 
     item = next(iter(scene._site_items.values()))
     with patch.object(
@@ -486,7 +486,7 @@ def test_link_context_menu_edit_cancelled(populated, scene):
     with patch.object(
         QMenu, "exec", lambda self, *a: pick_action(self, "Edit link…")
     ), patch(f"{CANVAS_NS}.LinkPropertiesDialog.exec", return_value=0):
-        link_item.contextMenuEvent(ctx_event())  # dialog cancelled: no edit
+        link_item.contextMenuEvent(ctx_event())  # dialog canceled: no edit
 
 
 # ---------------------------------------------------------------- textboxes
@@ -527,7 +527,7 @@ def test_textbox_context_menu_edit_and_delete(populated, scene):
     with patch.object(
         QMenu, "exec", lambda self, *a: pick_action(self, "Edit text…")
     ), patch(f"{CANVAS_NS}.TextBoxDialog.exec", return_value=0):
-        item.contextMenuEvent(ctx_event())  # cancelled
+        item.contextMenuEvent(ctx_event())  # canceled
 
     item = next(iter(scene._text_items.values()))
     with patch.object(
@@ -587,7 +587,7 @@ def test_place_site_tool_accept_and_cancel(populated, canvas, scene):
 
     count = len(populated.plan.sites)
     with patch(f"{CANVAS_NS}.SiteDialog.exec", return_value=0):
-        fake_press(scene, 1300, 750)  # cancelled dialog places nothing
+        fake_press(scene, 1300, 750)  # canceled dialog places nothing
     assert len(populated.plan.sites) == count
     canvas.set_tool(None)
 
@@ -610,7 +610,7 @@ def test_place_textbox_tool_accept_blank_and_cancel(populated, canvas, scene):
     ):
         fake_press(scene, 940, 830)  # whitespace-only text is discarded
     with patch(f"{CANVAS_NS}.TextBoxDialog.exec", return_value=0):
-        fake_press(scene, 960, 840)  # cancelled dialog places nothing
+        fake_press(scene, 960, 840)  # canceled dialog places nothing
     assert len(populated.plan.textboxes) == count
     canvas.set_tool(None)
 
@@ -638,7 +638,7 @@ def test_connect_cancel_paths(populated, canvas, scene):
     sw = populated.plan.devices[0]
     count = len(populated.plan.links)
 
-    # Cancelling the first port menu leaves nothing pending.
+    # Canceling the first port menu leaves nothing pending.
     with patch.object(QMenu, "exec", lambda self, *a: None):
         fake_press(scene, sw.x, sw.y)
     assert scene._pending_source is None
@@ -655,7 +655,7 @@ def test_connect_cancel_paths(populated, canvas, scene):
         fake_press(scene, sw.x, sw.y)
     assert scene._pending_source is None
 
-    # Cancelling the second port menu keeps the source pending.
+    # Canceling the second port menu keeps the source pending.
     rtr = populated.plan.devices[1]
     with patch.object(QMenu, "exec", choose_first_port):
         fake_press(scene, sw.x, sw.y)
@@ -678,7 +678,7 @@ def test_pick_interface_special_cases(populated, canvas, scene):
     assert scene._pick_interface(item) is None
     sw.interfaces = saved
 
-    # All ports in use: warning + cancelled.
+    # All ports in use: warning + canceled.
     with patch.object(populated, "free_interfaces", return_value=[]), patch(
         f"{CANVAS_NS}.QMessageBox.warning"
     ) as warn:

@@ -302,7 +302,7 @@ class DeviceItem(QGraphicsItem):
                 block.mac,
             )
             painter.setFont(vlan_font)
-            # Colour chips make VLAN membership scannable without reading
+            # Color chips make VLAN membership scannable without reading
             # the numbers; the text stays for exact ids.
             chip_x = left + 16
             chip_y = y + third * 2 + (third - nodecard.VLAN_CHIP_H) / 2
@@ -531,7 +531,7 @@ class SiteItem(QGraphicsItem):
         rect = self.boundingRect()
         color = QColor(self.site.color)
 
-        # Light tint of the site colour: visible as a region without
+        # Light tint of the site color: visible as a region without
         # competing with the device cards drawn on top.
         fill = QColor(color)
         fill.setAlphaF(0.08)
@@ -563,7 +563,7 @@ class SiteItem(QGraphicsItem):
             self.site.name or "(unnamed site)",
         )
 
-        # Notes under the header, in the site colour but muted.
+        # Notes under the header, in the site color but muted.
         notes_lines = self._notes_lines()
         if notes_lines:
             notes_font = QFont()
@@ -754,7 +754,7 @@ class LinkItem(QGraphicsLineItem):
         event.accept()
 
     def mouseDoubleClickEvent(self, event) -> None:
-        """Double-click a cable to edit it, mirroring device behaviour."""
+        """Double-click a cable to edit it, mirroring device behavior."""
         self._edit()
         event.accept()
 
@@ -775,7 +775,7 @@ class LinkItem(QGraphicsLineItem):
             )
             scene = self.scene()
             if isinstance(scene, PlanScene):
-                scene.update_links()  # colour/label change only; cards untouched
+                scene.update_links()  # color/label change only; cards untouched
 
     def _endpoint_summary(self) -> str:
         """'sw1 Gig0/1  ↔  rtr1 Gig0/0' for the dialog header."""
@@ -1019,7 +1019,7 @@ class PlanScene(QGraphicsScene):
                 text.setZValue(5)
                 self._link_items.append(text)
             # Port labels, anchored just outside each card rather than at
-            # a fixed fraction along the line: a centre-to-centre line
+            # a fixed fraction along the line: a center-to-center line
             # spends its first stretch underneath the card, so 25%/75%
             # placement hides the label whenever devices sit close together.
             for iface_id, dev_id, item, (cx, cy), (tx, ty) in (
