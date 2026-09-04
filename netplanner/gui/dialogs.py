@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import ClassVar
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QDoubleValidator
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from netplanner.domain.config_interfaces import ParsedInterface, mirror_interfaces, parse_interfaces
 from netplanner.domain.entities import (
     DEFAULT_MAX_SPEED_MBPS,
     GBPS,
@@ -224,6 +225,7 @@ class DevicePropertiesDialog(QDialog):
 
         self._configs = _ConfigsTab(device)
         tabs.addTab(self._configs, f"Configs ({len(device.configs)})")
+        self._configs.sync_requested.connect(self._sync_interfaces_from_config)
 
         box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -253,6 +255,32 @@ class DevicePropertiesDialog(QDialog):
 
     def result_configs(self) -> list[ConfigFile]:
         return self._configs.result_configs()
+
+    # -------------------------------------------------------------- syncing
+    def _sync_interfaces_from_config(self, config: ConfigFile) -> None:
+        """Parse the config picked in the Configs tab and merge its
+        interface data into the Interfaces tab's working copy.
+
+        Applied to the dialog's in-memory state, not committed via the
+        controller — so it becomes part of the single undo step OK
+        already produces for this dialog, and Cancel discards it along
+        with every other edit.
+        """
+        parsed = parse_interfaces(config.content, config.config_format)
+        if not parsed:
+            QMessageBox.information(
+                self,
+                "Sync interfaces",
+                f"No interface configuration was recognized in '{config.filename}'.",
+            )
+            return
+        touched = self._interfaces.apply_parsed_interfaces(parsed)
+        plural = "s" if touched != 1 else ""
+        QMessageBox.information(
+            self,
+            "Sync interfaces",
+            f"Synced {touched} interface{plural} from '{config.filename}'.",
+        )
 
 
 class _GeneralTab(QWidget):
@@ -559,6 +587,27 @@ class _InterfacesTab(QWidget):
             result.append(interface)
         return result
 
+    def apply_parsed_interfaces(self, parsed: list[ParsedInterface]) -> int:
+        """Merge parsed config values into the table (Sync from the
+        Configs tab): a matching row's IP/VLAN cells are overwritten,
+        an unmatched parsed interface becomes a new row. Rebuilds the
+        table from result_interfaces() + mirror_interfaces() rather
+        than patching cells in place, so this stays in lockstep with
+        the exact same matching and merge rules a headless caller gets
+        from config_interfaces directly. Returns how many parsed
+        interfaces were applied (matched or added).
+        """
+        mirrored = mirror_interfaces(self.result_interfaces(), parsed)
+        self.table.setRowCount(0)
+        for iface in mirrored:
+            self._append_row(
+                iface.name, iface.max_speed_mbps, iface.ip_address or "",
+                iface.mac_address, iface.vlan_mode, _vlans_to_text(iface),
+                iface.id,
+            )
+        return len(parsed)
+
+
 def _vlans_to_text(iface: Interface) -> str:
     """Render an interface's VLAN membership for the editable text cell."""
     if iface.vlan_mode is VlanMode.TRUNK:
@@ -601,6 +650,12 @@ class _ConfigsTab(QWidget):
     configs with it and remains readable on another machine.
     """
 
+    # Emitted with the selected ConfigFile when "Sync interfaces" is
+    # clicked. This tab only has a Device reference, not the sibling
+    # Interfaces tab, so the merge itself happens in
+    # DevicePropertiesDialog, which owns both.
+    sync_requested = pyqtSignal(object)
+
     def __init__(self, device: Device, parent=None):
         super().__init__(parent)
         self.device = device
@@ -629,7 +684,15 @@ class _ConfigsTab(QWidget):
         export_btn.clicked.connect(self._export_selected)
         remove_btn = QPushButton("Remove")
         remove_btn.clicked.connect(self._remove_selected)
-        for btn in (import_btn, view_btn, rename_btn, export_btn, remove_btn):
+        sync_btn = QPushButton("Sync interfaces from this…")
+        sync_btn.setToolTip(
+            "Read this config's interface names, IP addresses, and (Cisco "
+            "only) VLAN membership, and apply them to the Interfaces tab. "
+            "Matched by interface name; interfaces the config doesn't "
+            "mention are left alone."
+        )
+        sync_btn.clicked.connect(self._sync_interfaces_from_selected)
+        for btn in (import_btn, view_btn, rename_btn, export_btn, remove_btn, sync_btn):
             buttons_row.addWidget(btn)
         buttons_row.addStretch()
         layout.addLayout(buttons_row)
@@ -737,6 +800,12 @@ class _ConfigsTab(QWidget):
         if confirm is QMessageBox.StandardButton.Yes:
             del self._configs[index]
             self._refresh_table()
+
+    def _sync_interfaces_from_selected(self) -> None:
+        index = self._selected_index()
+        if index < 0:
+            return
+        self.sync_requested.emit(self._configs[index])
 
     def result_configs(self) -> list[ConfigFile]:
         return list(self._configs)
