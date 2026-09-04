@@ -485,7 +485,7 @@ class SetSiteGeometryCommand(Command):
 
 
 class EditSiteCommand(Command):
-    """Change a site's name, notes and colour as one undo step."""
+    """Change a site's name, notes and color as one undo step."""
 
     def __init__(self, plan: NetworkPlan, site_id: str, name: str, notes: str, color: str):
         self.plan, self.site_id = plan, site_id
