@@ -41,11 +41,24 @@ directory covers them. A filesystem that cannot honour a mode — a FAT
 stick, some network mounts — logs a warning and continues, so the weaker
 posture is visible rather than silently assumed.
 
+This does **not** cover `~/.config/NetPlanner/NetPlanner.conf` (theme
+choice, recent-projects list), which Qt's `QSettings` creates under the
+ordinary umask. It carries no secrets, but the recent-projects list is
+absolute paths to `.netplan` files you've opened, which can leak a
+client or project name through its directory structure the same way an
+unstripped config path could — see the exports note below and "Known
+gaps."
+
 **Loading a project file is bounded.** A `.netplan` is capped at 64 MiB
 and read only after its size is checked, since the whole file is held in
 memory before parsing. Nesting deep enough to exhaust the interpreter
 stack is reported as a malformed file rather than crashing the app.
 Attached configs are capped at 16 MiB on import.
+
+**Exporting a project warns first.** A `.netplan` carries attached
+configs verbatim, so the export names the devices holding one and asks
+before writing. Asked before the file dialog opens, so declining costs
+nothing.
 
 **Exports do not carry your filesystem.** A config remembers where it was
 imported from, which is useful locally and wrong in a file you send
@@ -89,9 +102,29 @@ read it. Tag names reach the shell through the environment rather than
 These are real and unfixed. They are listed because a security document
 that only lists wins is not worth reading.
 
-- **Secrets are stored in plaintext.** The database is owner-only, not
-  encrypted. Anyone with your account, your backups, or your disk has the
-  configs. If that matters for a given config, do not attach it.
+- **Attached configs are stored verbatim, and configs contain
+  credentials.** NetPlanner holds no secrets of its own — no accounts, no
+  API keys, nothing it generates. The exposure is entirely the device
+  configs you choose to attach: `ConfigFile.content` is a plain string,
+  copied in unchanged and written to `plans.db` and to any exported
+  `.netplan` as-is. A running-config routinely carries `enable secret`,
+  `snmp-server community`, type-7 passwords and IKE pre-shared keys, so a
+  plan with configs attached is a credential store protected by file
+  permissions and nothing else. If you attach none, nothing here applies
+  to you.
+
+  Exporting a project is the sharper edge, because that file is meant to
+  be sent to someone. The GUI names the affected devices and asks before
+  writing one, but the configs do travel with it by design — a plan that
+  lost them in transit would be broken.
+- **The preferences file is not owner-restricted.**
+  `~/.config/NetPlanner/NetPlanner.conf` (theme, recent-projects list) is
+  created under the process umask like any other application's config,
+  not `0600` like the database and log. It holds no credentials, but the
+  recent-projects list is absolute filesystem paths to `.netplan` files
+  you've opened — on a shared machine with a permissive umask, another
+  account could read those paths, the same class of exposure the
+  path-stripping in project exports exists to avoid.
 - **Actions are pinned by tag, not by digest.** `actions/checkout@v4`
   resolves through a mutable tag, so a compromised or moved tag would be
   picked up silently. Pinning by full commit SHA is the fix; see the
@@ -100,7 +133,9 @@ that only lists wins is not worth reading.
   opening one means trusting whoever sent it to the same degree you trust
   any file they send you. The parser is bounded, which limits what a
   malformed file can cost, but it is not a sandbox.
-- **Running the GUI in a container requires granting your X server.**
+- **Running the GUI in a container over X11 requires granting your X
+  server.** This does not apply to the Wayland service, which shares a
+  single per-client compositor socket and grants nothing.
   `xhost +SI:localuser:$USER` is far narrower than the `xhost +local:`
   most guides suggest, but X11 has no isolation between clients: anything
   that reaches the server can read keystrokes and capture other windows.
