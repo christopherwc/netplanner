@@ -23,7 +23,7 @@ from PyQt6.QtCore import QSettings
 from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QApplication
 
-from .app_settings import default_settings
+from .app_settings import default_settings, restrict_settings_file
 from .qtutil import required
 
 _SETTINGS_KEY = "ui/theme"
@@ -132,3 +132,4 @@ def load_saved_theme(settings: QSettings | None = None) -> Theme:
 def save_theme(theme: Theme, settings: QSettings | None = None) -> None:
     store = settings if settings is not None else default_settings()
     store.setValue(_SETTINGS_KEY, theme.value)
+    restrict_settings_file(store)

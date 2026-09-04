@@ -495,6 +495,11 @@ Tagging `vX.Y.Z` runs the same pipeline, verifies the tag matches the
 version in `pyproject.toml`, and publishes a GitHub release with the
 distributions and their checksums.
 
+Every action reference, across `.github/workflows/` and
+`.github/actions/setup/action.yml`, is pinned by full commit SHA rather
+than a mutable tag — `actions/checkout@<sha>` — with the version kept as
+a trailing comment (`# v7`) so Dependabot can still move the pin forward.
+
 ## Docker
 
 Two images, for two jobs. Neither replaces installing NetPlanner
@@ -626,10 +631,10 @@ untrusted input even though nothing about the workflow feels like it.
 
 So:
 
-- **Plans and logs are owner-only** (`0700` directories, `0600` files).
-  The default umask would leave both readable by every account on the
-  machine. A filesystem that cannot honor a mode logs a warning and
-  carries on rather than refusing to start.
+- **Plans, logs, and preferences are owner-only** (`0700` directories,
+  `0600` files). The default umask would leave all three readable by
+  every account on the machine. A filesystem that cannot honor a mode
+  logs a warning and carries on rather than refusing to start.
 - **Project files are bounded on load** — 64 MiB, and nesting too deep
   for the parser is reported as a malformed file rather than crashing
   the app. Attached configs are capped at 16 MiB.
@@ -649,21 +654,6 @@ routinely carries enable secrets and community strings. If a config is
 too sensitive to sit in plaintext under your home directory, don't attach
 it.
 
-### Pinning actions by digest
-
-One gap worth closing when convenient. Workflows reference actions by
-tag (`actions/checkout@v4`), and a tag can be moved. Pinning by commit
-SHA makes that immutable, and Dependabot still updates SHA pins as long
-as the version stays in a trailing comment:
-
-```bash
-gh api repos/actions/checkout/git/ref/tags/v4 --jq '.object.sha'
-# then: uses: actions/checkout@<sha>  # v4
-```
-
-Worth doing for every entry in `.github/workflows/` and
-`.github/actions/setup/action.yml`.
-
 ## Environment variables
 
 | Variable | Purpose |
@@ -679,8 +669,8 @@ Worth doing for every entry in `.github/workflows/` and
 - JSON projects: any path you choose, `.netplan` extension by convention
   (File → Export project… / Open project…)
 - Preferences: `~/.config/NetPlanner/NetPlanner.conf` — theme choice and
-  the Open Recent list (see above to override the path). Unlike the
-  database and log directory, this file is **not** owner-restricted —
-  see [SECURITY.md](SECURITY.md).
+  the Open Recent list (see above to override the path). Restricted to
+  the owner (`0700`/`0600`) after every write, like the database and log
+  directory — see [SECURITY.md](SECURITY.md).
 - `uv.lock`: the resolved dependency set with hashes — committed, and
   updated together with `pyproject.toml`

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import QSettings
 
-from .app_settings import default_settings
+from .app_settings import default_settings, restrict_settings_file
 
 MAX_RECENT = 5
 _SETTINGS_KEY = "recent/projects"
@@ -43,6 +43,7 @@ def load_recent_files(settings: QSettings | None = None) -> list[Path]:
     existing = [p for p in paths if p.is_file()]
     if len(existing) != len(paths):
         store.setValue(_SETTINGS_KEY, [str(p) for p in existing])
+        restrict_settings_file(store)
     return existing
 
 
@@ -57,4 +58,5 @@ def add_recent_file(path: Path, settings: QSettings | None = None) -> list[Path]
     remaining = [p for p in load_recent_files(store) if p != resolved]
     updated = [resolved, *remaining][:MAX_RECENT]
     store.setValue(_SETTINGS_KEY, [str(p) for p in updated])
+    restrict_settings_file(store)
     return updated
