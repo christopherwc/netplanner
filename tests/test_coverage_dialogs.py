@@ -45,6 +45,7 @@ from netplanner.gui.dialogs import (
     SiteDialog,
     TextBoxDialog,
     _format_mbps,
+    _InterfacesTab,
     _parse_vlans,
     _vlans_to_text,
 )
@@ -238,6 +239,102 @@ def test_configs_tab_import_view_rename_export_remove(app, device, tmp_path):
         tab._remove_selected()
     assert len(tab._configs) == count - 1
     dialog.deleteLater()
+
+
+# --------------------------------------------------- sync interfaces from config
+_CISCO_SYNC_CONFIG = """
+interface GigabitEthernet0/0
+ switchport mode trunk
+ switchport trunk allowed vlan 10,20
+!
+interface Vlan10
+ ip address 10.0.10.1 255.255.255.0
+!
+"""
+
+
+def test_configs_tab_sync_requested_emits_the_selected_config(app, device):
+    """DevicePropertiesDialog.__init__ already connects sync_requested
+    to its own handler, which pops a QMessageBox — patched here so
+    that real, unrelated connection doesn't block this test on a modal
+    dialog nothing will ever dismiss."""
+    dialog = DevicePropertiesDialog(device)
+    tab = dialog._configs
+
+    tab.table.clearSelection()
+    received = []
+    tab.sync_requested.connect(received.append)
+    with patch("netplanner.gui.dialogs.QMessageBox.information"):
+        tab._sync_interfaces_from_selected()
+        assert received == []  # nothing selected: no signal
+
+        tab.table.selectRow(0)
+        tab._sync_interfaces_from_selected()
+    assert received == [tab._configs[0]]
+    dialog.deleteLater()
+
+
+def test_sync_interfaces_from_config_merges_into_the_interfaces_tab(app, device):
+    """The end-to-end path: picking a Cisco config in the Configs tab
+    updates the Interfaces tab's working copy, matched against
+    device's existing "Gig0/0" by name despite the config stating the
+    unabbreviated "GigabitEthernet0/0"."""
+    device.configs.append(
+        ConfigFile(
+            filename="sw1-run.cfg",
+            content=_CISCO_SYNC_CONFIG,
+            config_format=ConfigFormat.CISCO_IOS,
+        )
+    )
+    dialog = DevicePropertiesDialog(device)
+    cisco_config = next(c for c in dialog._configs._configs if c.filename == "sw1-run.cfg")
+
+    with patch("netplanner.gui.dialogs.QMessageBox.information") as info:
+        dialog._sync_interfaces_from_config(cisco_config)
+    assert info.call_count == 1
+    assert "Synced 2 interfaces" in info.call_args[0][2]
+
+    result = {i.name: i for i in dialog.result_interfaces()}
+    assert result["Gig0/0"].vlan_mode is VlanMode.TRUNK
+    assert result["Gig0/0"].trunk_vlans == [10, 20]
+    # matched by name, not renamed to the config's unabbreviated form
+    assert "GigabitEthernet0/0" not in result
+    assert result["Gig0/0"].id == device.interfaces[0].id  # original id kept
+
+    # newly-seen interface from the config was appended
+    assert result["Vlan10"].ip_address == "10.0.10.1/24"
+    dialog.deleteLater()
+
+
+def test_sync_interfaces_reports_when_nothing_is_recognized(app, device):
+    """device's fixture config is plain text (no interface syntax)."""
+    plain_config = device.configs[0]
+    assert plain_config.config_format is ConfigFormat.PLAIN_TEXT
+    dialog = DevicePropertiesDialog(device)
+    before = dialog.result_interfaces()
+
+    with patch("netplanner.gui.dialogs.QMessageBox.information") as info:
+        dialog._sync_interfaces_from_config(plain_config)
+    assert info.call_count == 1
+    assert "No interface configuration was recognized" in info.call_args[0][2]
+    assert dialog.result_interfaces() == before
+    dialog.deleteLater()
+
+
+def test_interfaces_tab_apply_parsed_interfaces_returns_count_applied(app, device):
+    from netplanner.domain.config_interfaces import ParsedInterface
+
+    tab = _InterfacesTab(device)
+    touched = tab.apply_parsed_interfaces(
+        [
+            ParsedInterface(name="Gig0/0", ip_address="10.0.0.9/24"),
+            ParsedInterface(name="Brand-New-Port", ip_address="10.0.0.10/24"),
+        ]
+    )
+    assert touched == 2
+    result = {i.name: i for i in tab.result_interfaces()}
+    assert result["Gig0/0"].ip_address == "10.0.0.9/24"
+    assert result["Brand-New-Port"].ip_address == "10.0.0.10/24"
 
 
 # ----------------------------------------------------------- TextBoxDialog
