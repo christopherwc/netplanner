@@ -41,13 +41,16 @@ directory covers them. A filesystem that cannot honor a mode — a FAT
 stick, some network mounts — logs a warning and continues, so the weaker
 posture is visible rather than silently assumed.
 
-This does **not** cover `~/.config/NetPlanner/NetPlanner.conf` (theme
-choice, recent-projects list), which Qt's `QSettings` creates under the
-ordinary umask. It carries no secrets, but the recent-projects list is
-absolute paths to `.netplan` files you've opened, which can leak a
-client or project name through its directory structure the same way an
-unstripped config path could — see the exports note below and "Known
-gaps."
+The preferences file (`~/.config/NetPlanner/NetPlanner.conf` — theme
+choice, recent-projects list) gets the same treatment: restricted to
+`0600`/`0700` after every write. Qt's `QSettings` creates it under the
+ordinary umask and can recreate it on a later `sync()`, silently
+resetting the mode back — so the restriction runs after each write
+(`restrict_settings_file` in `gui/app_settings.py`) rather than once at
+startup. It carries no secrets, but the recent-projects list is
+absolute paths to `.netplan` files you've opened, which could otherwise
+leak a client or project name through its directory structure the same
+way an unstripped config path could — see the exports note below.
 
 **Loading a project file is bounded.** A `.netplan` is capped at 64 MiB
 and read only after its size is checked, since the whole file is held in
@@ -95,7 +98,11 @@ GitHub Actions run with `contents: read`; only the release job is granted
 the workflow token is not left in `.git/config` where a later step could
 read it. Tag names reach the shell through the environment rather than
 `${{ }}` interpolation, which would otherwise let a tag named
-`v1.0.0$(...)` execute during a release.
+`v1.0.0$(...)` execute during a release. Every action reference — across
+`.github/workflows/` and `.github/actions/setup/action.yml` — is pinned
+by full commit SHA rather than a mutable tag, with the version kept as a
+trailing comment (`uses: actions/checkout@<sha>  # v7`) so Dependabot can
+still move the pin.
 
 ## Known gaps
 
@@ -117,18 +124,6 @@ that only lists wins is not worth reading.
   be sent to someone. The GUI names the affected devices and asks before
   writing one, but the configs do travel with it by design — a plan that
   lost them in transit would be broken.
-- **The preferences file is not owner-restricted.**
-  `~/.config/NetPlanner/NetPlanner.conf` (theme, recent-projects list) is
-  created under the process umask like any other application's config,
-  not `0600` like the database and log. It holds no credentials, but the
-  recent-projects list is absolute filesystem paths to `.netplan` files
-  you've opened — on a shared machine with a permissive umask, another
-  account could read those paths, the same class of exposure the
-  path-stripping in project exports exists to avoid.
-- **Actions are pinned by tag, not by digest.** `actions/checkout@v4`
-  resolves through a mutable tag, so a compromised or moved tag would be
-  picked up silently. Pinning by full commit SHA is the fix; see the
-  developer documentation in `README.md`.
 - **`.netplan` files are not authenticated.** There is no signature, so
   opening one means trusting whoever sent it to the same degree you trust
   any file they send you. The parser is bounded, which limits what a
