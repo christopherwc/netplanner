@@ -22,7 +22,7 @@ from netplanner.app.controller import AppController
 from .canvas import NetworkCanvas
 from .palette import EquipmentPalette
 from .panels import PropertiesPanel
-from .qtutil import required, running_application
+from .qtutil import required, running_application, weak_call
 from .recent_files import add_recent_file, load_recent_files
 from .theme import Theme, apply_theme, capture_system_defaults, load_saved_theme, save_theme
 from .vlan_panel import VlanPanel
@@ -156,28 +156,12 @@ class MainWindow(QMainWindow):
 
         Every menu action passes its handler through here (when the
         handler is a method of this window rather than, say, the
-        canvas) rather than a plain bound method like self._new_plan.
-        PyQt's connection bookkeeping keeps whatever is passed to
-        connect() alive for as long as the connection exists, and this
-        window holds its own QActions back, transitively, through its
-        menu bar -- so a bound method (or a lambda closing over self)
-        here would complete that into a genuine Python-level reference
-        cycle. That is the documented, confirmed-recurring cause of an
-        intermittent segfault inside _build_menus, when CPython's
-        cyclic garbage collector runs at exactly the wrong moment
-        inside a C extension call (see tests/conftest.py and issue
-        #23). Resolving self through a weakref each time this runs
-        means the connection never keeps the window alive, so the
-        cycle this bug depends on never forms.
+        canvas) rather than a plain bound method like self._new_plan,
+        to avoid completing a reference cycle back to this window (see
+        qtutil.weak_call, which this delegates to, for the full
+        rationale and issue #23).
         """
-        weak_self = weakref.ref(self)
-
-        def call(*_args, **_kwargs):
-            window = weak_self()
-            return None if window is None else getattr(window, method_name)(*args)
-
-        call.__name__ = method_name
-        return call
+        return weak_call(self, method_name, *args)
 
     def _guarded(self, slot):
         """Wrap a slot so exceptions become an error dialog, not a crash.
