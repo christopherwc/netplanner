@@ -106,22 +106,36 @@ def lift_above_line(
     x2: float,
     y2: float,
     amount: float,
+    *,
+    y_up: bool = False,
 ) -> tuple[float, float]:
     """Move a point off a line, perpendicular, toward the top of the page.
 
     Labels centered on a cable sit *on* it, so the line strikes through
     the text. Offsetting perpendicular keeps the label associated with
     its cable while leaving the cable unbroken. Of the two perpendicular
-    directions the upward one is chosen so labels read consistently
-    rather than flipping side with the link's direction.
+    directions the one toward the top of the page is chosen so labels
+    read consistently rather than flipping side with the link's
+    direction.
+
+    `y_up` says which way "toward the top" is: False (the default) for
+    a y-down system where a smaller y is higher on the page -- the
+    scene coordinates PNG export draws directly. True for a y-up system
+    where a *larger* y is higher -- reportlab's coordinate space, which
+    PDF export's own fy() flips scene coordinates into before calling
+    this. Getting this wrong doesn't crash: it silently lifts labels
+    toward the bottom of the page instead of the top for roughly half
+    of all link orientations.
     """
     dx, dy = x2 - x1, y2 - y1
     length = (dx * dx + dy * dy) ** 0.5
     if length == 0:
-        return x, y - amount
-    # Perpendicular unit vector, normalized to point "up" the page.
+        return (x, y + amount) if y_up else (x, y - amount)
+    # Perpendicular unit vector, normalized to point toward the top of
+    # the page under whichever convention `y_up` selects.
     px, py = -dy / length, dx / length
-    if py > 0:
+    wrong_way = py < 0 if y_up else py > 0
+    if wrong_way:
         px, py = -px, -py
     return x + px * amount, y + py * amount
 
@@ -137,6 +151,8 @@ def label_anchor(
     text_h: float,
     gap: float = 6.0,
     lift: float = 0.0,
+    *,
+    y_up: bool = False,
 ) -> tuple[float, float]:
     """Center point for a port label that clears the card entirely.
 
@@ -144,7 +160,9 @@ def label_anchor(
     there still has half its width inside the card. This pushes the
     center further along the link direction by the label's own
     half-extent, so the whole label sits in open space. `lift` then
-    raises it clear of the cable itself.
+    raises it clear of the cable itself; `y_up` is forwarded to
+    lift_above_line() to say which coordinate convention the caller
+    is using (see there).
     """
     ex, ey = card_exit_point(cx, cy, tx, ty, half_w, half_h, gap)
     dx, dy = tx - cx, ty - cy
@@ -154,5 +172,5 @@ def label_anchor(
     ux, uy = dx / length, dy / length
     ax, ay = ex + ux * text_w / 2, ey + uy * text_h / 2
     if lift:
-        ax, ay = lift_above_line(ax, ay, cx, cy, tx, ty, lift)
+        ax, ay = lift_above_line(ax, ay, cx, cy, tx, ty, lift, y_up=y_up)
     return ax, ay
