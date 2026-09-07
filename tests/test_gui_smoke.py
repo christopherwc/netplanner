@@ -711,3 +711,48 @@ def test_weak_call_is_a_noop_once_the_window_is_gone(app, controller):
     del window
 
     assert call() is None
+
+
+def test_equipment_palette_has_no_reference_cycle_back_to_itself(app):
+    """Regression: every button built by _make_button closed over self
+    in a lambda (`lambda: self.tool_changed.emit(tool)`), and each
+    button is a Qt child of this dock widget -- the same reference-cycle
+    shape diagnosed and fixed in MainWindow (issue #23), just never
+    fixed here."""
+    from netplanner.gui.palette import EquipmentPalette
+
+    assert not gc.isenabled()
+    palette = EquipmentPalette()
+    ref = weakref.ref(palette)
+
+    palette._select_btn.click()
+
+    palette.close()
+    palette.deleteLater()
+    app.processEvents()
+    del palette
+
+    assert ref() is None, "EquipmentPalette survived teardown by refcounting alone"
+
+
+def test_vlan_panel_has_no_reference_cycle_back_to_itself(app, populated):
+    """Regression: the Select all / Clear buttons and each row's
+    checkbox all closed over or bound directly to self, and are all Qt
+    children of this dock widget -- the same reference-cycle shape
+    diagnosed and fixed in MainWindow (issue #23), just never fixed
+    here."""
+    from netplanner.gui.vlan_panel import VlanPanel
+
+    assert not gc.isenabled()
+    panel = VlanPanel(populated)
+    ref = weakref.ref(panel)
+
+    panel._checkboxes[10].toggle()
+    panel._set_all(True)
+
+    panel.close()
+    panel.deleteLater()
+    app.processEvents()
+    del panel
+
+    assert ref() is None, "VlanPanel survived teardown by refcounting alone"

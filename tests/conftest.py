@@ -73,6 +73,18 @@ window even through an explicit gc.collect(); the fixed code holds zero).
 disable_automatic_gc and the retry stay in place regardless, as
 defense in depth against any other reference cycle elsewhere in the GUI
 layer that hasn't been (and may never be) individually diagnosed.
+
+A follow-up audit found the same cycle shape, unfixed, in two other
+long-lived dock widgets: EquipmentPalette (palette.py) and VlanPanel
+(vlan_panel.py), each with buttons/checkboxes that are Qt children of
+the dock closing over `self`. Both now go through qtutil.weak_call, the
+same fix generalized out of MainWindow._weak_call, with their own
+weakref-based regression tests in test_gui_smoke.py. The same shape
+also appears in every QDialog subclass in dialogs.py and in
+config_viewer.py, but those objects are built, exec()'d, and dropped
+within a single call rather than held for the app's lifetime, so they
+were left as a known, lower-risk instance of this bug class rather than
+fixed alongside the dock widgets.
 """
 
 from __future__ import annotations

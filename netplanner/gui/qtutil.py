@@ -18,7 +18,45 @@ So: check, and raise something that names what was missing.
 
 from __future__ import annotations
 
+import weakref
+from collections.abc import Callable
+from typing import Any
+
 from PyQt6.QtWidgets import QApplication
+
+
+def weak_call(instance: object, method_name: str, *args: Any) -> Callable[..., Any]:
+    """A callable that dispatches to getattr(instance, method_name)(*args)
+    without holding a strong reference to `instance`.
+
+    Connecting a Qt signal straight to a bound method, or to a lambda
+    that closes over `instance`, makes the connection itself keep
+    `instance` alive for as long as the connection exists. When the
+    signal's owner is itself a Qt child of `instance` -- a button living
+    inside a dock widget's own layout, say -- that connection completes
+    a genuine Python reference cycle: instance -> child widget ->
+    connection -> slot -> instance. CPython's cyclic garbage collector
+    can run at exactly the wrong moment inside a PyQt6 C extension call
+    and segfault; this is a documented, confirmed-recurring failure
+    mode in this codebase (see MainWindow._weak_call, tests/conftest.py,
+    and issue #23, which diagnosed and fixed the first instance of it).
+    Resolving `instance` through a weakref on every call means the
+    connection never keeps it alive, so the cycle never forms.
+
+    Whatever arguments the signal itself supplies (a checkbox's
+    `toggled` bool, say) are ignored in favor of `*args`, bound here at
+    connect time -- matching how a directly-connected bound method
+    behaves when Qt calls it with fewer arguments than the signal
+    emits.
+    """
+    weak_instance = weakref.ref(instance)
+
+    def call(*_signal_args: Any, **_signal_kwargs: Any) -> Any:
+        obj = weak_instance()
+        return None if obj is None else getattr(obj, method_name)(*args)
+
+    call.__name__ = method_name
+    return call
 
 
 def required[T](value: T | None, what: str) -> T:

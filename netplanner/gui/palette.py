@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 
 from netplanner.domain.entities import DeviceType, LinkType
 from netplanner.export.styles import link_style_for, style_for
+from netplanner.gui.qtutil import weak_call
 
 PALETTE_DEVICE_TYPES = [
     DeviceType.ROUTER,
@@ -98,10 +99,19 @@ class EquipmentPalette(QDockWidget):
         btn = QPushButton(text)
         btn.setCheckable(True)
         btn.setStyleSheet("text-align: left; padding: 6px;")
-        btn.clicked.connect(lambda: self.tool_changed.emit(tool))
+        # weak_call, not a lambda closing over self: btn is a Qt child
+        # of this dock widget (via layout -> body -> setWidget), so a
+        # closure capturing self here would complete a reference cycle
+        # back to it -- the same bug class fixed in MainWindow (see
+        # qtutil.weak_call and issue #23), and this dock lives for the
+        # app's whole lifetime just like MainWindow does.
+        btn.clicked.connect(weak_call(self, "_emit_tool_changed", tool))
         self._group.addButton(btn)
         layout.addWidget(btn)
         return btn
+
+    def _emit_tool_changed(self, tool) -> None:
+        self.tool_changed.emit(tool)
 
     def reset_to_select(self) -> None:
         self._select_btn.setChecked(True)
