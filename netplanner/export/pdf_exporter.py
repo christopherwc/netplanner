@@ -3,6 +3,12 @@
 reportlab's coordinate origin is bottom-left, while the scene uses
 top-left; fy() flips the axis. Nodes are drawn as the same three-section
 cards the GUI shows (header / type band / interface IP+MAC blocks).
+
+Anything passed through fy() before reaching lift_above_line() or
+label_anchor() -- edge and port labels here -- must pass y_up=True,
+since those coordinates are already in reportlab's y-up space by the
+time they get there, unlike png_exporter.py's untouched, y-down scene
+coordinates.
 """
 
 from __future__ import annotations
@@ -132,6 +138,7 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
             mx, my = lift_above_line(
                 (e.x1 + e.x2) / 2, (fy(e.y1) + fy(e.y2)) / 2,
                 e.x1, fy(e.y1), e.x2, fy(e.y2), 6,
+                y_up=True,
             )
             c.drawCentredString(mx, my - 2, e.label)
     c.setDash([])
@@ -257,7 +264,7 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
                 continue
             text_w = c.stringWidth(port, "Helvetica", 6)
             px, py = label_anchor(
-                cx, cy, tx, ty, half_w, half_h, text_w, 6, lift=5
+                cx, cy, tx, ty, half_w, half_h, text_w, 6, lift=5, y_up=True,
             )
             c.drawCentredString(px, py - 2, port)
 
