@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
 
 from netplanner.app.controller import AppController
 from netplanner.export.vlans import VlanUsage, plan_vlan_usage
-from netplanner.gui.qtutil import required
+from netplanner.gui.qtutil import required, weak_call
 
 SWATCH = 12  # px square color chip in the legend
 
@@ -56,9 +56,15 @@ class VlanPanel(QDockWidget):
 
         buttons = QHBoxLayout()
         all_btn = QPushButton("Select all")
-        all_btn.clicked.connect(lambda: self._set_all(True))
+        # weak_call, not a lambda closing over self: these buttons are
+        # Qt children of this dock widget (via container -> setWidget),
+        # so a closure capturing self would complete a reference cycle
+        # back to it -- the same bug class fixed in MainWindow (see
+        # qtutil.weak_call and issue #23), and this dock lives for the
+        # app's whole lifetime just like MainWindow does.
+        all_btn.clicked.connect(weak_call(self, "_set_all", True))
         none_btn = QPushButton("Clear")
-        none_btn.clicked.connect(lambda: self._set_all(False))
+        none_btn.clicked.connect(weak_call(self, "_set_all", False))
         buttons.addWidget(all_btn)
         buttons.addWidget(none_btn)
         buttons.addStretch()
@@ -124,7 +130,9 @@ class VlanPanel(QDockWidget):
 
         checkbox = QCheckBox(usage.label)
         checkbox.setChecked(checked)
-        checkbox.toggled.connect(self._emit_filter)
+        # weak_call: checkbox is a Qt child of this dock widget (via
+        # row -> self._rows_host), same reasoning as the buttons above.
+        checkbox.toggled.connect(weak_call(self, "_emit_filter"))
         self._checkboxes[usage.vlan_id] = checkbox
         top.addWidget(checkbox)
         top.addStretch()
