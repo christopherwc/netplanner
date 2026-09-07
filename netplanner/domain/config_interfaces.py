@@ -160,8 +160,15 @@ _CISCO_IP_RE = re.compile(
     re.IGNORECASE,
 )
 _CISCO_TRUNK_MODE_RE = re.compile(r"^\s*switchport mode trunk\b", re.IGNORECASE)
+# IOS emits a bare `switchport trunk allowed vlan <list>` for the initial
+# set, then `add`/`remove` continuation lines (when the list is too long
+# for one line, or to describe an incremental change) that must merge
+# into what came before rather than replace it -- `add`/`remove` are
+# captured separately from the VLAN list itself so the handler below
+# knows which of the three to do.
 _CISCO_TRUNK_VLANS_RE = re.compile(
-    r"^\s*switchport trunk allowed vlan\s+(.+?)\s*$", re.IGNORECASE
+    r"^\s*switchport trunk allowed vlan\s+(?:(add|remove|except)\s+)?(.+?)\s*$",
+    re.IGNORECASE,
 )
 _CISCO_ACCESS_VLAN_RE = re.compile(r"^\s*switchport access vlan\s+(\d+)", re.IGNORECASE)
 
@@ -213,7 +220,20 @@ def _parse_cisco(content: str) -> list[ParsedInterface]:
         trunk_match = _CISCO_TRUNK_VLANS_RE.match(line)
         if trunk_match:
             vlan_mode = VlanMode.TRUNK
-            trunk_vlans = _parse_vlan_ranges(trunk_match.group(1))
+            keyword = (trunk_match.group(1) or "").lower()
+            ids = _parse_vlan_ranges(trunk_match.group(2))
+            if keyword == "add":
+                trunk_vlans = sorted(set(trunk_vlans) | set(ids))
+            elif keyword == "remove":
+                trunk_vlans = sorted(set(trunk_vlans) - set(ids))
+            elif keyword == "except":
+                # IOS's "except" means "allow every VLAN but these" --
+                # there is no finite list to represent that, so this
+                # line contributes nothing rather than guessing at one;
+                # whatever was parsed before it (if anything) stands.
+                pass
+            else:
+                trunk_vlans = ids
             continue
         access_match = _CISCO_ACCESS_VLAN_RE.match(line)
         if access_match:
