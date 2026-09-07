@@ -191,7 +191,11 @@ equipment, cable it up port-by-port, and export the result.
 
   **Cisco IOS**: IP addressing (`ip address`) and VLANs
   (`switchport access vlan` / `switchport mode trunk` +
-  `switchport trunk allowed vlan`, including `10-12,20` range syntax).
+  `switchport trunk allowed vlan`, including `10-12,20` range syntax and
+  `add`/`remove` continuation lines). `switchport trunk allowed vlan
+  except …` is recognized but not applied — there's no finite VLAN list
+  to represent "every VLAN but these" — so it's a no-op rather than a
+  guess.
   **MikroTik RouterOS**: IP addressing (`/ip address`) and VLANs from
   either bridge VLAN filtering (`/interface bridge vlan`'s
   tagged/untagged port lists, with a bare `pvid` as fallback) or VLAN

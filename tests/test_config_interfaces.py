@@ -99,6 +99,59 @@ interface Gi0/1
     assert parsed[0].trunk_vlans == (10, 11, 12, 20)
 
 
+def test_cisco_trunk_vlan_add_merges_with_the_base_list():
+    """Regression: `add` used to replace trunk_vlans outright instead of
+    merging, and the unstripped "add" keyword made the whole line fail
+    to parse as VLAN ids and get silently dropped."""
+    config = """
+interface Gi0/1
+ switchport mode trunk
+ switchport trunk allowed vlan 10,20,30
+ switchport trunk allowed vlan add 40,50
+!
+"""
+    parsed = parse_interfaces(config, ConfigFormat.CISCO_IOS)
+    assert parsed[0].trunk_vlans == (10, 20, 30, 40, 50)
+
+
+def test_cisco_trunk_vlan_remove_subtracts_from_the_base_list():
+    config = """
+interface Gi0/1
+ switchport mode trunk
+ switchport trunk allowed vlan 10,20,30
+ switchport trunk allowed vlan remove 20
+!
+"""
+    parsed = parse_interfaces(config, ConfigFormat.CISCO_IOS)
+    assert parsed[0].trunk_vlans == (10, 30)
+
+
+def test_cisco_trunk_vlan_except_does_not_corrupt_the_base_list():
+    """"except" means "allow everything but these", which has no finite
+    representation here -- it must not be treated as if it were an
+    "add", which would incorrectly mark the excluded VLAN as allowed."""
+    config = """
+interface Gi0/1
+ switchport mode trunk
+ switchport trunk allowed vlan 10,20,30
+ switchport trunk allowed vlan except 20
+!
+"""
+    parsed = parse_interfaces(config, ConfigFormat.CISCO_IOS)
+    assert parsed[0].trunk_vlans == (10, 20, 30)
+
+
+def test_cisco_trunk_vlan_add_with_no_prior_base_line_still_works():
+    config = """
+interface Gi0/1
+ switchport mode trunk
+ switchport trunk allowed vlan add 40,50
+!
+"""
+    parsed = parse_interfaces(config, ConfigFormat.CISCO_IOS)
+    assert parsed[0].trunk_vlans == (40, 50)
+
+
 def test_cisco_malformed_netmask_is_skipped_not_fatal():
     config = """
 interface Gi0/1
