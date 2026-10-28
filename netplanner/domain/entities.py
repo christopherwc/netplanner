@@ -5,6 +5,7 @@ Plain dataclasses, independent of GUI and persistence layers.
 
 from __future__ import annotations
 
+import base64
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
@@ -223,6 +224,48 @@ class Site:
     def contains_point(self, px: float, py: float) -> bool:
         """Whether a canvas point falls inside this site's box."""
         return self.x <= px <= self.x + self.width and self.y <= py <= self.y + self.height
+
+
+# Longest side, in pixels, of an underlay's stored picture. A PDF page is
+# rasterized to fit and a larger image is scaled down to it on import.
+# 4096 keeps an A1 drawing legible at the canvas's 400% zoom ceiling
+# while holding a typical floor plan to a few megabytes of PNG — which
+# matters, because the picture travels inside every saved plan and
+# exported .netplan file, and those are capped (MAX_PROJECT_BYTES).
+UNDERLAY_MAX_SIDE_PX = 4096
+
+
+@dataclass
+class Underlay:
+    """A floor plan, site map or drawing placed behind the diagram.
+
+    Imported from a PDF page or an image file so equipment can be laid
+    out over the real building. Like sites and text boxes it is not
+    topology: it carries no ports and never appears in validation.
+
+    The picture is held as PNG bytes, base64-encoded so the dataclass
+    serializes through asdict() and JSON like every other entity. PDFs
+    are rasterized at import time rather than kept as PDFs, so nothing
+    downstream — the exporters in particular — needs a PDF renderer.
+
+    Locked by default: an underlay is something to draw *on*, and one
+    that moves when you miss a device by a few pixels is a hazard.
+    """
+
+    image_png_b64: str
+    name: str = ""            # the source file's name, never its path
+    x: float = 0.0
+    y: float = 0.0
+    width: float = 800.0      # scene units; the picture stretches to fill
+    height: float = 600.0
+    opacity: float = 0.5      # 0..1; faded toward the page so cards stay readable
+    locked: bool = True
+    id: str = field(default_factory=new_id)
+
+    @property
+    def image_png(self) -> bytes:
+        """The decoded PNG bytes."""
+        return base64.b64decode(self.image_png_b64)
 
 
 @dataclass

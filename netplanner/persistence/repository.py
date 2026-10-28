@@ -22,6 +22,7 @@ from netplanner.domain.entities import (
     Site,
     Subnet,
     TextBox,
+    Underlay,
     Vlan,
     VlanMode,
 )
@@ -97,6 +98,7 @@ class PlanRepository:
                 "vlans": [asdict(v) for v in plan.vlans.values()],
                 "sites": [asdict(s) for s in plan.sites.values()],
                 "textboxes": [asdict(t) for t in plan.textboxes.values()],
+                "underlays": [asdict(u) for u in plan.underlays.values()],
             }
             row.devices = [
                 DeviceRow(id=d.id, payload=_device_to_dict(d)) for d in plan.devices
@@ -161,6 +163,9 @@ class PlanRepository:
             # Plans saved before annotations existed simply have none.
             for meta_box in meta.get("textboxes", []):
                 plan.add_textbox(TextBox(**meta_box))
+            # Plans saved before underlays existed simply have none.
+            for meta_underlay in meta.get("underlays", []):
+                plan.add_underlay(Underlay(**meta_underlay))
             for d_row in row.devices:
                 plan.add_device(_device_from_dict(d_row.payload))
             for l_row in row.links:

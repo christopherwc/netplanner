@@ -1,4 +1,4 @@
-"""The NetworkPlan aggregate: devices, links, subnets, VLANs, sites.
+"""The NetworkPlan aggregate: devices, links, subnets, VLANs, sites, underlays.
 
 Backed by a networkx graph for topology queries; entity objects are
 stored as node/edge attributes so the rest of the app works with rich
@@ -16,6 +16,7 @@ from .entities import (
     Site,
     Subnet,
     TextBox,
+    Underlay,
     Vlan,
     negotiated_speed_mbps,
     new_id,
@@ -33,6 +34,22 @@ class NetworkPlan:
         # Annotations are not topology, so they sit beside the graph
         # rather than inside it (see TextBox).
         self.textboxes: dict[str, TextBox] = {}
+        # Background drawings (floor plans, site maps); see Underlay.
+        self.underlays: dict[str, Underlay] = {}
+
+    # -------------------------------------------------------------- underlays
+    def add_underlay(self, underlay: Underlay) -> Underlay:
+        """Add a background drawing; returns it for chaining."""
+        self.underlays[underlay.id] = underlay
+        return underlay
+
+    def remove_underlay(self, underlay_id: str) -> None:
+        """Remove a background drawing; no-op if it does not exist."""
+        self.underlays.pop(underlay_id, None)
+
+    def get_underlay(self, underlay_id: str) -> Underlay | None:
+        """Look up a background drawing by id; None if absent."""
+        return self.underlays.get(underlay_id)
 
     # -------------------------------------------------------------- textboxes
     def add_textbox(self, textbox: TextBox) -> TextBox:

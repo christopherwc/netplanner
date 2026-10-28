@@ -39,9 +39,10 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Qt links against these even though the PyQt6 wheels bundle Qt itself.
 # The list is not guesswork: it is what `objdump -p` reports as NEEDED
-# for libQt6Core/Gui/Widgets/DBus and the offscreen platform plugin,
-# minus what the wheels bundle (ICU) and what the base image already
-# has (zlib). Get it wrong and the failure is an ImportError naming a
+# for libQt6Core/Gui/Widgets/DBus, libQt6Pdf (and the libQt6Network it
+# links: Kerberos and Brotli, for underlay PDF import) and the offscreen
+# platform plugin, minus what the wheels bundle (ICU) and what the base
+# image already has (zlib). Get it wrong and the failure is an ImportError naming a
 # soname, not anything that mentions Qt.
 #
 # This set is what the *offscreen* plugin needs, which is all the ci
@@ -63,6 +64,8 @@ RUN apt-get update \
         libfontconfig1 \
         libfreetype6 \
         libzstd1 \
+        libgssapi-krb5-2 \
+        libbrotli1 \
         tini \
     && rm -rf /var/lib/apt/lists/*
 

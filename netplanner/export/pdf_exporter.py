@@ -17,6 +17,7 @@ import logging
 from pathlib import Path
 
 from reportlab.lib.colors import HexColor
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas as pdf_canvas
 
 from netplanner.domain.model import NetworkPlan
@@ -43,6 +44,7 @@ from .nodecard import (
 )
 from .renderer import Scene, build_scene
 from .styles import DIAGRAM_BG, link_style_for_value
+from .underlays import faded_underlay
 from .vlans import MUTED_COLOR, MUTED_TEXT
 
 TEXT_COLOR = HexColor("#111111")
@@ -104,7 +106,15 @@ def _draw(c: pdf_canvas.Canvas, scene: Scene) -> None:
     c.setFont("Helvetica-Bold", 16)
     c.drawString(20, page_h - 25, scene.title)
 
-    # Sites first of all: they are backdrops for everything else.
+    # Underlays at the very back: the floor plan everything sits on.
+    # Pre-faded (see export/underlays.py) because fill alpha does not
+    # reach drawImage; reportlab scales the stored pixels to the box.
+    for u in scene.underlays:
+        c.drawImage(
+            ImageReader(faded_underlay(u)), u.x, fy(u.y) - u.height, u.width, u.height
+        )
+
+    # Sites next: they are backdrops for everything else.
     for s in scene.sites:
         color = HexColor(s.color)
         top = fy(s.y)

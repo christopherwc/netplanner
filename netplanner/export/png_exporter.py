@@ -38,6 +38,7 @@ from .nodecard import (
 )
 from .renderer import build_scene
 from .styles import DIAGRAM_BG, link_style_for_value
+from .underlays import faded_underlay
 from .vlans import MUTED_COLOR, MUTED_TEXT
 
 SCALE = 2  # supersample factor for crisper output
@@ -90,20 +91,34 @@ def _export_png_impl(scene, path: Path) -> None:
     draw.text((20 * SCALE, 12 * SCALE), scene.title, fill=TEXT_COLOR)
     off = TITLE_OFFSET * SCALE  # vertical shift below the title area
 
-    # Sites first of all: they are backdrops for everything else.
+    # Underlays at the very back: the floor plan everything sits on.
+    for u in scene.underlays:
+        size = (max(1, round(u.width * SCALE)), max(1, round(u.height * SCALE)))
+        img.paste(faded_underlay(u, size), (round(u.x * SCALE), round(u.y * SCALE + off)))
+
+    # Sites next: they are backdrops for everything else. Their tints
+    # are composited rather than drawn as solid color blended toward
+    # the page, so an underlay beneath a site still shows through it.
+    if scene.sites:
+        tints = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        tint_draw = ImageDraw.Draw(tints)
+        for s in scene.sites:
+            left, top = s.x * SCALE, s.y * SCALE + off
+            right, bottom = left + s.width * SCALE, top + s.height * SCALE
+            tint_draw.rounded_rectangle(
+                (left, top, right, bottom), radius=8 * SCALE, fill=_with_alpha(s.color, 0.08)
+            )
+            tint_draw.rectangle(
+                (left, top, right, top + 26 * SCALE), fill=_with_alpha(s.color, 0.20)
+            )
+        img = Image.alpha_composite(img.convert("RGBA"), tints).convert("RGB")
+        draw = ImageDraw.Draw(img)
     for s in scene.sites:
         left, top = s.x * SCALE, s.y * SCALE + off
         right, bottom = left + s.width * SCALE, top + s.height * SCALE
-        # Pillow has no alpha on plain fills, so blend toward the page
-        # color for the tint, matching the canvas's translucent look.
         draw.rounded_rectangle(
             (left, top, right, bottom), radius=8 * SCALE,
-            fill=_blend(s.color, DIAGRAM_BG, 0.08),
             outline=s.color, width=max(1, int(1.5 * SCALE)),
-        )
-        draw.rectangle(
-            (left, top, right, top + 26 * SCALE),
-            fill=_blend(s.color, DIAGRAM_BG, 0.20),
         )
         draw.text(
             (left + 10 * SCALE, top + 13 * SCALE),
@@ -374,20 +389,27 @@ def _draw_status_stripes(
         img.paste(stripe_fill, (int(left), int(top)), mask=combined_mask)
 
 
+def _rgb(value: str) -> tuple[int, int, int]:
+    """Parse a #rrggbb hex color."""
+    value = value.lstrip("#")
+    # Spelled out rather than built by a generator: a comprehension
+    # produces tuple[int, ...], which is the wrong shape for a
+    # color and would let a four-channel value through unnoticed.
+    return (
+        int(value[0:2], 16),
+        int(value[2:4], 16),
+        int(value[4:6], 16),
+    )
+
+
+def _with_alpha(color: str, alpha: float) -> tuple[int, int, int, int]:
+    """A #rrggbb color as RGBA with the given 0..1 opacity."""
+    return (*_rgb(color), int(alpha * 255))
+
+
 def _blend(color: str, toward: str, amount: float) -> tuple[int, int, int]:
     """Mix `color` toward `toward`; used to fake alpha for dimmed cards."""
-    def rgb(value: str) -> tuple[int, int, int]:
-        value = value.lstrip("#")
-        # Spelled out rather than built by a generator: a comprehension
-        # produces tuple[int, ...], which is the wrong shape for a
-        # color and would let a four-channel value through unnoticed.
-        return (
-            int(value[0:2], 16),
-            int(value[2:4], 16),
-            int(value[4:6], 16),
-        )
-
-    a, b = rgb(color), rgb(toward)
+    a, b = _rgb(color), _rgb(toward)
     return (
         int(a[0] * amount + b[0] * (1 - amount)),
         int(a[1] * amount + b[1] * (1 - amount)),

@@ -25,6 +25,7 @@ from .panels import PropertiesPanel
 from .qtutil import required, running_application, weak_call
 from .recent_files import add_recent_file, load_recent_files
 from .theme import Theme, apply_theme, capture_system_defaults, load_saved_theme, save_theme
+from .underlay_import import UNDERLAY_FILTER, load_underlay
 from .vlan_panel import VlanPanel
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,10 @@ class MainWindow(QMainWindow):
             "E&xport project…", None, self._weak_call("_export_project")
         ))
         file_menu.addSeparator()
+        file_menu.addAction(self._action(
+            "Import &underlay (PDF or image)…", None, self._weak_call("_import_underlay")
+        ))
+        file_menu.addSeparator()
         file_menu.addAction(self._action("Export &PDF…", None, self._weak_call("_export_pdf")))
         file_menu.addAction(self._action("Export P&NG…", None, self._weak_call("_export_png")))
         file_menu.addSeparator()
@@ -136,6 +141,13 @@ class MainWindow(QMainWindow):
         plan_menu = required(bar.addMenu("&Plan"), "Plan menu")
         plan_menu.addAction(self._action("&Auto layout", None, self._weak_call("_auto_layout")))
         plan_menu.addAction(self._action("&Validate", None, self._weak_call("_validate")))
+        plan_menu.addSeparator()
+        plan_menu.addAction(self._action(
+            "&Unlock all underlays", None, self._weak_call("_set_underlays_locked", False)
+        ))
+        plan_menu.addAction(self._action(
+            "&Lock all underlays", None, self._weak_call("_set_underlays_locked", True)
+        ))
 
     def _action(self, text: str, shortcut, slot) -> QAction:
         """Build a menu action whose slot is wrapped in _guarded.
@@ -348,6 +360,51 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.Cancel,  # the safe answer is the default
         )
         return answer == QMessageBox.StandardButton.Ok
+
+    def _import_underlay(self) -> None:
+        """Place a PDF page or an image behind the diagram.
+
+        Centered on what is on screen, so it lands where the user is
+        looking rather than at an arbitrary origin. Locked on arrival:
+        right-click it to unlock, move and resize it.
+        """
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import underlay", "", UNDERLAY_FILTER
+        )
+        if not path:
+            return
+        # A plain bound method, not _weak_call: weak_call drops the
+        # arguments it is called with (it exists for signal slots), and
+        # this callback is only held for the duration of the call, so
+        # it cannot form the reference cycle weak_call guards against.
+        picture = load_underlay(Path(path), self._choose_pdf_page)
+        if picture is None:
+            return  # page choice cancelled
+        center = self.canvas.visible_center()
+        self.controller.add_underlay(
+            picture.name, picture.png,
+            center.x() - picture.width / 2, center.y() - picture.height / 2,
+            picture.width, picture.height,
+        )
+        self._refresh_all()
+        required(self.statusBar(), "status bar").showMessage(
+            f"Underlay '{picture.name}' placed and locked — right-click it to "
+            "unlock, move, resize or fade it",
+            6000,
+        )
+
+    def _set_underlays_locked(self, locked: bool) -> None:
+        """Plan menu: lock or unlock every underlay, reachable even when a
+        site box covers the drawing and swallows its right-clicks."""
+        self.controller.set_underlays_locked(locked)
+        self._refresh_all()
+
+    def _choose_pdf_page(self, count: int) -> int | None:
+        """Ask which page of a multi-page PDF to use; 0-based, None to cancel."""
+        page, ok = QInputDialog.getInt(
+            self, "Choose page", f"This PDF has {count} pages. Use page:", 1, 1, count
+        )
+        return page - 1 if ok else None
 
     def _export_pdf(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "Export PDF", "", "PDF files (*.pdf)")

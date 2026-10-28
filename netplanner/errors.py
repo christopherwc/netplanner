@@ -30,3 +30,7 @@ class ExportError(NetPlannerError):
 
 class ConfigImportError(NetPlannerError):
     """Reading a configuration file from disk failed."""
+
+
+class UnderlayImportError(NetPlannerError):
+    """Reading a PDF or image to use as an underlay failed."""

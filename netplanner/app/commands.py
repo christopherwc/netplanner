@@ -19,6 +19,7 @@ from netplanner.domain.entities import (
     LinkType,
     Site,
     TextBox,
+    Underlay,
 )
 from netplanner.domain.model import NetworkPlan
 
@@ -521,6 +522,118 @@ class DeleteSiteCommand(Command):
     def undo(self) -> None:
         if self.site:
             self.plan.add_site(self.site)
+
+
+class AddUnderlayCommand(Command):
+    """Place an imported floor plan or drawing behind the diagram.
+
+    Holds the entity itself rather than a copy, as every command here
+    does: an underlay's picture runs to megabytes, and the undo stack
+    should not be holding several of them.
+    """
+
+    def __init__(self, plan: NetworkPlan, underlay: Underlay):
+        self.plan, self.underlay = plan, underlay
+        self.description = f"Add underlay '{underlay.name or 'untitled'}'"
+
+    def execute(self) -> None:
+        self.plan.add_underlay(self.underlay)
+
+    def undo(self) -> None:
+        self.plan.remove_underlay(self.underlay.id)
+
+
+class SetUnderlayGeometryCommand(Command):
+    """Move or resize an underlay; committed on mouse release, like sites."""
+
+    def __init__(
+        self, plan: NetworkPlan, underlay_id: str, x: float, y: float, width: float, height: float
+    ):
+        self.plan, self.underlay_id = plan, underlay_id
+        self.new = (x, y, width, height)
+        underlay = plan.get_underlay(underlay_id)
+        self.old = (
+            (underlay.x, underlay.y, underlay.width, underlay.height) if underlay else self.new
+        )
+        self.description = "Resize underlay" if underlay and (
+            (width, height) != (underlay.width, underlay.height)
+        ) else "Move underlay"
+
+    def _apply(self, values) -> None:
+        underlay = self.plan.get_underlay(self.underlay_id)
+        if underlay:
+            underlay.x, underlay.y, underlay.width, underlay.height = values
+
+    def execute(self) -> None:
+        self._apply(self.new)
+
+    def undo(self) -> None:
+        self._apply(self.old)
+
+
+class EditUnderlayCommand(Command):
+    """Change an underlay's opacity and lock state as one undo step."""
+
+    def __init__(self, plan: NetworkPlan, underlay_id: str, opacity: float, locked: bool):
+        self.plan, self.underlay_id = plan, underlay_id
+        self.new = (opacity, locked)
+        underlay = plan.get_underlay(underlay_id)
+        self.old = (underlay.opacity, underlay.locked) if underlay else self.new
+        self.description = "Edit underlay"
+
+    def _apply(self, values) -> None:
+        underlay = self.plan.get_underlay(self.underlay_id)
+        if underlay:
+            underlay.opacity, underlay.locked = values
+
+    def execute(self) -> None:
+        self._apply(self.new)
+
+    def undo(self) -> None:
+        self._apply(self.old)
+
+
+class SetUnderlaysLockedCommand(Command):
+    """Lock or unlock every underlay at once, as one undo step.
+
+    The menu route to the lock state. A locked underlay takes no clicks,
+    so one hidden under a site box cannot be right-clicked; this reaches
+    it without hit-testing.
+    """
+
+    def __init__(self, plan: NetworkPlan, locked: bool):
+        self.plan, self.locked = plan, locked
+        self.old = {u.id: u.locked for u in plan.underlays.values()}
+        self.description = "Lock underlays" if locked else "Unlock underlays"
+
+    def execute(self) -> None:
+        for underlay in self.plan.underlays.values():
+            underlay.locked = self.locked
+
+    def undo(self) -> None:
+        for underlay_id, locked in self.old.items():
+            underlay = self.plan.get_underlay(underlay_id)
+            if underlay:
+                underlay.locked = locked
+
+
+class DeleteUnderlayCommand(Command):
+    """Remove an underlay. Everything drawn over it stays where it is."""
+
+    def __init__(self, plan: NetworkPlan, underlay_id: str):
+        self.plan = plan
+        self.underlay = plan.get_underlay(underlay_id)
+        self.description = (
+            f"Delete underlay '{self.underlay.name}'" if self.underlay else "Delete underlay"
+        )
+
+    def execute(self) -> None:
+        if self.underlay:
+            self.plan.remove_underlay(self.underlay.id)
+
+    def undo(self) -> None:
+        if self.underlay:
+            self.plan.add_underlay(self.underlay)
 
 
 class RenamePlanCommand(Command):

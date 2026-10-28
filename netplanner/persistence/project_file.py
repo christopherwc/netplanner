@@ -10,7 +10,7 @@ import tempfile
 from dataclasses import asdict
 from pathlib import Path
 
-from netplanner.domain.entities import Site, Subnet, TextBox, Vlan
+from netplanner.domain.entities import Site, Subnet, TextBox, Underlay, Vlan
 from netplanner.domain.model import NetworkPlan
 from netplanner.errors import PersistenceError
 
@@ -61,8 +61,20 @@ def _save_project_impl(plan: NetworkPlan, path: Path) -> None:
         "vlans": [asdict(v) for v in plan.vlans.values()],
         "sites": [asdict(s) for s in plan.sites.values()],
         "textboxes": [asdict(t) for t in plan.textboxes.values()],
+        "underlays": [asdict(u) for u in plan.underlays.values()],
     }
-    _write_atomic(path, json.dumps(doc, indent=2))
+    text = json.dumps(doc, indent=2)
+    # Refuse to write what load_project would refuse to read back. Only
+    # underlay pictures can realistically get a plan here, and finding
+    # out when the recipient opens it is far too late.
+    size = len(text.encode("utf-8"))
+    if size > MAX_PROJECT_BYTES:
+        raise PersistenceError(
+            f"Plan '{plan.name}' would be a {size}-byte project file, over the "
+            f"{MAX_PROJECT_BYTES}-byte limit for opening one; remove an underlay "
+            f"or re-import it at a smaller size"
+        )
+    _write_atomic(path, text)
 
 
 def _write_atomic(path: Path, text: str) -> None:
@@ -163,6 +175,8 @@ def _load_project_impl(path: Path) -> NetworkPlan:
     # Files written before annotations existed simply have none.
     for box in doc.get("textboxes", []):
         plan.add_textbox(TextBox(**box))
+    for underlay in doc.get("underlays", []):
+        plan.add_underlay(Underlay(**underlay))
     for d in doc.get("devices", []):
         plan.add_device(_device_from_dict(d))
     for link in doc.get("links", []):
