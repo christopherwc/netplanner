@@ -20,11 +20,11 @@ classifiers = [
 # artifact these resolve to; the two are updated together.
 dependencies = [
     "PyQt6==6.11.0",
-    "networkx==3.6.1",
-    "numpy==2.5.2",       # required by networkx layout algorithms (spring/circular)
+    "networkx==3.7",
+    "numpy==2.5.4",       # required by networkx layout algorithms (spring/circular)
     "scipy==1.18.1",      # required by networkx kamada_kawai layout
     "SQLAlchemy==2.0.52",
-    "reportlab==5.0.1",
+    "reportlab==5.1.0",
     "Pillow==13.0.0",
 ]
 
@@ -32,10 +32,10 @@ dependencies = [
 dev = [
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
-    "coverage[toml]==7.15.4",   # --format=markdown for CI job summaries
-    "ruff==0.16.5",
-    "mypy==2.3.1",
-    "build==1.6.0",
+    "coverage[toml]==7.17.0",   # --format=markdown for CI job summaries
+    "ruff==0.17.2",
+    "mypy==2.4.0",
+    "build==1.6.1",
     "twine==7.0.0",
     "pip-audit==2.10.1",
 ]
@@ -43,7 +43,7 @@ dev = [
 # needs system Graphviz headers to build. Pinning a package the project
 # does not use, cannot install here, and does not test would be a
 # version number nobody verifies.
-layout = ["pygraphviz>=1.12"]
+layout = ["pygraphviz>=2.0.4"]
 
 [project.urls]
 Homepage = "https://github.com/christopherwc/netplanner"
