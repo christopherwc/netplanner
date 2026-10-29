@@ -83,6 +83,30 @@ equipment, cable it up port-by-port, and export the result.
   list to maintain and nothing to fall out of sync. Deleting a site
   removes only the box; the devices drawn on it stay exactly where they
   are.
+- **Underlays (floor plans, site maps)** — *File → Import underlay (PDF
+  or image)…* places a drawing behind the diagram so equipment can be
+  laid out over the real building. PDFs (a multi-page PDF asks which
+  page), PNG, JPEG, BMP, GIF, WebP and TIFF are accepted. The drawing
+  lands in the middle of the view and sits behind everything, sites
+  included.
+
+  An underlay arrives **locked**: clicks pass straight through it, so
+  placing equipment, cabling, rubber-band selection and
+  double-click-to-add all work on top of it as if it weren't there.
+  Right-click it to **unlock** it, then drag to move it and drag the
+  bottom-right corner to resize — the aspect ratio is kept, so a floor
+  plan never distorts. Right-click → *Underlay opacity…* fades it
+  (50% by default) so device cards stay readable. Lock it again when
+  it's in place. Every change is undoable, and an underlay can be
+  deleted like anything else; nothing drawn over it moves.
+
+  The drawing is stored **inside the plan** as a PNG, so saved plans and
+  exported `.netplan` files carry it, and it renders in both PDF and PNG
+  exports. PDFs are rasterized on import (up to 4096 px on the longest
+  side), so nothing downstream needs a PDF renderer. Re-encoding also
+  drops the source file's metadata — a phone photo's GPS location
+  doesn't travel with the plan — and only the file's name is kept, never
+  its path.
 - **Text boxes** — click **🗨 Text box** under *Annotations* in the
   palette, then click the canvas to place a free-floating label. Set the
   text, font size, bold, color, and wrap width in the dialog; drag to
@@ -299,19 +323,22 @@ Qt links against a handful of system libraries even though PyQt6 bundles
 Qt itself. Arch Linux:
 
 ```bash
-sudo pacman -S glib2 libglvnd libxkbcommon-x11 dbus fontconfig freetype2 zstd
+sudo pacman -S glib2 libglvnd libxkbcommon-x11 dbus fontconfig freetype2 zstd \
+               krb5 brotli
 ```
 
 Debian/Ubuntu:
 
 ```bash
 sudo apt install libglib2.0-0 libegl1 libgl1 libx11-6 libxkbcommon-x11-0 \
-                 libdbus-1-3 libfontconfig1 libfreetype6 libzstd1
+                 libdbus-1-3 libfontconfig1 libfreetype6 libzstd1 \
+                 libgssapi-krb5-2 libbrotli1
 ```
 
 A desktop install has all of these already; the full list matters on a
 minimal system. It is what `objdump -p` reports as NEEDED for Qt's core
-libraries and the offscreen platform plugin, minus what the PyQt6 wheels
+libraries, QtPdf (used to import PDF underlays) and the offscreen
+platform plugin, minus what the PyQt6 wheels
 bundle themselves (ICU).
 
 Showing a window needs the **xcb** plugin as well, which pulls in eight

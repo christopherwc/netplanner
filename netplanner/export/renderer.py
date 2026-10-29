@@ -57,6 +57,24 @@ class SiteShape:
 
 
 @dataclass
+class UnderlayShape:
+    """A positioned background drawing ready for drawing.
+
+    Carries the encoded PNG and the opacity rather than a faded copy:
+    decoding and fading need Pillow, and belong inside the exporters'
+    error handling, where a damaged picture becomes an ExportError
+    naming the plan. See export/underlays.py for the shared fade.
+    """
+
+    x: float
+    y: float
+    width: float
+    height: float
+    image_png_b64: str
+    opacity: float
+
+
+@dataclass
 class TextShape:
     """A positioned text annotation ready for drawing."""
 
@@ -78,6 +96,7 @@ class Scene:
     title: str
     texts: list[TextShape] = field(default_factory=list)
     sites: list[SiteShape] = field(default_factory=list)
+    underlays: list[UnderlayShape] = field(default_factory=list)
 
 
 def build_scene(plan: NetworkPlan, vlan_filter: set[int] | None = None) -> Scene:
@@ -90,30 +109,7 @@ def build_scene(plan: NetworkPlan, vlan_filter: set[int] | None = None) -> Scene
     devices = plan.devices
     boxes = list(plan.textboxes.values())
     site_list = list(plan.sites.values())
-    if not devices:
-        # A plan can legitimately hold only annotations; normalize those
-        # on their own rather than returning a fixed empty canvas.
-        if not boxes:
-            return Scene(width=400, height=300, nodes=[], edges=[], title=plan.name)
-        min_left = min(b.x for b in boxes)
-        min_top = min(b.y for b in boxes)
-        texts = [
-            TextShape(
-                x=b.x - min_left + MARGIN,
-                y=b.y - min_top + MARGIN,
-                lines=b.display_lines,
-                font_size=b.font_size,
-                bold=b.bold,
-                color=b.color,
-                width=b.width,
-            )
-            for b in boxes
-        ]
-        return Scene(
-            width=max(t.x + max(b.width for b in boxes) for t in texts) + MARGIN,
-            height=max(t.y + b.height for t, b in zip(texts, boxes, strict=True)) + MARGIN,
-            nodes=[], edges=[], title=plan.name, texts=texts,
-        )
+    underlay_list = list(plan.underlays.values())
 
     # Build each device's card first so we know its actual footprint —
     # cards vary in height (interfaces, notes, etc.) and can be wider
@@ -121,24 +117,30 @@ def build_scene(plan: NetworkPlan, vlan_filter: set[int] | None = None) -> Scene
     # clip whichever card sticks out furthest past its center.
     cards = {d.id: build_card(d, vlan_filter) for d in devices}
 
-    # Find how far each card's top-left corner sits from its device's
-    # raw (x, y) center, then shift everything so the single
-    # leftmost/topmost card edge — not just the leftmost/topmost
-    # center — lands exactly at MARGIN.
-    min_left = min(d.x - cards[d.id].width / 2 for d in devices)
-    min_top = min(d.y - cards[d.id].height / 2 for d in devices)
-    # Annotations use top-left coordinates and can sit outside the device
-    # cluster, so they take part in the bounds or they would be clipped.
-    if boxes:
-        min_left = min(min_left, min(b.x for b in boxes))
-        min_top = min(min_top, min(b.y for b in boxes))
-    # Sites are backdrops and usually extend past the devices they hold,
-    # so they must take part in the bounds or they'd be cropped.
-    if site_list:
-        min_left = min(min_left, min(s.x for s in site_list))
-        min_top = min(min_top, min(s.y for s in site_list))
-    shift_x = MARGIN - min_left
-    shift_y = MARGIN - min_top
+    # Every element's box as (left, top, right, bottom) in canvas
+    # coordinates. Annotations, sites and underlays use top-left
+    # coordinates and routinely sit outside the device cluster — an
+    # underlay usually *is* the outer edge of the drawing — so all of
+    # them take part in the bounds, or they would be cropped. A plan can
+    # legitimately hold no devices at all (a floor plan with only its
+    # labels so far), and the same bounds cover that case.
+    extents = [
+        (
+            d.x - cards[d.id].width / 2, d.y - cards[d.id].height / 2,
+            d.x + cards[d.id].width / 2, d.y + cards[d.id].height / 2,
+        )
+        for d in devices
+    ]
+    extents += [(b.x, b.y, b.x + b.width, b.y + b.height) for b in boxes]
+    extents += [(s.x, s.y, s.x + s.width, s.y + s.height) for s in site_list]
+    extents += [(u.x, u.y, u.x + u.width, u.y + u.height) for u in underlay_list]
+    if not extents:
+        return Scene(width=400, height=300, nodes=[], edges=[], title=plan.name)
+
+    # Shift everything so the single leftmost/topmost edge lands exactly
+    # at MARGIN.
+    shift_x = MARGIN - min(e[0] for e in extents)
+    shift_y = MARGIN - min(e[1] for e in extents)
 
     centers = {d.id: (d.x + shift_x, d.y + shift_y) for d in devices}
 
@@ -187,19 +189,19 @@ def build_scene(plan: NetworkPlan, vlan_filter: set[int] | None = None) -> Scene
         for s in site_list
     ]
 
-    width = max(n.x + n.card.width for n in nodes) + MARGIN
-    height = max(n.y + n.card.height for n in nodes) + MARGIN
-    for shape in sites:
-        width = max(width, shape.x + shape.width + MARGIN)
-        height = max(height, shape.y + shape.height + MARGIN)
-    # Grow the page if an annotation extends past the device cluster.
-    for text_shape, box in zip(texts, boxes, strict=True):
-        width = max(width, text_shape.x + box.width + MARGIN)
-        height = max(height, text_shape.y + box.height + MARGIN)
+    underlays = [
+        UnderlayShape(
+            x=u.x + shift_x, y=u.y + shift_y, width=u.width, height=u.height,
+            image_png_b64=u.image_png_b64, opacity=u.opacity,
+        )
+        for u in underlay_list
+    ]
 
     return Scene(
-        width=width, height=height, nodes=nodes, edges=edges,
-        title=plan.name, texts=texts, sites=sites,
+        width=max(e[2] for e in extents) + shift_x + MARGIN,
+        height=max(e[3] for e in extents) + shift_y + MARGIN,
+        nodes=nodes, edges=edges,
+        title=plan.name, texts=texts, sites=sites, underlays=underlays,
     )
 
 

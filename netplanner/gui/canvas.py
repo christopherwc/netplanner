@@ -13,6 +13,8 @@ Interaction model:
 
 from __future__ import annotations
 
+import contextlib
+
 from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QBrush,
@@ -23,6 +25,7 @@ from PyQt6.QtGui import (
     QPainterPath,
     QPainterPathStroker,
     QPen,
+    QPixmap,
 )
 from PyQt6.QtWidgets import (
     QGraphicsItem,
@@ -35,7 +38,15 @@ from PyQt6.QtWidgets import (
 )
 
 from netplanner.app.controller import AppController
-from netplanner.domain.entities import Device, DeviceType, Link, LinkType, Site, TextBox
+from netplanner.domain.entities import (
+    Device,
+    DeviceType,
+    Link,
+    LinkType,
+    Site,
+    TextBox,
+    Underlay,
+)
 from netplanner.export import nodecard, vlans
 from netplanner.export.geometry import (
     label_anchor,
@@ -690,6 +701,173 @@ class SiteItem(QGraphicsItem):
                 scene.rebuild()
 
 
+class UnderlayItem(QGraphicsItem):
+    """An imported floor plan or drawing, behind everything else.
+
+    Locked by default, and a locked underlay is inert: it takes no
+    clicks, so clicks pass through to the canvas exactly as if it were
+    not there — placing equipment, rubber-band selecting and
+    double-click-to-add all keep working on top of it. Right-click still
+    reaches it, which is how it is unlocked. Unlocked, it moves like a
+    site and resizes from its bottom-right corner, keeping the drawing's
+    aspect ratio so a floor plan is never distorted.
+    """
+
+    GRIP = 18.0
+    MIN_W = 80.0
+
+    def __init__(self, underlay: Underlay, pixmap: QPixmap, controller: AppController):
+        super().__init__()
+        self.underlay = underlay
+        self.pixmap = pixmap
+        self.controller = controller
+        self.setPos(underlay.x, underlay.y)
+        # Behind sites (-20), links (-1) and cards (0).
+        self.setZValue(-40)
+        unlocked = not underlay.locked
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, unlocked)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, unlocked)
+        self.setAcceptHoverEvents(unlocked)
+        if underlay.locked:
+            self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        self._resizing = False
+        self._resize_origin = QPointF()
+        self._origin_size = (underlay.width, underlay.height)
+        self._hovered_grip = False
+
+    # ---------------------------------------------------------- geometry
+    def boundingRect(self) -> QRectF:
+        return QRectF(0, 0, self.underlay.width, self.underlay.height)
+
+    def _grip_rect(self) -> QRectF:
+        return QRectF(
+            self.underlay.width - self.GRIP, self.underlay.height - self.GRIP,
+            self.GRIP, self.GRIP,
+        )
+
+    # ------------------------------------------------------------- paint
+    def paint(self, painter: QPainter | None, option, widget=None) -> None:
+        if painter is None:
+            return
+        rect = self.boundingRect()
+        # A page-colored sheet first, then the picture faded onto it:
+        # the same result the exporters produce, and independent of the
+        # desktop theme's canvas color.
+        painter.fillRect(rect, QColor(DIAGRAM_BG))
+        if self.pixmap.isNull():
+            painter.setPen(QPen(QColor("#b00020"), 1.5, Qt.PenStyle.DashLine))
+            painter.drawRect(rect)
+            painter.drawText(
+                rect, Qt.AlignmentFlag.AlignCenter,
+                f"Underlay '{self.underlay.name}' could not be read",
+            )
+            return
+        painter.save()
+        painter.setOpacity(self.underlay.opacity)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.drawPixmap(rect, self.pixmap, QRectF(self.pixmap.rect()))
+        painter.restore()
+        if self.underlay.locked:
+            return
+        # Unlocked: an outline says it will move, and the grip appears
+        # when it can be grabbed.
+        pen = QPen(QColor("#1a73e8"), 2.0 if self.isSelected() else 1.0, Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(rect)
+        if self.isSelected() or self._hovered_grip:
+            painter.fillRect(self._grip_rect(), QColor("#1a73e8"))
+
+    # ------------------------------------------------------------- mouse
+    def hoverMoveEvent(self, event) -> None:
+        over = self._grip_rect().contains(event.pos())
+        if over != self._hovered_grip:
+            self._hovered_grip = over
+            self.setCursor(
+                QCursor(Qt.CursorShape.SizeFDiagCursor if over else Qt.CursorShape.ArrowCursor)
+            )
+            self.update()
+        super().hoverMoveEvent(event)
+
+    def hoverLeaveEvent(self, event) -> None:
+        self._hovered_grip = False
+        self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+        self.update()
+        super().hoverLeaveEvent(event)
+
+    def mousePressEvent(self, event) -> None:
+        if self._grip_rect().contains(event.pos()):
+            self._resizing = True
+            self._resize_origin = event.scenePos()
+            self._origin_size = (self.underlay.width, self.underlay.height)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._resizing:
+            width0, height0 = self._origin_size
+            delta = event.scenePos() - self._resize_origin
+            # Width follows the drag; height follows the width, so the
+            # drawing keeps its proportions.
+            self.prepareGeometryChange()
+            self.underlay.width = max(self.MIN_W, width0 + delta.x())
+            self.underlay.height = self.underlay.width * height0 / width0
+            self.update()
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        """Commit the move or resize as one undoable command."""
+        if self._resizing:
+            self._resizing = False
+            width, height = self.underlay.width, self.underlay.height
+            self.underlay.width, self.underlay.height = self._origin_size
+            self.controller.set_underlay_geometry(
+                self.underlay.id, self.underlay.x, self.underlay.y, width, height
+            )
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+        if (self.pos().x(), self.pos().y()) != (self.underlay.x, self.underlay.y):
+            self.controller.set_underlay_geometry(
+                self.underlay.id, self.pos().x(), self.pos().y(),
+                self.underlay.width, self.underlay.height,
+            )
+
+    def contextMenuEvent(self, event) -> None:
+        menu = QMenu()
+        lock_action = menu.addAction(
+            "Unlock underlay (move / resize)" if self.underlay.locked else "Lock underlay"
+        )
+        opacity_action = menu.addAction("Underlay opacity…")
+        menu.addSeparator()
+        delete_action = menu.addAction("Delete underlay")
+        chosen = menu.exec(event.screenPos())
+        scene = self.scene()
+        if chosen is lock_action:
+            self.controller.edit_underlay(
+                self.underlay.id, self.underlay.opacity, not self.underlay.locked
+            )
+            if isinstance(scene, PlanScene):
+                scene.rebuild()  # the item's flags follow the lock state
+        elif chosen is opacity_action:
+            percent, ok = QInputDialog.getInt(
+                None, "Underlay opacity",
+                "Opacity (%) — lower fades the drawing so equipment stands out:",
+                round(self.underlay.opacity * 100), 5, 100, 5,
+            )
+            if ok:
+                self.controller.edit_underlay(
+                    self.underlay.id, percent / 100, self.underlay.locked
+                )
+                self.update()
+        elif chosen is delete_action and isinstance(scene, PlanScene):
+            scene.delete_items([self])
+        event.accept()
+
+
 class LinkItem(QGraphicsLineItem):
     """A selectable cable between two devices.
 
@@ -940,6 +1118,12 @@ class PlanScene(QGraphicsScene):
         self._device_items: dict[str, DeviceItem] = {}
         self._text_items: dict[str, TextBoxItem] = {}
         self._site_items: dict[str, SiteItem] = {}
+        self._underlay_items: dict[str, UnderlayItem] = {}
+        # Decoded underlay pictures, by underlay id. rebuild() runs on
+        # every edit, and decoding a multi-megabyte PNG each time would
+        # make placing a device lag; an underlay's picture never
+        # changes once imported, so the id is a sufficient key.
+        self._pixmaps: dict[str, QPixmap] = {}
         # Everything update_links() draws and must remove again on the
         # next rebuild: the cables themselves plus their label and port
         # text. Typed as the base class because the list exists to be
@@ -955,8 +1139,17 @@ class PlanScene(QGraphicsScene):
         self._device_items.clear()
         self._text_items.clear()
         self._site_items.clear()
+        self._underlay_items.clear()
         self._link_items.clear()
         self._pending_source = None
+        underlays = self.controller.plan.underlays
+        # Drop pictures of underlays that are gone (deleted, or a
+        # different plan loaded) so the cache can't outgrow the plan.
+        self._pixmaps = {k: v for k, v in self._pixmaps.items() if k in underlays}
+        for underlay in underlays.values():
+            underlay_item = UnderlayItem(underlay, self._pixmap_for(underlay), self.controller)
+            self.addItem(underlay_item)
+            self._underlay_items[underlay.id] = underlay_item
         for device in self.controller.plan.devices:
             item = DeviceItem(device, self.controller)
             self.addItem(item)
@@ -975,6 +1168,22 @@ class PlanScene(QGraphicsScene):
 
         self.update_links()
         self.plan_changed.emit()
+
+    def _pixmap_for(self, underlay: Underlay) -> QPixmap:
+        """The decoded picture for an underlay, decoded once per id.
+
+        A picture that will not decode (a hand-edited or damaged plan)
+        yields a null pixmap, which UnderlayItem draws as a labelled
+        placeholder rather than failing the whole rebuild.
+        """
+        pixmap = self._pixmaps.get(underlay.id)
+        if pixmap is None:
+            pixmap = QPixmap()
+            # binascii.Error, a ValueError: the stored text is not base64.
+            with contextlib.suppress(ValueError):
+                pixmap.loadFromData(underlay.image_png)
+            self._pixmaps[underlay.id] = pixmap
+        return pixmap
 
     def update_links(self) -> None:
         """Redraw links only (cheaper than rebuild; used while dragging).
@@ -1053,7 +1262,7 @@ class PlanScene(QGraphicsScene):
             super().mousePressEvent(event)
             return
 
-        item = self.itemAt(event.scenePos(), self.views()[0].transform())
+        item = self._item_at(event.scenePos())
         device_item = item if isinstance(item, DeviceItem) else None
 
         if self.armed_tool == SITE_TOOL and device_item is None:
@@ -1077,6 +1286,21 @@ class PlanScene(QGraphicsScene):
             return
 
         super().mousePressEvent(event)
+
+    def _item_at(self, pos: QPointF) -> QGraphicsItem | None:
+        """The topmost item at pos, looking through underlays.
+
+        An underlay is a picture of the floor, not something on it: a
+        click on the drawing is a click on empty canvas, or nothing
+        could be placed or double-clicked over a floor plan.
+        """
+        for item in self.items(
+            pos, Qt.ItemSelectionMode.IntersectsItemShape,
+            Qt.SortOrder.DescendingOrder, self.views()[0].transform(),
+        ):
+            if not isinstance(item, UnderlayItem):
+                return item
+        return None
 
     def _place_site(self, pos: QPointF) -> None:
         """Prompt for a name, then drop a site box at the click point."""
@@ -1211,7 +1435,8 @@ class PlanScene(QGraphicsScene):
         links = [i for i in items if isinstance(i, LinkItem)]
         texts = [i for i in items if isinstance(i, TextBoxItem)]
         sites = [i for i in items if isinstance(i, SiteItem)]
-        if not devices and not links and not texts and not sites:
+        underlays = [i for i in items if isinstance(i, UnderlayItem)]
+        if not devices and not links and not texts and not sites and not underlays:
             return
 
         # Count cables that would disappear as a side effect of removing
@@ -1236,6 +1461,8 @@ class PlanScene(QGraphicsScene):
             summary.append(f"{len(texts)} text box(es)")
         if sites:
             summary.append(f"{len(sites)} site(s)")
+        if underlays:
+            summary.append(f"{len(underlays)} underlay(s)")
         message = "Delete " + " and ".join(summary) + "?"
         if cascading:
             message += (
@@ -1266,6 +1493,8 @@ class PlanScene(QGraphicsScene):
         # reading outermost-container-last.
         for site in sites:
             self.controller.delete_site(site.site.id)
+        for underlay in underlays:
+            self.controller.delete_underlay(underlay.underlay.id)
         self.rebuild()
 
     def delete_selection(self) -> None:
@@ -1290,7 +1519,7 @@ class PlanScene(QGraphicsScene):
 
     def mouseDoubleClickEvent(self, event) -> None:
         """Double-click empty canvas in select mode: add a device."""
-        item = self.itemAt(event.scenePos(), self.views()[0].transform())
+        item = self._item_at(event.scenePos())
         if self.armed_tool is None and item is None:
             self._add_device_with_prompt(event.scenePos())
         else:
@@ -1368,6 +1597,10 @@ class NetworkCanvas(QGraphicsView):
     def delete_selection(self) -> None:
         """Delete the canvas selection (used by the Edit menu action)."""
         self._scene.delete_selection()
+
+    def visible_center(self) -> QPointF:
+        """The scene point at the middle of what is on screen now."""
+        return self.mapToScene(required(self.viewport(), "viewport").rect().center())
 
     def set_tool(self, tool: DeviceType | LinkType | None) -> None:
         """Arm a palette tool: DeviceType places, LinkType connects, None selects."""

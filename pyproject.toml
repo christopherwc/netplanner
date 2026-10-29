@@ -25,7 +25,7 @@ dependencies = [
     "scipy==1.18.1",      # required by networkx kamada_kawai layout
     "SQLAlchemy==2.0.52",
     "reportlab==5.0.1",
-    "Pillow==12.3.0",
+    "Pillow==13.0.0",
 ]
 
 [project.optional-dependencies]

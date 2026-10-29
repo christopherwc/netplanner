@@ -7,6 +7,7 @@ Qt out of the core layers.
 
 from __future__ import annotations
 
+import base64
 import logging
 from pathlib import Path
 from pathlib import Path as _Path
@@ -16,22 +17,27 @@ from netplanner.app.commands import (
     AddLinkCommand,
     AddSiteCommand,
     AddTextBoxCommand,
+    AddUnderlayCommand,
     CommandStack,
     DeleteDeviceCommand,
     DeleteLinkCommand,
     DeleteSiteCommand,
     DeleteTextBoxCommand,
+    DeleteUnderlayCommand,
     EditConfigsCommand,
     EditDevicePropertiesCommand,
     EditInterfacesCommand,
     EditLinkCommand,
     EditSiteCommand,
     EditTextBoxCommand,
+    EditUnderlayCommand,
     MoveDeviceCommand,
     MoveTextBoxCommand,
     RenameDeviceCommand,
     RenamePlanCommand,
     SetSiteGeometryCommand,
+    SetUnderlayGeometryCommand,
+    SetUnderlaysLockedCommand,
 )
 from netplanner.app.validation import Issue, validate
 from netplanner.domain.entities import (
@@ -44,6 +50,7 @@ from netplanner.domain.entities import (
     LinkType,
     Site,
     TextBox,
+    Underlay,
     detect_config_format,
     negotiated_speed_mbps,
 )
@@ -235,6 +242,49 @@ class AppController:
     def devices_in_site(self, site_id: str) -> list[Device]:
         """Devices positioned inside a site's box."""
         return self.plan.devices_in_site(site_id)
+
+    # ------------------------------------------------------------ underlays
+    def add_underlay(
+        self, name: str, image_png: bytes, x: float, y: float, width: float, height: float
+    ) -> Underlay:
+        """Place an imported drawing behind the diagram (undoable).
+
+        `image_png` is already-normalized PNG data: rasterizing a PDF
+        and capping an image's size need Qt, so that happens in the GUI
+        layer (gui/underlay_import.py) and this layer stays Qt-free.
+        """
+        underlay = Underlay(
+            image_png_b64=base64.b64encode(image_png).decode("ascii"),
+            name=name, x=x, y=y, width=width, height=height,
+        )
+        logger.info(
+            "Adding underlay %r (%d bytes) at (%.0f, %.0f) size %.0fx%.0f",
+            name, len(image_png), x, y, width, height,
+        )
+        self.commands.push(AddUnderlayCommand(self.plan, underlay))
+        return underlay
+
+    def set_underlay_geometry(
+        self, underlay_id: str, x: float, y: float, width: float, height: float
+    ) -> None:
+        """Move or resize an underlay (undoable)."""
+        self.commands.push(
+            SetUnderlayGeometryCommand(self.plan, underlay_id, x, y, width, height)
+        )
+
+    def edit_underlay(self, underlay_id: str, opacity: float, locked: bool) -> None:
+        """Change an underlay's opacity and lock state (one undo step)."""
+        opacity = min(1.0, max(0.05, opacity))  # fully transparent would be lost
+        self.commands.push(EditUnderlayCommand(self.plan, underlay_id, opacity, locked))
+
+    def set_underlays_locked(self, locked: bool) -> None:
+        """Lock or unlock every underlay (one undo step)."""
+        self.commands.push(SetUnderlaysLockedCommand(self.plan, locked))
+
+    def delete_underlay(self, underlay_id: str) -> None:
+        """Remove an underlay; nothing drawn over it moves."""
+        logger.info("Deleting underlay id=%s", underlay_id)
+        self.commands.push(DeleteUnderlayCommand(self.plan, underlay_id))
 
     # ------------------------------------------------------------- textboxes
     def add_textbox(self, text: str, x: float, y: float, **kwargs) -> TextBox:
